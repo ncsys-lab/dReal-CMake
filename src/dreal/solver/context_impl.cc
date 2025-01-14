@@ -355,7 +355,7 @@ void Context::Impl::SetInfo(const string& key, const string& val) {
 void Context::Impl::SetInterval(const Variable& v, const double lb,
                                 const double ub) {
   DREAL_LOG_DEBUG("ContextImpl::SetInterval({} = [{}, {}])", fmt::streamed(v), lb, ub);
-  box()[v] = Box::Interval{lb, ub};
+  box()[v] = Box::Interval(lb, ub);
 }
 
 void Context::Impl::SetLogic(const Logic& logic) {

@@ -171,8 +171,17 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE) # For Windows: Prevent overri
 FetchContent_MakeAvailable(googletest)
 enable_testing()
 
-file(GLOB_RECURSE DREAL_TESTS "${PROJECT_SOURCE_DIR}/test/dreal/**.cc")
-add_executable(dreal4_cmake_test ${DREAL_TESTS} ${DREAL_SOURCES})
+set(DRAKE_TEST_HOME "${PROJECT_SOURCE_DIR}/test/third_party/com_github_robotlocomotion_drake/")
+file(GLOB_RECURSE DREAL_TESTS
+        "${PROJECT_SOURCE_DIR}/test/dreal/**.cc"
+        "${DRAKE_TEST_HOME}/**.cc"
+)
+list(REMOVE_ITEM DREAL_TESTS "${PROJECT_SOURCE_DIR}/test/dreal/api/test/cav19_benchmark.cc")  # main function interferes with gtest
+add_executable(dreal4_cmake_test ${DREAL_TESTS})
+target_include_directories(dreal4_cmake_test PRIVATE
+        "${PROJECT_SOURCE_DIR}/test/"
+        "${DRAKE_TEST_HOME}"
+)
 target_link_libraries(
         dreal4_cmake_test
         PRIVATE

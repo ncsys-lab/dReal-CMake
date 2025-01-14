@@ -55,7 +55,7 @@ FilterAssertionResult UpdateBoundsViaEquality(const Variable& var,
   if (old_lb == new_lb && old_ub == new_ub) {
     return FilterAssertionResult::FilteredWithoutChange;
   }
-  intv &= Box::Interval{new_lb, new_ub};
+  intv &= Box::Interval(new_lb, new_ub);
   if (intv.is_empty()) {
     box->set_empty();
   }

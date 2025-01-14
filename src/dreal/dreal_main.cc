@@ -471,15 +471,6 @@ void HandleSigInt(const int) {
 }  // namespace
 
 int main(int argc, const char* argv[]) {
-  fenv_t fenv;
-  // fegetenv(&fenv);
-  // fenv.__fpcr |= __fpcr_trap_overflow | __fpcr_trap_divbyzero |  __fpcr_trap_invalid;
-  // fenv.__fpcr &= ~__fpcr_trap_inexact;
-  // fenv.__fpcr &= ~__fpcr_trap_underflow;
-  // fesetenv(&fenv);
-  feholdexcept(&fenv);
-  fesetround(FE_UPWARD);
-
   std::signal(SIGINT, HandleSigInt);
   dreal::MainProgram main_program{argc, argv};
   return main_program.Run();

@@ -45,9 +45,9 @@ TEST_F(ExpressionEvaluatorTest, Arithmetic1) {
   const Expression e{x_ + y_ + z_};
   const ExpressionEvaluator evaluator{e};
 
-  box_[x_] = Box::Interval{1, 2};
-  box_[y_] = Box::Interval{2, 3};
-  box_[z_] = Box::Interval{3, 4};
+  box_[x_] = Box::Interval(1, 2);
+  box_[y_] = Box::Interval(2, 3);
+  box_[z_] = Box::Interval(3, 4);
 
   EXPECT_EQ(evaluator(box_), Box::Interval(1 + 2 + 3, 2 + 3 + 4));
   ostringstream oss;

@@ -47,14 +47,14 @@ Box::Box()
       // zero interval vector. Note that because of this special case,
       // `variables_->size() == values_.size()` do not hold. We should
       // rely on `values_.size()`.
-      values_{1},
+      values_(1),
       var_to_idx_{
           make_shared<unordered_map<Variable, int, hash_value<Variable>>>()},
       idx_to_var_{make_shared<unordered_map<int, Variable>>()} {}
 
 Box::Box(const vector<Variable>& variables)
     : variables_{make_shared<vector<Variable>>()},
-      values_{static_cast<int>(variables.size())},
+      values_(static_cast<int>(variables.size())),
       var_to_idx_{
           make_shared<unordered_map<Variable, int, hash_value<Variable>>>()},
       idx_to_var_{make_shared<unordered_map<int, Variable>>()} {
@@ -109,7 +109,7 @@ void Box::Add(const Variable& v, const double lb, const double ub) {
   DREAL_ASSERT(v.get_type() != Variable::Type::INTEGER ||
                (is_integer(lb) && is_integer(ub)));
 
-  values_[(*var_to_idx_)[v]] = Interval{lb, ub};
+  values_[(*var_to_idx_)[v]] = Interval(lb, ub);
 }
 
 bool Box::empty() const { return values_.is_empty(); }
@@ -234,7 +234,7 @@ ostream& operator<<(ostream& os, const Box& box) {
   PrecisionGuard precision_guard(&os, numeric_limits<double>::max_digits10);
   int i{0};
   for (const Variable& var : *(box.variables_)) {
-    const Box::Interval interval{box.values_[i++]};
+    const Box::Interval interval(box.values_[i++]);
     os << var << " : ";
     switch (var.get_type()) {
       case Variable::Type::INTEGER:

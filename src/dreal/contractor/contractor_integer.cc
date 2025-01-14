@@ -50,7 +50,7 @@ void ContractorInteger::Prune(ContractorStatus* contractor_status) const {
       const double new_lb{std::ceil(iv.lb())};
       const double new_ub{std::floor(iv.ub())};
       if (new_lb <= new_ub) {
-        iv = Box::Interval{new_lb, new_ub};
+        iv = Box::Interval(new_lb, new_ub);
         contractor_status->mutable_output().set(idx);
       } else {
         // [new_lb, new_ub] = empty

@@ -45,7 +45,7 @@ class Box {
   Box(const Box&) = default;
 
   /// Default move constructor.
-  Box(Box&&) = default;
+  Box(Box&&) noexcept = default;
 
   /// Default copy assign operator.
   Box& operator=(const Box&) = default;
