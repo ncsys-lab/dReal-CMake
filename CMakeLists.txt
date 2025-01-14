@@ -54,15 +54,15 @@ set(JSON_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_nlohmann_json/")
 set(PICOSAT_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_dreal-deps_picosat/")
 
 file(GLOB_RECURSE DREAL_SOURCES
-        "${PROJECT_SOURCE_DIR}/src/dreal/**.cc"
-        "${PROJECT_SOURCE_DIR}/src/dreal/**.yy"
-        "${PROJECT_SOURCE_DIR}/src/dreal/**.ll"
+        "${PROJECT_SOURCE_DIR}/src/dreal/*/**.cc"
+        "${PROJECT_SOURCE_DIR}/src/dreal/*/**.yy"
+        "${PROJECT_SOURCE_DIR}/src/dreal/*/**.ll"
         "${DRAKE_HOME}/**.cc"
         "${THREADPOOL_HOME}/**.cc"
         "${LIBCDS_HOME}/src/**.cpp"
         "${PICOSAT_HOME}/src/**.c"
 )
-add_executable(dreal4_cmake
+add_library(dreal4_cmake
         ${DREAL_SOURCES}
         ${BISON_smt2_parser_OUTPUTS} ${FLEX_smt2_scanner_OUTPUTS}
         ${BISON_dr_parser_OUTPUTS} ${FLEX_dr_scanner_OUTPUTS}
@@ -81,19 +81,19 @@ target_include_directories(dreal4_cmake PUBLIC
 )
 
 # system dependencies
-target_include_directories(dreal4_cmake PRIVATE "${FLEX_INCLUDE_DIRS}")
-target_link_libraries(dreal4_cmake PRIVATE "${FLEX_LIBRARIES}")
+target_include_directories(dreal4_cmake PUBLIC "${FLEX_INCLUDE_DIRS}")
+target_link_libraries(dreal4_cmake PUBLIC "${FLEX_LIBRARIES}")
 
 find_path(       GMP_INC NAMES gmpxx.h    HINTS "${GMP_ROOT}" PATH_SUFFIXES include includes     REQUIRED NO_CACHE)
 find_library(  GMP_C_LIB NAMES libgmp.a   HINTS "${GMP_ROOT}" PATH_SUFFIXES lib libs lib32 lib64 REQUIRED NO_CACHE)
 find_library(GMP_CXX_LIB NAMES libgmpxx.a HINTS "${GMP_ROOT}" PATH_SUFFIXES lib libs lib32 lib64 REQUIRED NO_CACHE)
-target_include_directories(dreal4_cmake PRIVATE "${GMP_INC}")
-target_link_libraries(dreal4_cmake PRIVATE "${GMP_C_LIB}" "${GMP_CXX_LIB}")
+target_include_directories(dreal4_cmake PUBLIC "${GMP_INC}")
+target_link_libraries(dreal4_cmake PUBLIC "${GMP_C_LIB}" "${GMP_CXX_LIB}")
 
 find_path(   CADICAL_INC NAMES cadical.hpp  HINTS "${CADICAL_ROOT}" PATH_SUFFIXES include includes     REQUIRED NO_CACHE)
 find_library(CADICAL_LIB NAMES libcadical.a HINTS "${CADICAL_ROOT}" PATH_SUFFIXES lib libs lib32 lib64 REQUIRED NO_CACHE)
-target_include_directories(dreal4_cmake PRIVATE "${CADICAL_INC}")
-target_link_libraries(dreal4_cmake PRIVATE "${CADICAL_LIB}")
+target_include_directories(dreal4_cmake PUBLIC "${CADICAL_INC}")
+target_link_libraries(dreal4_cmake PUBLIC "${CADICAL_LIB}")
 
 
 # downloaded dependencies
@@ -142,13 +142,6 @@ FetchContent_MakeAvailable(nlopt)
 #    add_subdirectory(${pybind11_SOURCE_DIR} ${pybind11_BINARY_DIR})
 #endif()
 
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE) # For Windows: Prevent overriding the parent project's compiler/linker settings
-FetchContent_Declare(
-        googletest
-        URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
-)
-FetchContent_MakeAvailable(googletest)
-
 # ibex's CMake build is a bit flaky... dependency tree isn't correctly set up. This forces it.
 add_custom_target(
         GAOL_HACK
@@ -160,5 +153,32 @@ add_custom_target(
 )
 add_dependencies(dreal4_cmake GAOL_HACK)
 target_link_libraries(
-        dreal4_cmake PRIVATE ibex nlopt spdlog::spdlog fmt::fmt
+        dreal4_cmake PUBLIC ibex nlopt spdlog::spdlog fmt::fmt
 )
+
+
+# executable
+add_executable(dreal4 "${PROJECT_SOURCE_DIR}/src/dreal/dreal_main.cc")
+target_link_libraries(dreal4 PRIVATE dreal4_cmake)
+
+
+# tests
+FetchContent_Declare(
+        googletest
+        URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
+)
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE) # For Windows: Prevent overriding the parent project's compiler/linker settings
+FetchContent_MakeAvailable(googletest)
+enable_testing()
+
+file(GLOB_RECURSE DREAL_TESTS "${PROJECT_SOURCE_DIR}/test/dreal/**.cc")
+add_executable(dreal4_cmake_test ${DREAL_TESTS} ${DREAL_SOURCES})
+target_link_libraries(
+        dreal4_cmake_test
+        PRIVATE
+        dreal4_cmake
+        GTest::gtest_main
+)
+
+include(GoogleTest)
+gtest_discover_tests(dreal4_cmake_test)
