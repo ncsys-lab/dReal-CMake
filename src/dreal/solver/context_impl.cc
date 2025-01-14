@@ -24,7 +24,7 @@
 #include <unordered_set>
 #include <utility>
 
-#include <spdlog/fmt/bundled/format.h>
+#include <fmt/format.h>
 
 #include "dreal/solver/filter_assertion.h"
 #include "dreal/util/assert.h"

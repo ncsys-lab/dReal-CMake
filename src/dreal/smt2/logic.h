@@ -17,7 +17,7 @@
 
 #include <ostream>
 #include <string>
-#include <spdlog/fmt/bundled/ostream.h>
+#include <fmt/ostream.h>
 
 namespace dreal {
 

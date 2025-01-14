@@ -22,9 +22,9 @@
 #include <string>
 #include <utility>
 
-#include <spdlog/fmt/bundled/format.h>
-#include <spdlog/fmt/bundled/std.h>
-#include <spdlog/fmt/bundled/ostream.h>
+#include <fmt/format.h>
+#include <fmt/std.h>
+#include <fmt/ostream.h>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-literal-operator"

@@ -15,9 +15,10 @@
 */
 #pragma once
 
-#include <spdlog/fmt/bundled/ostream.h>
-#include <spdlog/fmt/bundled/std.h>
-#include "spdlog/spdlog.h"
+#include <spdlog/spdlog.h>
+#include <fmt/format.h>
+#include <fmt/std.h>
+#include <fmt/ostream.h>
 
 namespace dreal {
 

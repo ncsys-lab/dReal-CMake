@@ -20,7 +20,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include <spdlog/fmt/bundled/ostream.h>
+#include <fmt/ostream.h>
 
 #include "./ibex.h"
 

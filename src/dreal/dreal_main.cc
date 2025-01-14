@@ -19,7 +19,7 @@
 #include <cstdlib>
 #include <iostream>
 
-#include <spdlog/fmt/bundled/format.h>
+#include <fmt/format.h>
 
 #include "dreal/dr/run.h"
 #include "dreal/smt2/run.h"

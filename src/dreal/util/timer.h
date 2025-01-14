@@ -18,7 +18,7 @@
 #include <chrono>
 #include <iostream>
 #include <type_traits>
-#include <spdlog/fmt/bundled/ostream.h>
+#include <fmt/ostream.h>
 
 namespace dreal {
 

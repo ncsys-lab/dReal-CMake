@@ -16,7 +16,7 @@
 #pragma once
 
 #include <iostream>
-#include <spdlog/fmt/bundled/ostream.h>
+#include <fmt/ostream.h>
 
 #include "dreal/smt2/sort.h"
 #include "dreal/symbolic/symbolic.h"

@@ -17,9 +17,9 @@
 
 #include <ostream>
 
-#include <spdlog/fmt/bundled/format.h>
-#include <spdlog/fmt/bundled/ostream.h>
-#include <spdlog/fmt/bundled/std.h>
+#include <fmt/format.h>
+#include <fmt/std.h>
+#include <fmt/ostream.h>
 
 using std::cout;
 

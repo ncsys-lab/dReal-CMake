@@ -18,8 +18,8 @@
 #include <stdexcept>
 #include <utility>
 
-#include <spdlog/fmt/bundled/format.h>
-#include <spdlog/fmt/bundled/ostream.h>
+#include <fmt/format.h>
+#include <fmt/ostream.h>
 
 #include "dreal/util/exception.h"
 
