@@ -17,6 +17,7 @@
 
 #include <sstream>
 #include <string>
+#include <dreal/util/rounding_mode_guard.h>
 
 #include <gtest/gtest.h>
 
@@ -27,6 +28,7 @@ using std::string;
 using std::stringstream;
 
 GTEST_TEST(PrecisionGuard, Test1) {
+  RoundingModeGuard g(FE_TONEAREST);
   stringstream ss;
 
   constexpr double pi = 3.1415926535897931;

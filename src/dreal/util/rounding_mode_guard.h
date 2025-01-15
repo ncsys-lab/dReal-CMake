@@ -16,6 +16,7 @@
 #pragma once
 
 #include <cfenv>
+#pragma STDC FENV_ACCESS ON
 
 namespace dreal {
 

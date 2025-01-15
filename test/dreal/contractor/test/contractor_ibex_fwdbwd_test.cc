@@ -16,6 +16,7 @@
 #include "dreal/contractor/contractor_ibex_fwdbwd.h"
 
 #include <iostream>
+#include <dreal/util/rounding_mode_guard.h>
 
 #include <gtest/gtest.h>
 
@@ -129,7 +130,10 @@ TEST_F(ContractorIbexFwdbwdTest, TestSmt2Problem20Lowlevel) {
   const double v3 = 0.7;
 
   // Double check the arithmetic first.
-  EXPECT_EQ(v1 + v2 - v3, 0.0);
+  {
+    RoundingModeGuard g(FE_TONEAREST);
+    EXPECT_EQ(v1 + v2 - v3, 0.0);
+  }
 
   const auto& x = ibex::ExprSymbol::new_();
   const auto& y = ibex::ExprSymbol::new_();

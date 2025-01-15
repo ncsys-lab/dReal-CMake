@@ -17,6 +17,7 @@
 
 #include <cmath>
 #include <utility>
+#include <dreal/util/rounding_mode_guard.h>
 
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
@@ -38,6 +39,7 @@ namespace {
 /// http://nlopt.readthedocs.io/en/latest/NLopt_Reference/#objective-function.
 double NloptOptimizerEvaluate(const unsigned n, const double* x, double* grad,
                               void* const f_data) {
+  RoundingModeGuard g(FE_TONEAREST);
   DREAL_ASSERT(f_data);
   auto& expression = *static_cast<CachedExpression*>(f_data);
   const Box& box{expression.box()};
@@ -70,6 +72,7 @@ NloptOptimizer::NloptOptimizer(const nlopt::algorithm algorithm, Box bound,
     : opt_{algorithm, static_cast<unsigned>(bound.size())},
       box_{std::move(bound)},
       delta_{config.precision()} {
+  RoundingModeGuard g(FE_TONEAREST);
   DREAL_ASSERT(delta_ > 0.0);
   DREAL_LOG_DEBUG("NloptOptimizer::NloptOptimizer: Box = \n{}", box_);
 
@@ -101,6 +104,7 @@ NloptOptimizer::NloptOptimizer(const nlopt::algorithm algorithm, Box bound,
 }
 
 void NloptOptimizer::SetMinObjective(const Expression& objective) {
+  RoundingModeGuard g(FE_TONEAREST);
   DREAL_LOG_DEBUG("NloptOptimizer::SetMinObjective({})", fmt::streamed(objective));
   objective_ = CachedExpression{objective, box_};
   opt_.set_min_objective(NloptOptimizerEvaluate,
@@ -108,6 +112,7 @@ void NloptOptimizer::SetMinObjective(const Expression& objective) {
 }
 
 void NloptOptimizer::AddConstraint(const Formula& formula) {
+  RoundingModeGuard g(FE_TONEAREST);
   DREAL_LOG_DEBUG("NloptOptimizer::AddConstraint({})", formula);
   if (is_conjunction(formula)) {
     for (const Formula& f : get_operands(formula)) {
@@ -129,6 +134,7 @@ void NloptOptimizer::AddConstraint(const Formula& formula) {
 }
 
 void NloptOptimizer::AddRelationalConstraint(const Formula& formula) {
+  RoundingModeGuard g(FE_TONEAREST);
   DREAL_ASSERT(is_relational(formula));
   DREAL_LOG_DEBUG("NloptOptimizer::AddRelationalconstraint({})", formula);
   bool equality{false};
@@ -168,6 +174,7 @@ void NloptOptimizer::AddRelationalConstraint(const Formula& formula) {
 }
 
 void NloptOptimizer::AddConstraints(const vector<Formula>& formulas) {
+  RoundingModeGuard g(FE_TONEAREST);
   for (const Formula& formula : formulas) {
     AddConstraint(formula);
   }
@@ -175,12 +182,14 @@ void NloptOptimizer::AddConstraints(const vector<Formula>& formulas) {
 
 nlopt::result NloptOptimizer::Optimize(vector<double>* const x,
                                        double* const opt_f) {
+  RoundingModeGuard g(FE_TONEAREST);
   return opt_.optimize(*x, *opt_f);
 }
 
 nlopt::result NloptOptimizer::Optimize(vector<double>* const x,
                                        double* const opt_f,
                                        const Environment& env) {
+  RoundingModeGuard g(FE_TONEAREST);
   // Update objective_ and constraints_ with env.
   objective_.mutable_environment() = env;
   for (auto& constraint_ptr : constraints_) {
