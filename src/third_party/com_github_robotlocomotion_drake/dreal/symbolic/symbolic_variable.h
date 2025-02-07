@@ -57,7 +57,7 @@ class Variable {
   /** Checks if this is a dummy variable (ID = 0) which is created by
    *  the default constructor. */
   bool is_dummy() const { return get_id() == 0; }
-  Id get_id() const;
+  [[nodiscard]] inline Id get_id() const { return id_; }
   Type get_type() const;
   size_t get_hash() const { return std::hash<Id>{}(id_); }
   std::string get_name() const;
