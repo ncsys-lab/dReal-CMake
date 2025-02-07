@@ -147,34 +147,30 @@ optional<Contractor> TheorySolver::BuildContractor(
   DREAL_LOG_TRACE("TheorySolver::BuildContractor: Filtering Assertions\n{}",
                   box);
   vector<Contractor> ctcs;
-  Box old_box;
   for (const Formula& f : assertions) {
-    old_box = box;
-    switch (FilterAssertion(f, &box)) {
-      case FilterAssertionResult::NotFiltered:
-        DREAL_LOG_TRACE("TheorySolver::BuildContractor: {} - Not Filtered.", f);
-        if (old_box != box) {
-          contractor_status->AddUsedConstraint(f);
+    const auto result = FilterAssertion(f, &box);
+    if (!result.filtered && !result.changed) {
+      DREAL_LOG_TRACE("TheorySolver::BuildContractor: {} - Not Filtered.", f);
+    } else if (!result.filtered && result.changed) {
+      contractor_status->AddUsedConstraint(f);
+    } else if (result.filtered && result.changed) {
+      DREAL_LOG_TRACE(
+        "TheorySolver::BuildContractor: {} - Filtered with Change.\n{}", f,
+        box);
+      contractor_status->AddUsedConstraint(f);
+      if (box.empty()) {
+        for (const auto& v : f.GetFreeVariables()) {
+          contractor_status->AddUnsatWitness(v);
         }
-        break;
-      case FilterAssertionResult::FilteredWithChange:
         DREAL_LOG_TRACE(
-            "TheorySolver::BuildContractor: {} - Filtered with Change.\n{}", f,
-            box);
-        contractor_status->AddUsedConstraint(f);
-        if (box.empty()) {
-          for (const auto& v : f.GetFreeVariables()) {
-            contractor_status->AddUnsatWitness(v);
-          }
-          DREAL_LOG_TRACE(
-              "TheorySolver::BuildContractor: {} - Filtered with Change => "
-              "EMPTY BOX",
-              f);
-          return {};
-        }
-        continue;
-      case FilterAssertionResult::FilteredWithoutChange:
-        continue;
+          "TheorySolver::BuildContractor: {} - Filtered with Change => "
+          "EMPTY BOX",
+          f);
+        return {};
+      }
+      continue;
+    } else if (result.filtered && !result.changed) {
+      continue;
     }
     auto it = contractor_cache_.find(f);
     if (it == contractor_cache_.end()) {

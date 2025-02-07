@@ -44,14 +44,14 @@ CounterexampleRefiner::CounterexampleRefiner(const Formula& query,
     for (const Formula& f : get_operands(query)) {
       DREAL_ASSERT(is_relational(f));
       const FilterAssertionResult result{FilterAssertion(f, &box)};
-      if (result == FilterAssertionResult::NotFiltered) {
+      if (!result.filtered) {
         formulas.push_back(f);
       }
     }
   } else {
     DREAL_ASSERT(is_relational(query));
     const FilterAssertionResult result{FilterAssertion(query, &box)};
-    if (result == FilterAssertionResult::NotFiltered) {
+    if (!result.filtered) {
       formulas.push_back(query);
     }
   }
@@ -62,6 +62,7 @@ CounterexampleRefiner::CounterexampleRefiner(const Formula& query,
   }
 
   // 2. Build an Nlopt problem by adding constraints and setting up an
+  // NloptOptimizer is a wrapper and guards rounding mode internally
   // objective function.
   if (IsDifferentiable(query)) {
     // See https://nlopt.readthedocs.io/en/latest/NLopt_Algorithms/#slsqp
@@ -121,7 +122,7 @@ Box CounterexampleRefiner::Refine(Box box) {
   // 2. call optimizer
   double optimal_value{0.0};
   try {
-    const nlopt::result result = opt_->Optimize(&init_, &optimal_value, env);
+    const nlopt::result result = opt_->Optimize(&init_, &optimal_value, env); // already rounding-guarded
     switch (result) {
       case nlopt::result::FAILURE:
         DREAL_LOG_ERROR("LOCAL OPT FAILED: nlopt error-code {}", "FAILURE");

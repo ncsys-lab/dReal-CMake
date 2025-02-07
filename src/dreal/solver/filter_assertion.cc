@@ -34,14 +34,14 @@ FilterAssertionResult UpdateBoundsViaEquality(const Variable& var,
   const double lb{intv.lb()};
   const double ub{intv.ub()};
   if (lb == ub && lb == v) {
-    return FilterAssertionResult::FilteredWithoutChange;
+    return {.filtered = true, .changed = false};
   }
   if (intv.contains(v)) {
     intv = v;
   } else {
     box->set_empty();
   }
-  return FilterAssertionResult::FilteredWithChange;
+  return {.filtered = true, .changed = true};
 }
 
 // Constrains the @p box with `box[var] == [lb, ub]`.
@@ -53,13 +53,13 @@ FilterAssertionResult UpdateBoundsViaEquality(const Variable& var,
   const double old_lb{intv.lb()};
   const double old_ub{intv.ub()};
   if (old_lb == new_lb && old_ub == new_ub) {
-    return FilterAssertionResult::FilteredWithoutChange;
+    return {.filtered = true, .changed = false};
   }
   intv &= Box::Interval(new_lb, new_ub);
   if (intv.is_empty()) {
     box->set_empty();
   }
-  return FilterAssertionResult::FilteredWithChange;
+  return {.filtered = true, .changed = true};
 }
 
 // Constrains the @p box with ` box[var].lb() >= v`.
@@ -69,14 +69,14 @@ FilterAssertionResult UpdateLowerBound(const Variable& var, const double new_lb,
   const double lb{intv.lb()};
   const double ub{intv.ub()};
   if (new_lb <= lb) {
-    return FilterAssertionResult::FilteredWithoutChange;
+    return {.filtered = true, .changed = false};
   }
   if (new_lb <= ub) {
     intv = Box::Interval(new_lb, ub);
   } else {
     box->set_empty();
   }
-  return FilterAssertionResult::FilteredWithChange;
+  return {.filtered = true, .changed = true};
 }
 
 // Constrains the @p box with `box[var].lb() > v`. It changes the
@@ -94,9 +94,8 @@ FilterAssertionResult UpdateStrictLowerBound(const Variable& var,
       return UpdateLowerBound(var, nextafter(v, numeric_limits<double>::max()),
                               box);
     case Variable::Type::INTEGER:
-    case Variable::Type::BINARY:
-      UpdateLowerBound(var, v, box);
-      return FilterAssertionResult::NotFiltered;
+  case Variable::Type::BINARY:
+    return {.filtered = false, UpdateLowerBound(var, v, box).changed};
     case Variable::Type::BOOLEAN:
       DREAL_UNREACHABLE();
   }
@@ -110,14 +109,14 @@ FilterAssertionResult UpdateUpperBound(const Variable& var, const double new_ub,
   const double lb{intv.lb()};
   const double ub{intv.ub()};
   if (new_ub >= ub) {
-    return FilterAssertionResult::FilteredWithoutChange;
+    return {.filtered = true, .changed = false};
   }
   if (new_ub >= lb) {
     intv = Box::Interval(lb, new_ub);
   } else {
     box->set_empty();
   }
-  return FilterAssertionResult::FilteredWithChange;
+  return {.filtered = true, .changed = true};
 }
 
 // Constrains the @p box with `box[var].ub() < v`. It changes the
@@ -136,8 +135,7 @@ FilterAssertionResult UpdateStrictUpperBound(const Variable& var,
                               box);
     case Variable::Type::INTEGER:
     case Variable::Type::BINARY:
-      UpdateUpperBound(var, v, box);
-      return FilterAssertionResult::NotFiltered;
+      return {.filtered = false, .changed = UpdateUpperBound(var, v, box).changed};
     case Variable::Type::BOOLEAN:
       DREAL_UNREACHABLE();
   }
@@ -157,22 +155,22 @@ class AssertionFilter {
   static FilterAssertionResult VisitFalse(const Formula& /* unused */,
                                           Box* const /* unused */,
                                           const bool /* unused */) {
-    return FilterAssertionResult::NotFiltered;
+    return {.filtered = false, .changed = false};
   }
   static FilterAssertionResult VisitTrue(const Formula& /* unused */,
                                          Box* const /* unused */,
                                          const bool /* unused */) {
-    return FilterAssertionResult::NotFiltered;
+    return {.filtered = false, .changed = false};
   }
   static FilterAssertionResult VisitVariable(const Formula& /* unused */,
                                              Box* const /* unused */,
                                              const bool /* unused */) {
-    return FilterAssertionResult::NotFiltered;
+    return {.filtered = false, .changed = false};
   }
   static FilterAssertionResult VisitEqualTo(const Formula& f, Box* const box,
                                             const bool polarity) {
     if (!polarity) {
-      return FilterAssertionResult::NotFiltered;
+      return {.filtered = false, .changed = false};
     }
     const Expression& lhs{get_lhs_expression(f)};
     const Expression& rhs{get_rhs_expression(f)};
@@ -206,7 +204,7 @@ class AssertionFilter {
         return UpdateBoundsViaEquality(var, lb, ub, box);
       }
     }
-    return FilterAssertionResult::NotFiltered;
+    return {.filtered = false, .changed = false};
   }
   static FilterAssertionResult VisitNotEqualTo(const Formula& f, Box* const box,
                                                const bool polarity) {
@@ -264,7 +262,7 @@ class AssertionFilter {
         }
       }
     }
-    return FilterAssertionResult::NotFiltered;
+    return {.filtered = false, .changed = false};
   }
   static FilterAssertionResult VisitGreaterThanOrEqualTo(const Formula& f,
                                                          Box* const box,
@@ -317,7 +315,7 @@ class AssertionFilter {
         }
       }
     }
-    return FilterAssertionResult::NotFiltered;
+    return {.filtered = false, .changed = false};
   }
   static FilterAssertionResult VisitLessThan(const Formula& f, Box* const box,
                                              const bool polarity) {
@@ -333,12 +331,12 @@ class AssertionFilter {
   static FilterAssertionResult VisitConjunction(const Formula& /* unused */,
                                                 Box* const /* unused */,
                                                 const bool /* unused */) {
-    return FilterAssertionResult::NotFiltered;
+    return {.filtered = false, .changed = false};
   }
   static FilterAssertionResult VisitDisjunction(const Formula& /* unused */,
                                                 Box* const /* unused */,
                                                 const bool /* unused */) {
-    return FilterAssertionResult::NotFiltered;
+    return {.filtered = false, .changed = false};
   }
   FilterAssertionResult VisitNegation(const Formula& f, Box* const box,
                                       const bool polarity) const {
@@ -347,7 +345,7 @@ class AssertionFilter {
   static FilterAssertionResult VisitForall(const Formula& /* unused */,
                                            Box* const /* unused */,
                                            const bool /* unused */) {
-    return FilterAssertionResult::NotFiltered;
+    return {.filtered = false, .changed = false};
   }
 
   // Makes VisitFormula a friend of this class so that it can use private

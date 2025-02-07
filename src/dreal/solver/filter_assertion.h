@@ -20,10 +20,9 @@
 
 namespace dreal {
 
-enum class FilterAssertionResult {
-  NotFiltered,
-  FilteredWithChange,
-  FilteredWithoutChange,
+struct FilterAssertionResult {
+    bool filtered;
+    bool changed;
 };
 
 /// If the @p assertion can be applied into the @p box update @p box

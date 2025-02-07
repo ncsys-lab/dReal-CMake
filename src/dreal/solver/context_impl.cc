@@ -106,7 +106,7 @@ void Context::Impl::Assert(const Formula& f) {
     box().set_empty();
     return;
   }
-  if (FilterAssertion(f, &box()) == FilterAssertionResult::NotFiltered) {
+  if (!FilterAssertion(f, &box()).filtered) {
     DREAL_LOG_DEBUG("ContextImpl::Assert: {} is added.", f);
     IfThenElseEliminator ite_eliminator;
     const Formula no_ite{ite_eliminator.Process(f)};
