@@ -16,6 +16,7 @@
 #include "dreal/contractor/contractor_integer.h"
 
 #include <cmath>
+#include <dreal/util/rounding_mode_guard.h>
 
 #include "dreal/util/assert.h"
 #include "dreal/util/math.h"
@@ -40,6 +41,9 @@ ContractorInteger::ContractorInteger(const Box& box, const Config& config)
 }
 
 void ContractorInteger::Prune(ContractorStatus* contractor_status) const {
+  RoundingModeGuard g(FE_TONEAREST);
+  // be careful not to make any ibex calls besides construction, lb, and ub
+  // ibex assumes FE_UPWARD
   Box& box{contractor_status->mutable_box()};
   for (const int idx : int_indexes_) {
     Box::Interval& iv{box[idx]};

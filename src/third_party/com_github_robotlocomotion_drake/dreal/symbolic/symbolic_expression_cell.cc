@@ -13,7 +13,6 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
-#include <dreal/util/rounding_mode_guard.h>
 
 #include "dreal/symbolic/hash.h"
 #include "dreal/symbolic/symbolic_environment.h"
@@ -270,7 +269,6 @@ bool UnaryExpressionCell::Less(const ExpressionCell& e) const {
 }
 
 double UnaryExpressionCell::Evaluate(const Environment& env) const {
-  RoundingModeGuard g(FE_TONEAREST);
   const double v{e_.Evaluate(env)};
   return DoEvaluate(v);
 }
@@ -307,7 +305,6 @@ bool BinaryExpressionCell::Less(const ExpressionCell& e) const {
 }
 
 double BinaryExpressionCell::Evaluate(const Environment& env) const {
-  RoundingModeGuard g(FE_TONEAREST);
   const double v1{e1_.Evaluate(env)};
   const double v2{e2_.Evaluate(env)};
   return DoEvaluate(v1, v2);
@@ -421,7 +418,6 @@ Expression ExpressionConstant::Differentiate(const Variable&) const {
 }
 
 ostream& ExpressionConstant::Display(ostream& os) const {
-  RoundingModeGuard g(FE_TONEAREST);
   ostringstream oss;
   oss << setprecision(numeric_limits<double>::max_digits10) << v_;
   return os << oss.str();
@@ -471,7 +467,6 @@ Expression ExpressionRealConstant::Differentiate(const Variable&) const {
 }
 
 ostream& ExpressionRealConstant::Display(ostream& os) const {
-  RoundingModeGuard g(FE_TONEAREST);
   ostringstream oss;
   oss << setprecision(numeric_limits<double>::max_digits10) << "[" << lb_
       << ", " << ub_ << "]";
@@ -586,7 +581,6 @@ bool ExpressionAdd::Less(const ExpressionCell& e) const {
 }
 
 double ExpressionAdd::Evaluate(const Environment& env) const {
-  RoundingModeGuard g(FE_TONEAREST);
   return accumulate(
       expr_to_coeff_map_.begin(), expr_to_coeff_map_.end(), constant_,
       [&env](const double init, const pair<const Expression, double>& p) {
@@ -608,7 +602,6 @@ Expression ExpressionAdd::Expand() {
 
 Expression ExpressionAdd::Substitute(const ExpressionSubstitution& expr_subst,
                                      const FormulaSubstitution& formula_subst) {
-  RoundingModeGuard g(FE_TONEAREST);
   ExpressionAddFactory factory{constant_, {}};
   for (const auto& p : expr_to_coeff_map_) {
     const Expression& e_i{p.first};
@@ -632,7 +625,6 @@ Expression ExpressionAdd::Differentiate(const Variable& x) const {
 }
 
 ostream& ExpressionAdd::Display(ostream& os) const {
-  RoundingModeGuard g(FE_TONEAREST);
   assert(!expr_to_coeff_map_.empty());
   bool print_plus{false};
   os << "(";
@@ -651,7 +643,6 @@ ostream& ExpressionAdd::Display(ostream& os) const {
 ostream& ExpressionAdd::DisplayTerm(ostream& os, const bool print_plus,
                                     const double coeff,
                                     const Expression& term) const {
-  RoundingModeGuard g(FE_TONEAREST);
   assert(coeff != 0.0);
   if (coeff > 0.0) {
     if (print_plus) {
@@ -851,7 +842,6 @@ bool ExpressionMul::Less(const ExpressionCell& e) const {
 }
 
 double ExpressionMul::Evaluate(const Environment& env) const {
-  RoundingModeGuard g(FE_TONEAREST);
   return accumulate(
       base_to_exponent_map_.begin(), base_to_exponent_map_.end(), constant_,
       [&env](const double init, const pair<const Expression, Expression>& p) {
@@ -873,7 +863,6 @@ Expression ExpressionMul::Expand() {
 
 Expression ExpressionMul::Substitute(const ExpressionSubstitution& expr_subst,
                                      const FormulaSubstitution& formula_subst) {
-  RoundingModeGuard g(FE_TONEAREST);
   ExpressionMulFactory factory{constant_, {}};
   for (const auto& p : base_to_exponent_map_) {
     const Expression& b_i{p.first};
@@ -929,7 +918,6 @@ Expression ExpressionMul::Differentiate(const Variable& x) const {
 }
 
 ostream& ExpressionMul::Display(ostream& os) const {
-  RoundingModeGuard g(FE_TONEAREST);
   assert(!base_to_exponent_map_.empty());
   bool print_mul{false};
   os << "(";
@@ -948,7 +936,6 @@ ostream& ExpressionMul::Display(ostream& os) const {
 ostream& ExpressionMul::DisplayTerm(ostream& os, const bool print_mul,
                                     const Expression& base,
                                     const Expression& exponent) const {
-  RoundingModeGuard g(FE_TONEAREST);
   // Print " * pow(base, exponent)" if print_mul is true
   // Print "pow(base, exponent)" if print_mul is false
   // Print "base" instead of "pow(base, exponent)" if exponent == 1.0

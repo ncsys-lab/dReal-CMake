@@ -20,6 +20,7 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <dreal/util/rounding_mode_guard.h>
 
 #include "dreal/dr/scanner.h"
 #include "dreal/solver/expression_evaluator.h"
@@ -107,6 +108,7 @@ void DrDriver::Solve() {
   }
   const optional<Box> model{context_.CheckSat()};
   if (model) {
+    RoundingModeGuard g(FE_TONEAREST); // for printing precision correctly
     cout << "delta-sat with delta = " << context_.config().precision() << endl;
     if (context_.config().produce_models()) {
       cout << *model << endl;

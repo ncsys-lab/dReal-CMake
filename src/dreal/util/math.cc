@@ -19,6 +19,7 @@
 #include <iostream>
 #include <limits>
 
+#include "rounding_mode_guard.h"
 #include "dreal/util/exception.h"
 
 using std::int64_t;
@@ -27,6 +28,7 @@ using std::numeric_limits;
 
 namespace dreal {
 bool is_integer(const double v) {
+  RoundingModeGuard g(FE_TONEAREST);
   // v should be in [int_min, int_max].
   if (!((numeric_limits<int>::lowest() <= v) &&
         (v <= numeric_limits<int>::max()))) {
@@ -45,6 +47,7 @@ int convert_int64_to_int(const int64_t v) {
 }
 
 double convert_int64_to_double(const int64_t v) {
+  RoundingModeGuard g(FE_TONEAREST);
   constexpr int64_t m{
       1UL << static_cast<unsigned>(numeric_limits<double>::digits)};
   if (-m <= v && v <= m) {

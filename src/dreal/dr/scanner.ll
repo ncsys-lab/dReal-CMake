@@ -15,6 +15,7 @@
 #include <string>
 
 #include "dreal/dr/scanner.h"
+#include "dreal/util/rounding_mode_guard.h"
 
 /* import the parser's token type into a local typedef */
 typedef dreal::DrParser::token token;
@@ -133,16 +134,19 @@ dr_yycolumn += yyleng;
 }
 
 (0|[1-9][0-9]*) {
+    RoundingModeGuard g(FE_TONEAREST); // for parsing double
     yylval->build<double>(std::stod(yytext));
     return token::DOUBLE;
 }
 
 ((([0-9]+)|([0-9]*\.?[0-9]+))([eE][-+]?[0-9]+)?)   {
+    RoundingModeGuard g(FE_TONEAREST); // for parsing double
     yylval->build<double>(std::stod(yytext));
     return token::DOUBLE;
 }
 
 ((([0-9]+)|([0-9]+\.)))                            {
+    RoundingModeGuard g(FE_TONEAREST); // for parsing double
     yylval->build<double>(std::stod(yytext));
     return token::DOUBLE;
 }

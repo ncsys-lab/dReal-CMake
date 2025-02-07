@@ -18,6 +18,7 @@
 #include <algorithm>  // to suppress cpplint for the use of 'min'
 #include <numeric>
 #include <utility>
+#include <dreal/util/rounding_mode_guard.h>
 
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
@@ -32,6 +33,7 @@ using std::pair;
 ExpressionEvaluator::ExpressionEvaluator(Expression e) : e_{std::move(e)} {}
 
 Box::Interval ExpressionEvaluator::operator()(const Box& box) const {
+  RoundingModeGuard g(FE_UPWARD); // Visit functions use ibex/gaol for calculations.
   return Visit(e_, box);
 }
 

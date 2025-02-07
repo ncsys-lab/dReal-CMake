@@ -31,6 +31,8 @@
 #include <gmpxx.h>
 #pragma clang diagnostic pop
 
+#include <dreal/util/rounding_mode_guard.h>
+
 #include "dreal/smt2/scanner.h"
 #include "dreal/solver/expression_evaluator.h"
 #include "dreal/symbolic/prefix_printer.h"
@@ -118,6 +120,7 @@ void Smt2Driver::error(const string& m) { cerr << m << "\n"; }
 void Smt2Driver::CheckSat() {
   const optional<Box> model{context_.CheckSat()};
   if (model) {
+    RoundingModeGuard g(FE_TONEAREST); // for printing precision correctly
     if (context_.config().smtlib2_compliant()) {
       cout << "delta-sat\n";
     } else {
@@ -136,6 +139,7 @@ void Smt2Driver::CheckSat() {
 
 namespace {
 ostream& PrintModel(ostream& os, const Box& box) {
+  RoundingModeGuard g(FE_TONEAREST); // for printing double
   PrecisionGuard precision_guard(&os);
   os << "(model\n";
   for (int i = 0; i < box.size(); ++i) {
@@ -176,6 +180,7 @@ ostream& PrintModel(ostream& os, const Box& box) {
 }
 
 string ToString(const mpz_class& z) {
+  RoundingModeGuard g(FE_TONEAREST);
   if (sgn(z) == -1) {
     return fmt::format("(- {})", fmt::streamed(-z));
   }
@@ -183,6 +188,7 @@ string ToString(const mpz_class& z) {
 }
 
 string ToRational(const double d) {
+  RoundingModeGuard g(FE_TONEAREST);
   const mpq_class r{d};
   if (r.get_den() == 1) {
     return fmt::format("{}", ToString(r.get_num()));

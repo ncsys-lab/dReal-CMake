@@ -28,6 +28,7 @@
 #include "dreal/util/exception.h"
 #include "dreal/util/filesystem.h"
 #include "dreal/util/logging.h"
+#include "util/rounding_mode_guard.h"
 
 namespace dreal {
 
@@ -55,12 +56,14 @@ MainProgram::MainProgram(int argc, const char* argv[]) {
 }
 
 void MainProgram::PrintUsage() {
+  RoundingModeGuard g(FE_TONEAREST); // may print doubles
   string usage;
   opt_.getUsage(usage);
   cerr << usage;
 }
 
 void MainProgram::AddOptions() {
+  RoundingModeGuard g(FE_TONEAREST); // parses and maniuplates doubles
   opt_.overview =
       fmt::format("dReal {} : delta-complete SMT solver", get_version_string());
   opt_.syntax = "dreal [OPTIONS] <input file> (.smt2 or .dr)";
@@ -229,6 +232,7 @@ void MainProgram::AddOptions() {
 }
 
 bool MainProgram::ValidateOptions() {
+  RoundingModeGuard g(FE_TONEAREST); // manipulates doubles
   // Checks bad options and bad arguments.
   vector<string> bad_options;
   vector<string> bad_args;
@@ -271,6 +275,7 @@ bool MainProgram::ValidateOptions() {
 }
 
 void MainProgram::ExtractOptions() {
+  RoundingModeGuard g(FE_TONEAREST);  // parses and manipulates doubles
   // Temporary variables used to set options.
   string verbosity;
   opt_.get("--verbose")->getString(verbosity);

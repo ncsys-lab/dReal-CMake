@@ -15,6 +15,8 @@
 */
 #include "dreal/solver/brancher.h"
 
+#include <dreal/util/rounding_mode_guard.h>
+
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
 
@@ -24,6 +26,7 @@ using std::make_pair;
 using std::pair;
 
 pair<double, int> FindMaxDiam(const Box& box, const DynamicBitset& active_set) {
+  DREAL_ASSERT_ROUNDING(FE_UPWARD); // using ibex operations. only non-ibex operations are comparison and assign
   DREAL_ASSERT(!active_set.none());
   double max_diam{0.0};
   int max_diam_idx{-1};
@@ -42,6 +45,7 @@ pair<double, int> FindMaxDiam(const Box& box, const DynamicBitset& active_set) {
 
 int BranchLargestFirst(const Box& box, const DynamicBitset& active_set,
                        Box* const left, Box* const right) {
+  DREAL_ASSERT_ROUNDING(FE_UPWARD); // using ibex operations. only non-ibex operations are comparison and assign
   DREAL_ASSERT(!active_set.none());
 
   const pair<double, int> max_diam_and_idx{FindMaxDiam(box, active_set)};

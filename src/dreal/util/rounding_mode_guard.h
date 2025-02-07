@@ -18,7 +18,11 @@
 #include <cfenv>
 #pragma STDC FENV_ACCESS ON
 
+#include "dreal/util/assert.h"
+
 namespace dreal {
+
+#define DREAL_ASSERT_ROUNDING(x) DREAL_ASSERT(fegetround() == x)
 
 class RoundingModeGuard {
  public:
