@@ -69,6 +69,9 @@ class IbexConverterStat : public Stat {
 IbexConverter::IbexConverter(const vector<Variable>& variables)
     : vars_{variables} {
   // Sets up var_array_ and symbolic_var_to_ibex_var_.
+  int i=0;
+  var_array_.resize(variables.size());
+  symbolic_var_to_ibex_var_.reserve(variables.size());
   for (const Variable& var : vars_) {
     // The variable is new, we need to make one.
     DREAL_LOG_DEBUG("IbexConverter::IbexConverter: Create variable {}", fmt::streamed(var));
@@ -77,7 +80,7 @@ IbexConverter::IbexConverter(const vector<Variable>& variables)
     // Update Variable → ibex::ExprSymbol*
     symbolic_var_to_ibex_var_.emplace(var.get_id(), v);
     // Update ibex::Array<const ibex::ExprSymbol>
-    var_array_.add(*v);
+    var_array_.set_ref(i++, *v);
   }
   zero_ = &ibex::ExprConstant::new_scalar(0.0);
 }
