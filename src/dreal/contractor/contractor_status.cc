@@ -142,19 +142,17 @@ set<Formula> GenerateExplanation(const Variables& unsat_witness,
     return explanation;
   }
 
+  Variables seen;
+  for (const Formula& f_i : explanation) seen.insert(f_i.GetFreeVariables());
   bool keep_going = true;
   while (keep_going) {
     keep_going = false;
-    for (const Formula& f_i : explanation) {
-      const Variables& variables_in_f_i{f_i.GetFreeVariables()};
-      for (const Formula& f_j : used_constraints) {
-        if (explanation.count(f_j) > 0) {
-          continue;
-        }
-        if (HaveIntersection(variables_in_f_i, f_j.GetFreeVariables())) {
-          explanation.insert(f_j);
-          keep_going = true;
-        }
+    for (const Formula& f_j : used_constraints) {
+      if (explanation.count(f_j) > 0) continue;
+      if (HaveIntersection(seen, f_j.GetFreeVariables())) {
+        seen.insert(f_j.GetFreeVariables());
+        explanation.insert(f_j);
+        keep_going = true;
       }
     }
   }
