@@ -94,10 +94,15 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs) const {
   DREAL_LOG_TRACE("ContractorIbexFwdbwd::Prune");
   DREAL_LOG_TRACE("CTC = {}", fmt::streamed(*num_ctr_));
   DREAL_LOG_TRACE("F = {}", f_);
-  const Box::IntervalVector old_iv{iv};
   stat.timer_pruning_.resume();
-  const bool is_inner{num_ctr_->f.backward(num_ctr_->right_hand_side(),
-                                           iv)};  // true if unchanged.
+
+  std::set<int> changed_vec;
+  const bool is_inner{
+    num_ctr_->f.backward(
+      num_ctr_->right_hand_side(), iv,
+      [&](int index, const ibex::Interval&, const ibex::Interval&) { changed_vec.insert(index); }
+    )
+  }; // true if unchanged.
   stat.timer_pruning_.pause();
   if (stat.enabled()) {
     stat.num_pruning_++;
@@ -111,7 +116,7 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs) const {
     } else {
       DynamicBitset::size_type i_bit = input().find_first();
       while (i_bit != DynamicBitset::npos) {
-        if (old_iv[i_bit] != iv[i_bit]) {
+        if (changed_vec.count(i_bit)) {
           cs->mutable_output().set(i_bit);
           changed = true;
         }
@@ -124,8 +129,8 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs) const {
     cs->AddUsedConstraint(f_);
     if (stat.enabled()) {
       ostringstream oss;
-      DisplayDiff(oss, cs->box().variables(), old_iv,
-                  cs->box().interval_vector());
+      // DisplayDiff(oss, cs->box().variables(), old_iv,
+      // cs->box().interval_vector());
       DREAL_LOG_TRACE("Changed\n{}", oss.str());
     }
   } else {
