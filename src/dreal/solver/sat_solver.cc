@@ -41,13 +41,11 @@ SatSolver::SatSolver(const Config& config) : cadical(new CaDiCaL::Solver) {
                   config.sat_default_phase());
 
   // todo: look into this? want to absolutely minimize calls to theory solver.
-  cadical->optimize(4);
-  cadical->set("block", 1);
-}
-
-SatSolver::SatSolver(const Config& config, const vector<Formula>& clauses)
-    : SatSolver{config} {
-  AddClauses(clauses);
+  // eliminate as many variables as possible. ?
+  cadical->optimize(9);
+  cadical->set("condition", 1); // "globally blocked clause elim"
+  cadical->set("cover", 1); // "covered clause elimination"
+  cadical->set("block", 1); // "blocked clause elimination"
 }
 
 SatSolver::~SatSolver() { delete cadical; }
@@ -60,28 +58,15 @@ void SatSolver::AddFormula(const Formula& f) {
     tseitin_variables_.insert(p.first.get_id());
   }
   for (Formula& clause : clauses) {
-    clause = predicate_abstractor_.Convert(clause);
-  }
-  AddClauses(clauses);
-}
-
-void SatSolver::AddFormulas(const vector<Formula>& formulas) {
-  for (const Formula& f : formulas) {
-    AddFormula(f);
+    AddClause(predicate_abstractor_.Convert(clause));
   }
 }
 
-void SatSolver::AddLearnedClause(const set<Formula>& formulas) {
-  for (const Formula& f : formulas) {
+void SatSolver::AddLearnedClause(const set<Formula>& conflicting_literals) {
+  for (const Formula& f : conflicting_literals) {
     AddLiteral(!predicate_abstractor_.Convert(f));
   }
   cadical->add(0);
-}
-
-void SatSolver::AddClauses(const vector<Formula>& formulas) {
-  for (const Formula& f : formulas) {
-    AddClause(f);
-  }
 }
 
 void SatSolver::AddClause(const Formula& f) {
@@ -91,7 +76,16 @@ void SatSolver::AddClause(const Formula& f) {
     MakeSatVar(var);
   }
   // Add clauses to SAT solver.
-  DoAddClause(f);
+  if (is_disjunction(f)) {
+    // f = l₁ ∨ ... ∨ lₙ
+    for (const Formula& l : get_operands(f)) {
+      AddLiteral(l);
+    }
+  } else {
+    // f = b or f = ¬b.
+    AddLiteral(f);
+  }
+  cadical->add(0);
 }
 
 namespace {
@@ -139,6 +133,7 @@ optional<SatSolver::Model> SatSolver::CheckSat() {
     std::vector<int> model_is(cadical->vars()+1);
     for (int i = 1; i <= cadical->vars(); ++i) model_is[i] = cadical->val(i) > 0 ? +1 : -1;
     for (int i = 1; i <= cadical->vars(); ++i) if(cadical->flip(i)) model_is[i] = 0; // todo: use IPASIR-UP, see cvc5 paper.
+    // for (int i = 1; i <= cadical->vars(); ++i) if(model_is[i] == 0) cadical->flip(i); // restore default state.
     for (int i = 1; i <= cadical->vars(); ++i) {
       const auto model_i = model_is[i];
       if (model_i == 0) {
@@ -221,19 +216,6 @@ void SatSolver::AddLiteral(const Formula& f) {
   }
 }
 
-void SatSolver::DoAddClause(const Formula& f) {
-  if (is_disjunction(f)) {
-    // f = l₁ ∨ ... ∨ lₙ
-    for (const Formula& l : get_operands(f)) {
-      AddLiteral(l);
-    }
-  } else {
-    // f = b or f = ¬b.
-    AddLiteral(f);
-  }
-  cadical->add(0);
-}
-
 void SatSolver::MakeSatVar(const Variable& var) {
   auto it = to_sat_var_.find(var.get_id());
   if (it != to_sat_var_.end()) {
@@ -243,7 +225,7 @@ void SatSolver::MakeSatVar(const Variable& var) {
   // It's not in the maps, let's make one and add it.
   static int cadical_next_var = 1;
   const int sat_var{cadical_next_var++};
-
+  std::cout << "Assigning `" << var << "` to " << sat_var << std::endl;
   to_sat_var_.insert(var.get_id(), sat_var);
   to_sym_var_.insert(sat_var, var);
   DREAL_LOG_DEBUG("SatSolver::MakeSatVar({} ↦ {})", fmt::streamed(var), sat_var);

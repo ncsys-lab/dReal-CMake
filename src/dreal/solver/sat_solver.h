@@ -43,9 +43,6 @@ class SatSolver {
   /// Constructs a SatSolver.
   explicit SatSolver(const Config& config);
 
-  /// Constructs a SatSolver while asserting @p clauses.
-  SatSolver(const Config& config, const std::vector<Formula>& clauses);
-
   /// Deleted copy constructor.
   SatSolver(const SatSolver&) = delete;
 
@@ -67,12 +64,11 @@ class SatSolver {
   /// pre-processings (CNFize and PredicateAbstraction).
   void AddFormula(const Formula& f);
 
-  /// Adds formulas @p formulas to the solver.
-  void AddFormulas(const std::vector<Formula>& formulas);
-
   /// Given a @p formulas = {f₁, ..., fₙ}, adds a clause (¬f₁ ∨ ... ∨ ¬ fₙ) to
   /// the solver.
-  void AddLearnedClause(const std::set<Formula>& formulas);
+  void AddLearnedClause(const std::set<Formula>& conflicting_literals);
+
+  Formula MakeSatIntervalVar(const Variable& var, const Box::Interval& intv);
 
   /// Checks the satisfiability of the current configuration.
   ///
@@ -96,11 +92,6 @@ class SatSolver {
   // or a disjunction of literals (l₁ ∨ ... ∨ lₙ).
   void AddClause(const Formula& f);
 
-  // Adds a vector of formulas @p formulas to the solver.
-  //
-  // @pre Each formula fᵢ ∈ formulas is a clause.
-  void AddClauses(const std::vector<Formula>& formulas);
-
   // Returns a corresponding literal ID of @p var. It maintains two
   // maps `lit_to_var_` and `var_to_lit_` to keep track of the
   // relationship between Variable ⇔ Literal (in SAT).
@@ -112,12 +103,9 @@ class SatSolver {
   // variable.
   void AddLiteral(const Formula& f);
 
-  // Add a clause @p f to sat solver.
-  void DoAddClause(const Formula& f);
-
   // Member variables
   // ----------------
-  CaDiCaL::Solver * const cadical;
+  CaDiCaL::Solver* const cadical;
 
   TseitinCnfizer cnfizer_;
   PredicateAbstractor predicate_abstractor_;
