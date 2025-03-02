@@ -122,6 +122,7 @@ set<Formula> GenerateExplanation(const Variables& unsat_witness,
   //                      fᵢ and fⱼ share a common variable}.
 
   // Set up the initial explanation based on variables.
+  Variables seen;
   set<Formula> explanation;
   for (const Formula& f_i : used_constraints) {
     if (f_i.GetFreeVariables().empty()) {
@@ -135,6 +136,7 @@ set<Formula> GenerateExplanation(const Variables& unsat_witness,
     }
     if (HaveIntersection(unsat_witness, f_i.GetFreeVariables())) {
       explanation.insert(f_i);
+      seen.insert(f_i.GetFreeVariables());
     }
   }
 
@@ -142,8 +144,6 @@ set<Formula> GenerateExplanation(const Variables& unsat_witness,
     return explanation;
   }
 
-  Variables seen;
-  for (const Formula& f_i : explanation) seen.insert(f_i.GetFreeVariables());
   bool keep_going = true;
   while (keep_going) {
     keep_going = false;
