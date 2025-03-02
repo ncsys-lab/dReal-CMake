@@ -230,4 +230,83 @@ void SatSolver::MakeSatVar(const Variable& var) {
   to_sym_var_.insert(sat_var, var);
   DREAL_LOG_DEBUG("SatSolver::MakeSatVar({} ↦ {})", fmt::streamed(var), sat_var);
 }
+
+Formula SatSolver::MakeSatIntervalVar(const Variable& var, const Box::Interval& intv) {
+  DREAL_ASSERT(
+    (var.get_type() == Variable::Type::CONTINUOUS) ||
+    (var.get_type() == Variable::Type::INTEGER)
+  );
+    static std::unordered_map<Variable, std::map<double, Formula>> all_lb_predicates;
+    static std::unordered_map<Variable, std::map<double, Formula>> all_ub_predicates;
+
+  auto ub_pred = Formula::True();
+  if (is_finite(intv.ub())) {
+    ub_pred = var < intv.ub(); // TODO: figure out if this is inclusive or exclusive.
+    // an iterator pointing to the first element that is greater or equal to intv.ub()
+    auto& var_ub_preds = all_ub_predicates[var];
+    auto ub_gte_it = var_ub_preds.lower_bound(intv.ub());
+    if (!var_ub_preds.empty() && ub_gte_it->first == intv.ub()) ub_pred = ub_gte_it->second;
+    else {
+      ub_pred = predicate_abstractor_.Convert(ub_pred);
+      for (const auto & free_variable : ub_pred.GetFreeVariables()) MakeSatVar(free_variable);
+
+      if (ub_gte_it != var_ub_preds.end()) {
+        const auto& gt = *ub_gte_it;
+        DREAL_ASSERT(intv.ub() < gt.first);
+        std::cout << "Adding implication: " << imply(ub_pred, gt.second) << std::endl;
+        // (x < Ub) => (x < Ub+ε)
+        // = ~(x < Ub) \/ (x < Ub+ε)
+        // = ~((x < Ub) /\ ~(x < Ub+ε))
+        AddLearnedClause({ub_pred, !gt.second});
+      }
+      if (ub_gte_it != var_ub_preds.begin()) {
+        --ub_gte_it;
+        const auto& lt = *ub_gte_it;
+        DREAL_ASSERT(lt.first < intv.ub());
+        std::cout << "Adding implication: " << imply(lt.second, ub_pred) << std::endl;
+        // (x < Ub-ε) => (x < Ub)
+        // = ~(x < Ub-ε) \/ (x < Ub)
+        // = ~((x < Ub-ε) /\ ~(x < Ub))
+        AddLearnedClause({lt.second, !ub_pred});
+      }
+      var_ub_preds[intv.ub()] = ub_pred;
+    }
+  }
+
+  auto lb_pred = Formula::True();
+  if (is_finite(intv.lb())) {
+    lb_pred = intv.lb() < var; // TODO: figure out if this is inclusive or exclusive.
+    // an iterator pointing to the first element that is greater or equal to intv.lb()
+    auto& var_lb_preds = all_lb_predicates[var];
+    auto lb_gte_it = var_lb_preds.lower_bound(intv.lb());
+    if (!var_lb_preds.empty() && lb_gte_it->first == intv.lb()) lb_pred = lb_gte_it->second;
+    else {
+      lb_pred = predicate_abstractor_.Convert(lb_pred);
+      for (const auto & free_variable : lb_pred.GetFreeVariables()) MakeSatVar(free_variable);
+
+      if (lb_gte_it != var_lb_preds.end()) {
+        const auto& gt = *lb_gte_it;
+        DREAL_ASSERT(intv.lb() < gt.first);
+        std::cout << "Adding implication: " << imply(gt.second, lb_pred) << std::endl;
+        // (Lb+ε < x) => (Lb < x)
+        // = ~(Lb+ε < x) \/ (Lb < x)
+        // = ~((Lb+ε < x) /\ ~(Lb < x))
+        AddLearnedClause({gt.second, !lb_pred});
+      }
+      if (lb_gte_it != var_lb_preds.begin()) {
+        --lb_gte_it;
+        const auto& lt = *lb_gte_it;
+        DREAL_ASSERT(lt.first < intv.lb());
+        std::cout << "Adding implication: " << imply(lb_pred, lt.second) << std::endl;
+        // (Lb < x) => (Lb-ε < x)
+        // = ~(Lb < x) \/ (Lb-ε < x)
+        // = ~((Lb < x) /\ ~(Lb-ε < x))
+        AddLearnedClause({lb_pred, !lt.second});
+      }
+      var_lb_preds[intv.lb()] = lb_pred;
+    }
+  }
+
+  return lb_pred && ub_pred;
+}
 }  // namespace dreal
