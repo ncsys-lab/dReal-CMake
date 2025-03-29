@@ -62,8 +62,8 @@ void SatSolver::AddFormula(const Formula& f) {
   }
 }
 
-void SatSolver::AddLearnedClause(const set<Formula>& conflicting_literals) {
-  for (const Formula& f : conflicting_literals) {
+void SatSolver::AddLearnedClause(const set<Formula>& conflicting_conjunction) {
+  for (const Formula& f : conflicting_conjunction) {
     AddLiteral(!predicate_abstractor_.Convert(f));
   }
   cadical->add(0);
@@ -223,9 +223,8 @@ void SatSolver::MakeSatVar(const Variable& var) {
     return;
   }
   // It's not in the maps, let's make one and add it.
-  static int cadical_next_var = 1;
   const int sat_var{cadical_next_var++};
-  std::cout << "Assigning `" << var << "` to " << sat_var << std::endl;
+  std::cout << "Assigning `" << var << "` (id #"<< var.get_id() <<") to " << sat_var << std::endl;
   to_sat_var_.insert(var.get_id(), sat_var);
   to_sym_var_.insert(sat_var, var);
   DREAL_LOG_DEBUG("SatSolver::MakeSatVar({} ↦ {})", fmt::streamed(var), sat_var);
@@ -236,8 +235,6 @@ Formula SatSolver::MakeSatIntervalVar(const Variable& var, const Box::Interval& 
     (var.get_type() == Variable::Type::CONTINUOUS) ||
     (var.get_type() == Variable::Type::INTEGER)
   );
-    static std::unordered_map<Variable, std::map<double, Formula>> all_lb_predicates;
-    static std::unordered_map<Variable, std::map<double, Formula>> all_ub_predicates;
 
   auto ub_pred = Formula::True();
   if (is_finite(intv.ub())) {
@@ -248,12 +245,12 @@ Formula SatSolver::MakeSatIntervalVar(const Variable& var, const Box::Interval& 
     if (!var_ub_preds.empty() && ub_gte_it->first == intv.ub()) ub_pred = ub_gte_it->second;
     else {
       ub_pred = predicate_abstractor_.Convert(ub_pred);
-      for (const auto & free_variable : ub_pred.GetFreeVariables()) MakeSatVar(free_variable);
+      MakeSatVar(get_variable(ub_pred));
 
       if (ub_gte_it != var_ub_preds.end()) {
         const auto& gt = *ub_gte_it;
         DREAL_ASSERT(intv.ub() < gt.first);
-        std::cout << "Adding implication: " << imply(ub_pred, gt.second) << std::endl;
+        DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", ub_pred, gt.second);
         // (x < Ub) => (x < Ub+ε)
         // = ~(x < Ub) \/ (x < Ub+ε)
         // = ~((x < Ub) /\ ~(x < Ub+ε))
@@ -263,7 +260,7 @@ Formula SatSolver::MakeSatIntervalVar(const Variable& var, const Box::Interval& 
         --ub_gte_it;
         const auto& lt = *ub_gte_it;
         DREAL_ASSERT(lt.first < intv.ub());
-        std::cout << "Adding implication: " << imply(lt.second, ub_pred) << std::endl;
+        DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", lt.second, ub_pred);
         // (x < Ub-ε) => (x < Ub)
         // = ~(x < Ub-ε) \/ (x < Ub)
         // = ~((x < Ub-ε) /\ ~(x < Ub))
@@ -282,12 +279,12 @@ Formula SatSolver::MakeSatIntervalVar(const Variable& var, const Box::Interval& 
     if (!var_lb_preds.empty() && lb_gte_it->first == intv.lb()) lb_pred = lb_gte_it->second;
     else {
       lb_pred = predicate_abstractor_.Convert(lb_pred);
-      for (const auto & free_variable : lb_pred.GetFreeVariables()) MakeSatVar(free_variable);
+      MakeSatVar(get_variable(lb_pred));
 
       if (lb_gte_it != var_lb_preds.end()) {
         const auto& gt = *lb_gte_it;
         DREAL_ASSERT(intv.lb() < gt.first);
-        std::cout << "Adding implication: " << imply(gt.second, lb_pred) << std::endl;
+        DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", gt.second, lb_pred);
         // (Lb+ε < x) => (Lb < x)
         // = ~(Lb+ε < x) \/ (Lb < x)
         // = ~((Lb+ε < x) /\ ~(Lb < x))
@@ -297,7 +294,7 @@ Formula SatSolver::MakeSatIntervalVar(const Variable& var, const Box::Interval& 
         --lb_gte_it;
         const auto& lt = *lb_gte_it;
         DREAL_ASSERT(lt.first < intv.lb());
-        std::cout << "Adding implication: " << imply(lb_pred, lt.second) << std::endl;
+        DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", lb_pred, lt.second);
         // (Lb < x) => (Lb-ε < x)
         // = ~(Lb < x) \/ (Lb-ε < x)
         // = ~((Lb < x) /\ ~(Lb-ε < x))

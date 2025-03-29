@@ -66,7 +66,7 @@ class SatSolver {
 
   /// Given a @p formulas = {f₁, ..., fₙ}, adds a clause (¬f₁ ∨ ... ∨ ¬ fₙ) to
   /// the solver.
-  void AddLearnedClause(const std::set<Formula>& conflicting_literals);
+  void AddLearnedClause(const std::set<Formula>& conflicting_conjunction);
 
   Formula MakeSatIntervalVar(const Variable& var, const Box::Interval& intv);
 
@@ -106,6 +106,7 @@ class SatSolver {
   // Member variables
   // ----------------
   CaDiCaL::Solver* const cadical;
+  int cadical_next_var = 1;
 
   TseitinCnfizer cnfizer_;
   PredicateAbstractor predicate_abstractor_;
@@ -119,6 +120,9 @@ class SatSolver {
   /// Set of temporary Boolean variables introduced by Tseitin
   /// transformations.
   ScopedUnorderedSet<Variable::Id> tseitin_variables_;
+
+  std::unordered_map<Variable, std::map<double, Formula>> all_lb_predicates;
+  std::unordered_map<Variable, std::map<double, Formula>> all_ub_predicates;
 
   /// @note We found an issue when picosat_deref_partial is used with
   /// picosat_pop. When this variable is true, we use `picosat_deref`
