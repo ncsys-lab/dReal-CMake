@@ -1,0 +1,453 @@
+/*
+   Copyright 2017 Toyota Research Institute
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+#include <dreal/solver/pattern_matching_trie.h>
+#include <dreal/symbolic/symbolic_formula_cell.h>
+
+#include "dreal/solver/filter_assertion.h"
+
+#include <gtest/gtest.h>
+
+#include "dreal/symbolic/symbolic.h"
+
+namespace dreal
+{
+    namespace
+    {
+        class PatternMatchingTest : public ::testing::Test
+        {
+        protected:
+            void SetUp() override {}
+            const Variable x1{"x1", Variable::Type::CONTINUOUS};
+            const Variable y1{"y1", Variable::Type::CONTINUOUS};
+            const Variable z1{"z1", Variable::Type::CONTINUOUS};
+
+            const Variable x2{"x2", Variable::Type::CONTINUOUS};
+            const Variable y2{"y2", Variable::Type::CONTINUOUS};
+            const Variable z2{"z2", Variable::Type::CONTINUOUS};
+
+            const Variable p1{"p1", Variable::Type::INTEGER};
+            const Variable q1{"q1", Variable::Type::INTEGER};
+            const Variable r1{"r1", Variable::Type::INTEGER};
+
+            const Variable p2{"p2", Variable::Type::INTEGER};
+            const Variable q2{"q2", Variable::Type::INTEGER};
+            const Variable r2{"r2", Variable::Type::INTEGER};
+
+            const Variable b1{"b1", Variable::Type::BOOLEAN};
+            const Variable b2{"b2", Variable::Type::BOOLEAN};
+            const Variable b3{"b3", Variable::Type::BOOLEAN};
+            const Variable b4{"b4", Variable::Type::BOOLEAN};
+        };
+
+        // helpers.
+        Expression rc(double lb, bool use_lb_as_repr = false) {
+            return real_constant(lb, std::nextafter(lb, std::numeric_limits<double>::infinity()), use_lb_as_repr);
+        }
+
+        template <typename T1, typename T2=T1>
+        void test_matches_and_misses(
+            const T1& pattern, const std::vector<T1>& matches, const std::vector<T1>& misses1,
+            const std::vector<T2>& misses2 = {}
+        ) {
+            PatternMatchingTrie trie;
+            for (const auto& match : matches) trie.insert(match);
+            for (const auto& miss : misses1) trie.insert(miss);
+            for (const auto& miss : misses2) trie.insert(miss);
+            const auto found = trie.find_matches(pattern);
+
+            for (const auto& match : matches) {
+                EXPECT_EQ(found.count(match), 1);
+                std::cout << pattern << " MATCHES " << match << std::endl;
+            }
+            for (const auto& miss : misses1) {
+                EXPECT_EQ(found.count(miss), 0);
+                std::cout << pattern << " MISSES " << miss << std::endl;
+            }
+        }
+
+        // tests.
+        TEST_F(PatternMatchingTest, ComplicatedIteExpression) {
+            PatternMatchingTrie trie;
+            auto fs_monster = if_then_else(
+                if_then_else(Formula{b1}, x1, x2) < 5,
+                if_then_else(Formula{b2}, y1, y2),
+                if_then_else(Formula{b2}, z1, z2)
+            ) + 1 < if_then_else(
+                (x1 < 5) || (x2 < 6) || (y1 > 3) || (z2 == z1),
+                tanh(8 * y2 - y1), tanh(9 * z2 - z1)
+            );
+            std::vector fs{
+                b1 || b2 && !b3,
+                b4 && !(x2 < tanh(y2 / y1)),
+                // nested ITEs
+                if_then_else(b3 || (x2 < x1 + y1), tanh(3 * x1), tanh(5 / y1)) < z2,
+            };
+            std::vector es{
+                sqrt(3 * x1) * 5 + y2 * x2 / sin(z2),
+                tanh(4 * x1 + 3),
+                atan2((y2 - y1), (x2 - x1)),
+                min(exp(z1), z2),
+                1 / y1, log(z2),
+                10 + 15 * x1 + 13.5 * tan(y1) + 8 + 45 * (z1 / pow(z1, x1))
+            };
+
+            auto pattern = if_then_else(fs_monster && !fs[1], es[0], es[1]) != es[2];
+
+            // changes alphabetical ordering, which may screw up hashing functions for AND and OR operations
+            // changing order of litterals, de-canonicalizing unfortunately, and missing the pattern match
+            // todo: figure out if it's even possible or worth fixing this
+            ExpressionSubstitution esubs1 = {
+                {x1, x2}, {y1, y2}, {z1, z2}, {x2, x1}, {y2, y1}, {z2, z1}
+            };
+            FormulaSubstitution fsubs1 = {
+                {b1, Formula{b2}}, {b2, Formula{b3}}, {b3, Formula{b4}}, {b4, Formula{b1}}
+            };
+            ExpressionSubstitution esubs2 = {
+                {x1, y1}, {y1, z1}, {z1, x1}, {x2, y2}, {y2, z2}, {z2, x2},
+            };
+            FormulaSubstitution fsubs2 = {
+                {b1, Formula{b3}}, {b2, Formula{b4}}, {b3, Formula{b1}}, {b4, Formula{b2}}
+            };
+
+            // todo: this is extremely brittle because AND and OR operations can't really be cannonicalized,
+            // and the order of operands depends on their alphabetical hash value
+            std::vector matches{
+                // see note above
+                // pattern.Substitute(esubs1),
+                pattern.Substitute(fsubs1),
+                pattern.Substitute(esubs2),
+                pattern.Substitute(fsubs2),
+                pattern.Substitute(esubs2, fsubs1),
+                // pattern.Substitute(esubs1, fsubs2),
+                // pattern.Substitute({{x1, x2}, {x2, x1}}),
+                if_then_else(!fs[1] && fs_monster, es[0], es[1]) != es[2]
+            };
+
+            std::vector misses{
+                pattern.Substitute(z2, x1),
+                pattern.Substitute({{x1, x2}, {y1, x2}}),
+                // pattern = if_then_else(fs_monster && !(fs[1]), es[0], es[1]) != es[2]
+                if_then_else(fs_monster && fs[1], es[0], es[1]) != es[2],
+                if_then_else(fs_monster && !fs[0], es[0], es[1]) != es[2],
+                if_then_else(fs[2] && !fs[1], es[0], es[1]) != es[2],
+                if_then_else(fs[2] && !fs[1], es[1], es[1]) != es[2],
+                if_then_else(fs_monster && !(fs[1]), es[1], es[0]) != es[2],
+                if_then_else(fs_monster && !(fs[1]), es[0], es[1]) == es[2]
+            };
+            // pattern is a composite of fs'.. so all should miss
+            misses.insert(misses.begin(), fs.begin(), fs.end());
+            // pattern is a formula, so all es should miss too
+            test_matches_and_misses(pattern, matches, misses, es);
+        }
+
+        TEST_F(PatternMatchingTest, SimpleIteExpression) {
+            PatternMatchingTrie trie;
+            auto pattern = if_then_else(x1 > x2, y1 * 2, tanh(z1 / 3 + 4));
+
+            std::vector matches{
+                if_then_else(y1 > y2, z1 * 2, tanh(x1 / 3 + 4)),
+                // todo: Canonical-ize GT/LT to just one or the other ?
+                // if_then_else(y2 < y1, z1 * 2, tanh(x1 / 3 + 4)),
+            };
+            std::vector misses{
+                if_then_else(x1 <= y1, y1 * 2, tanh(z1 / 3 + 4)),
+                if_then_else(Formula{b3}, y1 * 2, tanh(z1 / 3 + 4)),
+                if_then_else(x1 > x2, z1 * 2, tanh(z1 / 3 + 4)),
+                if_then_else(x1 > x2, y1 * 2, tanh(y1 / 3 + 4)),
+            };
+
+            test_matches_and_misses(pattern, matches, misses);
+        }
+
+        TEST_F(PatternMatchingTest, SimpleBooleanFormulas) {
+            PatternMatchingTrie trie;
+            auto epattern = (x1 < x2) || (x2 > x1) || !((y1 <= y2) && (y2 >= y1));
+            auto pattern = !(b1 && b2) || !(b2 || b3) && (b4 || epattern);
+            FormulaSubstitution fsubs1 = {
+                {b1, Formula{b2}}, {b2, Formula{b3}}, {b3, Formula{b4}}, {b4, Formula{b1}}
+            };
+            ExpressionSubstitution esubs1 = {
+                {x1, x2}, {y1, y2}, {z1, z2}, {x2, x1}, {y2, y1}, {z2, z1}
+            };
+            FormulaSubstitution fsubs2 = {
+                {b1, Formula{b3}}, {b2, Formula{b4}}, {b3, Formula{b1}}, {b4, Formula{b2}}
+            };
+
+            std::vector matches{
+                !(b1 && b2) || !(b2 || b3) && (b4 || (x1 < x2) || (x2 > x1) || !((y1 <= y2) && (y2 >= y1))),
+                // exact match
+                !(b1 && b2) || !(b2 || b3 || Formula::False()) && (b4 || (x1 < x2) || (x2 > x1) || !((y1 <= y2) && (y2
+                    >= y1))),
+                !(b1 && b2 && Formula::True()) || !(b2 || b3) && (b4 || (x1 < x2) || (x2 > x1) || !((y1 <= y2) && (y2 >=
+                    y1))),
+                pattern.Substitute(fsubs1),
+                pattern.Substitute(esubs1, fsubs1),
+                pattern.Substitute(esubs1),
+                // todo: this is extremely brittle because AND and OR operations can't really be cannonicalized,
+                // and the order of operands depends on their alphabetical hash value
+                // pattern.Substitute(fsubs2),
+            };
+            std::vector misses{
+                // pattern = !(b1 && b2) || !(b2 || b3) && (b4 || (x1 < x2) || (x2 > x1) || !((y1 <= y2) && (y2 >= y1))),
+                // exercise Gt, Geq, Lt, Leq...
+                !(b1 && b2) || !(b2 || b3) && (b4 || (x1 < x2) || (x2 > x1) || !((y1 < y2) && (y2 >= y1))),
+                !(b1 && b2) || !(b2 || b3) && (b4 || (x1 <= x2) || (x2 > x1) || !((y1 <= y2) && (y2 >= y1))),
+                !(b1 && b2) || !(b2 || b3) && (b4 || (x1 < x2) || (x2 > x1) || !((p1 <= y2) && (y2 >= p1))),
+                !(b4 && b2) || !(b2 || b3) && (b4 || (x1 < x2) || (x2 > x1) || !((y1 <= y2) && (y2 >= y1))),
+                !(b4 && b2) || !(b2 || b3) && (b4 || (x1 < x2) || (x2 > x1) || !((y1 <= y2) && (y2 >= y1))),
+                Formula{b1},
+                Formula::True(),
+                Formula::False(),
+                !(b1 && b2) && !(b2 || b3) && (b4),
+                !(b1 && b2) || !(b2 && b3) && (b4),
+                !(b1 && b2) || (b2 || b3) && (b4),
+                !(b1 && b2) || !(b2 || b3) && (b3)
+            };
+
+            test_matches_and_misses(pattern, matches, misses);
+        }
+
+        TEST_F(PatternMatchingTest, ComplicatedMultiplicationExpression) {
+            PatternMatchingTrie trie;
+            std::vector es{
+                tanh(4 * x1 + 3),
+                atan2((y2 - y1), (x2 - x1)),
+                sqrt(3 * x1) * 5 + y2 * x2 / sin(z2),
+                min(exp(z1), z2),
+                1 / y1, log(z2)
+            };
+            auto pattern = sqrt(5) * pow(es[0], es[1]) * pow(es[2], es[3]) * pow(es[4], es[5]);
+
+            ExpressionSubstitution esubs1 = {
+                {x1, x2}, {y1, y2}, {z1, z2}, {x2, x1}, {y2, y1}, {z2, z1}
+            };
+            ExpressionSubstitution esubs2 = {
+                {x1, y1}, {y1, z1}, {z1, x1}, {x2, y2}, {y2, z2}, {z2, x2}
+            };
+            std::vector matches{
+                pattern.Substitute(esubs1),
+                pattern.Substitute(esubs2),
+                pattern.Substitute({{x1, x2}, {x2, x1}}),
+
+                pow(es[4], es[5]).Substitute(esubs1) *
+                sqrt(5).Substitute(esubs1) *
+                pow(es[2], es[3]).Substitute(esubs1) *
+                pow(es[0], es[1]).Substitute(esubs1),
+
+                pow(es[4], es[5]).Substitute(esubs2) *
+                (
+                    pow(es[0], es[1]) *
+                    pow(es[2], es[3])
+                ).Substitute(esubs2) *
+                sqrt(5).Substitute(esubs2)
+            };
+
+            std::vector misses{
+                sqrt(5) * pow(es[0], es[1]) * pow(es[2], es[3]),
+                sqrt(5) * pow(es[0], es[1]) * pow(es[2], es[3]) * pow(es[4], es[5]) * pow(es[4] + es[0], es[5] + es[1]),
+                2 * pow(x1, 4) * pow(5, x2),
+                3 * pow(x1, 4) * pow(5, x1),
+                3 * pow(4, x1) * pow(x2, 5),
+                10 + 15 * x1 + 13.5 * tan(y1) + 8 + 45 * (z1 / pow(z1, x1)),
+                pattern.Substitute(z2, x1),
+                pattern.Substitute({{x1, x2}, {y1, x2}}),
+
+                pow(es[4], es[5]).Substitute(esubs1) *
+                sqrt(6).Substitute(esubs1) * // changed from 5 to 6
+                pow(es[2], es[3]).Substitute(esubs1) *
+                pow(es[0], es[1]).Substitute(esubs1),
+
+                pow(es[4], es[5]).Substitute(esubs1) *
+                (
+                    pow(es[0], es[1]) *
+                    pow(es[2], es[3])
+                ).Substitute(esubs2) *
+                sqrt(5).Substitute(esubs2),
+
+                sqrt(5) * pow(es[0], es[1]) * pow(es[3], es[2]) * pow(es[4], es[5])
+            };
+
+            test_matches_and_misses(pattern, matches, misses);
+        }
+
+        TEST_F(PatternMatchingTest, SimpleMultiplicationExpression) {
+            PatternMatchingTrie trie;
+            auto pattern = 3 * pow(x1, 4) * pow(5, x2);
+
+            std::vector matches{
+                3 * pow(y1, 4) * pow(5, y2),
+                pow(5, z2) * 3 * pow(z1, 4),
+                pow(5, z2) * 1 * pow(x1, 4) * 3,
+            };
+            std::vector misses{
+                3 * pow(x1, 4),
+                2 * pow(x1, 4) * pow(5, x2),
+                3 * pow(x1, 4) * pow(5, x1),
+                3 * pow(4, x1) * pow(x2, 5)
+            };
+
+            test_matches_and_misses(pattern, matches, misses);
+        }
+
+        TEST_F(PatternMatchingTest, ComplicatedAdditionExpression) {
+            PatternMatchingTrie trie;
+            auto pattern = 10 + 15 * x1 + 13.5 * tan(y1) + 8 + 45 * (z1 / pow(z1, x1));
+
+            std::vector matches{
+                10 + 15 * x2 + 13.5 * tan(y2) + 8 + 45 * (z2 / pow(z2, x2)),
+                45 * (z1 / pow(z1, x2)) + 10 + 15 * x2 + 13.5 * tan(y2) + 8,
+                45 * (z2 / pow(z2, x1)) + 10 + 5 * x1 + 10 * x1 + 13.5 * tan(y2) + 8,
+            };
+            std::vector misses{
+                10 + 13.5 * tan(y1) + 8 + 45 * (z1 / pow(z1, x1)),
+                10 + 15 * x1 + 13.5 * tan(y1) + 8 + 45 * (z1 / pow(z1, x1)) + rc(10) * z2,
+                9 + 15 * x1 + 13.3 * tan(y1) + 8 + 45 * (1 / pow(z1, 2)),
+                10 + 15 * x1 + 13.5 * tan(y1) + 8 + 45 * (1 / pow(z1, 3)),
+                10 + 15 * x2 + 13.5 * tan(y2) + 8 + 45 * (z2 / pow(x2, 2)),
+                10 + 15 * x1 + 13.5 * tan(y1) + 8 + 45 * (z1 / pow(z1, y1)),
+                10 + 15 * x1 + 13.5 * tan(y1) + 8 + 45 * (z1 / pow(z1, tan(y1)))
+            };
+
+            test_matches_and_misses(pattern, matches, misses);
+        }
+
+        TEST_F(PatternMatchingTest, SimpleRealConstantAdditionExpression) {
+            PatternMatchingTrie trie;
+            auto pattern = 3 + rc(4, true) * x1 + 5 * x2;
+
+            std::vector matches{
+                3 + rc(4, true) * y1 + 5 * y2,
+                3 + rc(4, true) * z1 + 5 * z2,
+                2 + 5 * x2 + rc(4, true) * z1 + 1,
+            };
+            std::vector misses{
+                3 + rc(4, true) * x1,
+                3 + rc(4, false) * x1 + 5 * x2,
+                3 + 4 * x1 + 5 * x2,
+                2 + 4 * x1 + 5 * x2,
+                3 + 4 * x1 + 5 * x1
+            };
+
+            test_matches_and_misses(pattern, matches, misses);
+        }
+
+        TEST_F(PatternMatchingTest, SimpleAdditionExpression) {
+            PatternMatchingTrie trie;
+            auto pattern = 3 + 4 * x1 + 5 * x2;
+
+            std::vector matches{
+                3 + 4 * y1 + 5 * y2,
+                3 + 4 * z1 + 5 * z2,
+                2 + 5 * x2 + 4 * z1 + 1,
+            };
+            std::vector misses{
+                3 + 4 * x1,
+                2 + 4 * x1 + 5 * x2,
+                3 + 4 * x1 + 5 * x1
+            };
+
+            test_matches_and_misses(pattern, matches, misses);
+        }
+
+        TEST_F(PatternMatchingTest, BinaryExpression) {
+            PatternMatchingTrie trie;
+            auto pattern = x1 / pow(1 + y1, z1);
+
+            std::vector matches{
+                x2 / pow(1 + y2, z2),
+                x1 / pow(1 + y2, z2),
+                x2 / pow(1 + y1, z2)
+            };
+            std::vector misses{
+                x1 / pow(y1, 1 + z1),
+                x1 / pow(z1, 1 + y1),
+                pow(1 + y1, z1) / x1,
+                x1 / pow(1 + x1, x1),
+                x1 / pow(1 + y1, x1),
+                x1 / pow(1 + x1, z1),
+                z1 / pow(1 + y1, z1)
+            };
+
+            test_matches_and_misses(pattern, matches, misses);
+        }
+
+        TEST_F(PatternMatchingTest, SimpleRealConstantExpression) {
+            PatternMatchingTrie trie;
+            auto pattern = tan(x1 / rc(0.5));
+
+            std::vector matches{
+                tan(x1 / rc(0.5)),
+                tan(z1 / rc(0.5)),
+            };
+            std::vector misses{
+                tan(rc(0.5) / x1),
+                tan(p1 / rc(0.5)), tan(x1 / rc(-0.6)),
+                tan(z1 / rc(0.5, true)),
+                tan(x1 / rc(1)),
+                tan(z1 / rc(1E9)),
+            };
+
+            test_matches_and_misses(pattern, matches, misses);
+        }
+
+        TEST_F(PatternMatchingTest, BinaryAndUnaryOpsComplete) {
+            PatternMatchingTrie trie;
+            std::vector es{ // for coverage... make sure we didn't mess up call of the unary/binary op helper functions.
+                x1 / x2, log(x1), abs(x1), exp(x1), sqrt(x1), pow(x1, x2), sin(x1), cos(x1), tan(x1), asin(x1),
+                acos(x1), atan(x1), atan2(x1, x2), sinh(x1), cosh(x1), tanh(x1), min(x1, x2), max(x1, x2)
+            };
+            for (const auto& e : es) trie.insert(e);
+            for (const auto& pattern : es) {
+                std::vector matches{
+                    pattern.Substitute({{x1, z1}, {z1, x1}}),
+                };
+                std::vector misses{
+                    pattern.Substitute({{x1, es[0]}}),
+                    pattern.Substitute({{x1, es[1]}}),
+                    pattern.Substitute({{x1, es[2]}}),
+                    pattern.Substitute({{x1, p1}, {x2, p1}}),
+                    pattern.Substitute({{x1, p1}, {x2, p2}}),
+                };
+                for (const auto& match : matches) {
+                    const auto found = trie.find_matches(match);
+                    EXPECT_EQ(found.size(), 1);
+                    std::cout << pattern << " MATCHES " << match << std::endl;
+                }
+                for (const auto& miss : misses) {
+                    const auto found = trie.find_matches(miss);
+                    EXPECT_EQ(found.size(), 0);
+                    std::cout << pattern << " MISSES " << miss << std::endl;
+                }
+            }
+        }
+
+        TEST_F(PatternMatchingTest, UnaryExpression) {
+            PatternMatchingTrie trie;
+            auto pattern = tan(x1);
+
+            std::vector matches{
+                tan(x1), tan(x2), tan(y2), tan(z2)
+            };
+            std::vector misses{
+                tan(p1),
+                sin(x2), cos(y2), tan(x1 + x2),
+                tan(tan(x1)), 1 / tan(x1), tan(x1) + 1,
+            };
+
+            test_matches_and_misses(pattern, matches, misses);
+        }
+    } // namespace
+} // namespace dreal
