@@ -13,7 +13,6 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 */
-#include <dreal/solver/expression_pattern_matching_trie.h>
 #include <dreal/solver/sat_solver.h>
 
 #include "dreal/solver/filter_assertion.h"

@@ -11,21 +11,36 @@
 
 namespace dreal
 {
-    std::set<Formula> PatternMatchingTrie::find_matches(const Formula& f) {
-        const auto substitutions = std::make_shared<substitutions_map>();
+    std::vector<std::pair<std::vector<Formula>, std::shared_ptr<PatternMatchingTrie::substitutions_map>>>
+    PatternMatchingTrie::find_matches(const std::set<Formula>& literals) {
+        std::vector<std::pair<std::vector<Formula>, std::shared_ptr<substitutions_map>>> state{
+                {{}, std::make_shared<substitutions_map>()}
+            }, next_state;
+
+        for (const auto& form : literals) {
+            next_state.clear();
+            for (const auto& [some_literals, subs] : state) {
+                for (const auto& [new_literal, new_subs] : find_matches(form, subs)) {
+                    // todo: check how bad this is.
+                    // todo: check if using vector, and then converting to set, makes it faster. or just doing it all with set.
+                    auto some_literals_copy = some_literals;
+                    some_literals_copy.emplace_back(new_literal);
+                    next_state.emplace_back(some_literals_copy, new_subs);
+                }
+            }
+            state = std::move(next_state);
+        }
+        return state;
+    }
+
+    PatternMatchingTrie::f_matches_vec PatternMatchingTrie::find_matches(
+        const Formula& f,
+        const std::optional<std::shared_ptr<substitutions_map>>& substitutions_primer
+    ) {
+        const auto substitutions = substitutions_primer.value_or(std::make_shared<substitutions_map>());
         f_matches_vec matches;
         recMatchForm(f, f_root, substitutions, matches);
-        std::set<Formula> result;
-        for (const auto& [term1, subs] : matches) {
-            // { // todo: remove check
-            //     ExpressionSubstitution es(subs->size());
-            //     es.insert(subs->begin(), subs->end());
-            //     const auto term2 = f.Substitute(es);
-            //     DREAL_ASSERT(term1.EqualTo(term2));
-            // }
-            result.insert(term1);
-        }
-        return result;
+        return matches;
     }
 
     PatternMatchingTrie::e_matches_vec PatternMatchingTrie::find_matches(
