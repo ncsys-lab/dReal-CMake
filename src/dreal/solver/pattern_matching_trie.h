@@ -19,8 +19,27 @@ namespace dreal
     class PatternMatchingTrie
     {
     public:
-        std::set<Formula> find_matches(const Formula& f);
-        std::set<Expression> find_matches(const Expression& f);
+        using substitutions_map = std::pair<std::map<Variable, Variable>, std::map<Variable, Variable>>;
+
+        using e_matches_vec = std::vector<std::pair<
+            Expression, std::shared_ptr<substitutions_map>
+        >>;
+        using f_matches_vec = std::vector<std::pair<
+            Formula, std::shared_ptr<substitutions_map>
+        >>;
+
+        std::vector<std::pair<std::vector<Formula>, std::shared_ptr<substitutions_map>>> find_matches(
+            const std::set<Formula>& literals
+        );
+        f_matches_vec find_matches(
+            const Formula& f,
+            const std::optional<std::shared_ptr<substitutions_map>>& substitutions_primer = {}
+        );
+        e_matches_vec find_matches(
+            const Expression& f,
+            const std::optional<std::shared_ptr<substitutions_map>>& substitutions_primer = {}
+        );
+
         void insert(const Formula& f);
         void insert(const Expression& f);
 
@@ -74,10 +93,7 @@ namespace dreal
         ExprNode e_root;
         FormNode f_root;
 
-        using substitutions_map = std::map<Variable, Variable>;
-        using e_matches_vec = std::vector<std::pair<Expression, std::shared_ptr<substitutions_map>>>;
         using e_partial_matches_vec = std::vector<std::pair<ExprNode*, std::shared_ptr<substitutions_map>>>;
-        using f_matches_vec = std::vector<std::pair<Formula, std::shared_ptr<substitutions_map>>>;
         using f_partial_matches_vec = std::vector<std::pair<FormNode*, std::shared_ptr<substitutions_map>>>;
 
         static std::optional<std::shared_ptr<substitutions_map>> attempt_substitution(

@@ -28,20 +28,14 @@ namespace dreal
         return result;
     }
 
-    std::set<Expression> PatternMatchingTrie::find_matches(const Expression& e) {
-        const auto substitutions = std::make_shared<substitutions_map>();
+    PatternMatchingTrie::e_matches_vec PatternMatchingTrie::find_matches(
+        const Expression& e,
+        const std::optional<std::shared_ptr<substitutions_map>>& substitutions_primer
+    ) {
+        const auto substitutions = substitutions_primer.value_or(std::make_shared<substitutions_map>());
         e_matches_vec matches;
         recMatchExpr(e, e_root, substitutions, matches);
-        std::set<Expression> result;
-        for (const auto& [term, subs] : matches) {
-            { // todo: remove check
-                ExpressionSubstitution es(subs->size());
-                es.insert(subs->begin(), subs->end());
-                DREAL_ASSERT(e.EqualTo(term.Substitute(es)));
-            }
-            result.insert(term);
-        }
-        return result;
+        return matches;
     }
 
     void PatternMatchingTrie::insert(const Formula& f) {
@@ -58,16 +52,24 @@ namespace dreal
     ) {
         if (a.get_type() != aP.get_type())
             return {};
-        const auto it = substitutions->find(a);
-        if (it == substitutions->end()) {
+
+        // must be injective.
+        const auto& [fwd, bwd] = *substitutions;
+        const auto fit = fwd.find(a), bit = bwd.find(aP);
+        if (fit == fwd.end() && bit == bwd.end()) {
+            // DREAL_ASSERT(bit == bwd.end());
             auto copy = std::make_shared<substitutions_map>(*substitutions);
             // DREAL_ASSERT(copy.use_count() == 1 && substitutions.use_count() > 1);
-            const bool success = copy->try_emplace(a, aP).second;
-            DREAL_ASSERT(success);
+            const bool success_fwd = copy->first.try_emplace(a, aP).second;
+            DREAL_ASSERT(success_fwd);
+            const bool success_bwd = copy->second.try_emplace(aP, a).second;
+            DREAL_ASSERT(success_bwd);
             return copy;
         }
-        else if (it->second.equal_to(aP))
+        else if (fit->second.equal_to(aP)) {
+            DREAL_ASSERT(bit->second.equal_to(a));
             return {substitutions};
+        }
         else
             return {};
     }

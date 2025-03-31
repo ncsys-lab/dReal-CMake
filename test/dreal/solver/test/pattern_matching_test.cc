@@ -66,7 +66,27 @@ namespace dreal
             for (const auto& match : matches) trie.insert(match);
             for (const auto& miss : misses1) trie.insert(miss);
             for (const auto& miss : misses2) trie.insert(miss);
-            const auto found = trie.find_matches(pattern);
+            std::set<T1> found;
+            for (const auto& [form, subs] : trie.find_matches(pattern)) {
+                // check substitutions are correct and injective:
+                ExpressionSubstitution fwd_esub, bwd_esub;
+                FormulaSubstitution fwd_fsub, bwd_fsub;
+                for (const auto& [a, aP] : subs->first)
+                    EXPECT_TRUE(subs->second[aP].equal_to(a));
+                for (const auto& [a, aP] : subs->first) {
+                    if (a.get_type() == Variable::Type::BOOLEAN) {
+                        fwd_fsub.emplace(a, Formula{aP});
+                        bwd_fsub.emplace(aP, Formula{a});
+                    }
+                    else {
+                        fwd_esub.emplace(a, aP);
+                        bwd_esub.emplace(aP, a);
+                    }
+                }
+                EXPECT_TRUE(form.Substitute(fwd_esub, fwd_fsub).EqualTo(pattern));
+                EXPECT_TRUE(pattern.Substitute(bwd_esub, bwd_fsub).EqualTo(form));
+                found.insert(form);
+            }
 
             for (const auto& match : matches) {
                 EXPECT_EQ(found.count(match), 1);
