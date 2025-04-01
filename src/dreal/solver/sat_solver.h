@@ -21,6 +21,8 @@
 #include <vector>
 
 // #include "./picosat.h"
+#include <dreal/util/predicate_normalizer.h>
+
 #include "cadical.hpp"
 
 #include "dreal/solver/config.h"
@@ -66,9 +68,11 @@ class SatSolver {
 
   /// Given a @p formulas = {f₁, ..., fₙ}, adds a clause (¬f₁ ∨ ... ∨ ¬ fₙ) to
   /// the solver.
-  void AddLearnedClause(const std::set<Formula>& conflicting_conjunction);
+  void AddLearnedClause(const std::set<Formula>& conflicting_conjunction, const Box& box);
+  void AddLearnedClausePattern(PredicateNormalizer& pn, const std::set<Formula>& base_conflict, const Box& base_box);
+  void AddBox(PredicateNormalizer& pn, const Box& base_box);
 
-  Formula MakeSatIntervalVar(const Variable& var, const Box::Interval& intv);
+  Formula MakeSatIntervalVar(PredicateNormalizer& pn, const Variable& var, const Box::Interval& intv);
 
   /// Checks the satisfiability of the current configuration.
   ///
@@ -81,9 +85,7 @@ class SatSolver {
 
   void Push();
 
-  Formula theory_literal(const Variable& var) const {
-    return predicate_abstractor_[var];
-  }
+  [[nodiscard]] Formula theory_literal(const Variable& var) const;
 
  private:
   // Adds a formula @p f to the solver.

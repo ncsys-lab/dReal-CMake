@@ -21,72 +21,73 @@
 
 #include "dreal/symbolic/symbolic.h"
 
-namespace dreal {
-namespace {
+namespace dreal
+{
+    namespace
+    {
+        class SatSolverIntervalTest : public ::testing::Test
+        {
+        protected:
+            void SetUp() override {}
+            Config c;
+            SatSolver s{c};
+            PredicateNormalizer pn;
 
-class SatSolverIntervalTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-  }
-  Config c;
-  SatSolver s{c};
+            const Variable x_{"x", Variable::Type::CONTINUOUS};
+            const Variable y_{"y", Variable::Type::CONTINUOUS};
+            const Variable z_{"z", Variable::Type::CONTINUOUS};
+        };
 
-  const Variable x_{"x", Variable::Type::CONTINUOUS};
-  const Variable y_{"y", Variable::Type::CONTINUOUS};
-  const Variable z_{"z", Variable::Type::CONTINUOUS};
-};
+        TEST_F(SatSolverIntervalTest, Implication7) {
+            s.AddFormula(s.MakeSatIntervalVar(pn, x_, {-3, +4}));
+            s.AddFormula(s.MakeSatIntervalVar(pn, x_, {-4, +3}));
+            EXPECT_TRUE(s.CheckSat());
+            s.AddFormula(!s.MakeSatIntervalVar(pn, x_, {-2, +2}));
+            EXPECT_TRUE(s.CheckSat());
+        }
 
-TEST_F(SatSolverIntervalTest, Implication7) {
-  s.AddFormula(s.MakeSatIntervalVar(x_, {-3, +4}));
-  s.AddFormula(s.MakeSatIntervalVar(x_, {-4, +3}));
-  EXPECT_TRUE(s.CheckSat());
-  s.AddFormula(!s.MakeSatIntervalVar(x_, {-2, +2}));
-  EXPECT_TRUE(s.CheckSat());
-}
+        TEST_F(SatSolverIntervalTest, Implication6) {
+            s.AddFormula(s.MakeSatIntervalVar(pn, x_, {-2, +4}));
+            s.AddFormula(s.MakeSatIntervalVar(pn, x_, {-4, +2}));
+            EXPECT_TRUE(s.CheckSat());
+            s.AddFormula(!s.MakeSatIntervalVar(pn, x_, {-2, +2}));
+            EXPECT_FALSE(s.CheckSat());
+        }
 
-TEST_F(SatSolverIntervalTest, Implication6) {
-  s.AddFormula(s.MakeSatIntervalVar(x_, {-2, +4}));
-  s.AddFormula(s.MakeSatIntervalVar(x_, {-4, +2}));
-  EXPECT_TRUE(s.CheckSat());
-  s.AddFormula(!s.MakeSatIntervalVar(x_, {-2, +2}));
-  EXPECT_FALSE(s.CheckSat());
-}
+        TEST_F(SatSolverIntervalTest, Implication5) {
+            s.AddFormula(s.MakeSatIntervalVar(pn, x_, {+0, +2}));
+            s.AddFormula(s.MakeSatIntervalVar(pn, x_, {-2, -0}));
+            EXPECT_TRUE(s.CheckSat()); // todo: is this true?? (incl. vs. excl. 0)
+            s.AddFormula(!s.MakeSatIntervalVar(pn, x_, {-2, +2}));
+            EXPECT_FALSE(s.CheckSat());
+        }
 
-TEST_F(SatSolverIntervalTest, Implication5) {
-  s.AddFormula(s.MakeSatIntervalVar(x_, {+0, +2}));
-  s.AddFormula(s.MakeSatIntervalVar(x_, {-2, -0}));
-  EXPECT_TRUE(s.CheckSat()); // todo: is this true?? (incl. vs. excl. 0)
-  s.AddFormula(!s.MakeSatIntervalVar(x_, {-2, +2}));
-  EXPECT_FALSE(s.CheckSat());
-}
+        TEST_F(SatSolverIntervalTest, Implication4) {
+            s.AddFormula(s.MakeSatIntervalVar(pn, y_, {+0, +2}));
+            EXPECT_TRUE(s.CheckSat());
+            s.AddFormula(!s.MakeSatIntervalVar(pn, x_, {-2, +2}));
+            EXPECT_TRUE(s.CheckSat());
+        }
 
-TEST_F(SatSolverIntervalTest, Implication4) {
-  s.AddFormula(s.MakeSatIntervalVar(y_, {+0, +2}));
-  EXPECT_TRUE(s.CheckSat());
-  s.AddFormula(!s.MakeSatIntervalVar(x_, {-2, +2}));
-  EXPECT_TRUE(s.CheckSat());
-}
+        TEST_F(SatSolverIntervalTest, Implication3) {
+            s.AddFormula(s.MakeSatIntervalVar(pn, x_, {-2, +2}));
+            EXPECT_TRUE(s.CheckSat());
+            s.AddFormula(!s.MakeSatIntervalVar(pn, x_, {+0, +2}));
+            EXPECT_TRUE(s.CheckSat());
+        }
 
-TEST_F(SatSolverIntervalTest, Implication3) {
-  s.AddFormula(s.MakeSatIntervalVar(x_, {-2, +2}));
-  EXPECT_TRUE(s.CheckSat());
-  s.AddFormula(!s.MakeSatIntervalVar(x_, {+0, +2}));
-  EXPECT_TRUE(s.CheckSat());
-}
+        TEST_F(SatSolverIntervalTest, Implication2) {
+            s.AddFormula(s.MakeSatIntervalVar(pn, x_, {+0, +2}));
+            EXPECT_TRUE(s.CheckSat());
+            s.AddFormula(s.MakeSatIntervalVar(pn, x_, {-2, +2}));
+            EXPECT_TRUE(s.CheckSat());
+        }
 
-TEST_F(SatSolverIntervalTest, Implication2) {
-  s.AddFormula(s.MakeSatIntervalVar(x_, {+0, +2}));
-  EXPECT_TRUE(s.CheckSat());
-  s.AddFormula(s.MakeSatIntervalVar(x_, {-2, +2}));
-  EXPECT_TRUE(s.CheckSat());
-}
-
-TEST_F(SatSolverIntervalTest, Implication1) {
-  s.AddFormula(s.MakeSatIntervalVar(x_, {+0, +2}));
-  EXPECT_TRUE(s.CheckSat());
-  s.AddFormula(!s.MakeSatIntervalVar(x_, {-2, +2}));
-  EXPECT_FALSE(s.CheckSat());
-}
-
-}  // namespace
-}  // namespace dreal
+        TEST_F(SatSolverIntervalTest, Implication1) {
+            s.AddFormula(s.MakeSatIntervalVar(pn, x_, {+0, +2}));
+            EXPECT_TRUE(s.CheckSat());
+            s.AddFormula(!s.MakeSatIntervalVar(pn, x_, {-2, +2}));
+            EXPECT_FALSE(s.CheckSat());
+        }
+    } // namespace
+} // namespace dreal
