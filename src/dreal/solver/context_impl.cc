@@ -23,9 +23,12 @@
 #include <sstream>
 #include <unordered_set>
 #include <utility>
+#include <dreal/symbolic/prefix_printer.h>
+#include <dreal/symbolic/symbolic_formula_cell.h>
 
 #include <fmt/format.h>
 
+#include "dreal/solver/auditor.h"
 #include "dreal/solver/filter_assertion.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
@@ -114,8 +117,9 @@ void Context::Impl::Assert(const Formula& f) {
       // Note that the following does not mark `ite_var` as a model variable.
       AddToBox(ite_var);
     }
-    stack_.push_back(no_ite);
-    sat_solver_.AddFormula(no_ite);
+    const Formula normalized{pn_.Convert(no_ite)};
+    stack_.push_back(normalized);
+    sat_solver_.AddFormula(normalized);
     return;
   } else {
     DREAL_LOG_DEBUG("ContextImpl::Assert: {} is not added.", f);
@@ -143,6 +147,8 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
     DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Found Model\n{}", box);
     return box;
   }
+
+  sat_solver->AddBox(pn_, box);
   while (true) {
     // Note that 'DREAL_CHECK_INTERRUPT' is only defined in setup.py,
     // when we build dReal python package.
@@ -173,7 +179,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
         if (theory_solver_.CheckSat(box, assertions)) {
           // SAT from TheorySolver.
           DREAL_LOG_DEBUG(
-              "ContextImpl::CheckSatCore() - Theroy Check = delta-SAT");
+              "ContextImpl::CheckSatCore() - Theory Check = delta-SAT");
           Box model{theory_solver_.GetModel()};
           return model;
         } else {
@@ -184,7 +190,9 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
               "ContextImpl::CheckSatCore() - size of explanation = {} - stack "
               "size = {}",
               explanation.size(), stack.get_vector().size());
-          sat_solver->AddLearnedClause(explanation);
+
+          sat_solver->AddLearnedClausePattern(pn_, explanation, box);
+
           if (DREAL_LOG_TRACE_ENABLED) {
             for (const auto& f_i : stack.get_vector()) {
               DREAL_LOG_TRACE("ContextImpl::CheckSatCore: Stack {}", f_i);

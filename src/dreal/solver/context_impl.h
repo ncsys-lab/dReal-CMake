@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <dreal/util/predicate_normalizer.h>
 
 #include "dreal/solver/context.h"
 #include "dreal/solver/sat_solver.h"
@@ -92,6 +93,7 @@ class Context::Impl {
   ScopedVector<Box> boxes_;
   // Stack of asserted formulas.
   ScopedVector<Formula> stack_;
+  PredicateNormalizer pn_;
   SatSolver sat_solver_;
   std::unordered_set<Variable::Id> model_variables_;
   TheorySolver theory_solver_;
