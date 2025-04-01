@@ -6,14 +6,15 @@
 
 #include <dreal/symbolic/symbolic_formula_cell.h>
 #include <dreal/util/assert.h>
+#include <dreal/util/box.h>
 
 #include "pattern_matching_trie.h"
 
 namespace dreal
 {
-    std::vector<std::pair<std::vector<Formula>, std::shared_ptr<PatternMatchingTrie::substitutions_map>>>
-    PatternMatchingTrie::find_matches(const std::set<Formula>& literals) {
-        std::vector<std::pair<std::vector<Formula>, std::shared_ptr<substitutions_map>>> state{
+    std::vector<std::pair<std::set<Formula>, std::shared_ptr<PatternMatchingTrie::substitutions_map>>>
+    PatternMatchingTrie::find_matches(const std::set<Formula>& literals) const {
+        std::vector<std::pair<std::set<Formula>, std::shared_ptr<substitutions_map>>> state{
                 {{}, std::make_shared<substitutions_map>()}
             }, next_state;
 
@@ -24,7 +25,7 @@ namespace dreal
                     // todo: check how bad this is.
                     // todo: check if using vector, and then converting to set, makes it faster. or just doing it all with set.
                     auto some_literals_copy = some_literals;
-                    some_literals_copy.emplace_back(new_literal);
+                    some_literals_copy.emplace(new_literal);
                     next_state.emplace_back(some_literals_copy, new_subs);
                 }
             }
@@ -36,7 +37,7 @@ namespace dreal
     PatternMatchingTrie::f_matches_vec PatternMatchingTrie::find_matches(
         const Formula& f,
         const std::optional<std::shared_ptr<substitutions_map>>& substitutions_primer
-    ) {
+    ) const {
         const auto substitutions = substitutions_primer.value_or(std::make_shared<substitutions_map>());
         f_matches_vec matches;
         recMatchForm(f, f_root, substitutions, matches);
@@ -46,7 +47,7 @@ namespace dreal
     PatternMatchingTrie::e_matches_vec PatternMatchingTrie::find_matches(
         const Expression& e,
         const std::optional<std::shared_ptr<substitutions_map>>& substitutions_primer
-    ) {
+    ) const {
         const auto substitutions = substitutions_primer.value_or(std::make_shared<substitutions_map>());
         e_matches_vec matches;
         recMatchExpr(e, e_root, substitutions, matches);
@@ -87,5 +88,17 @@ namespace dreal
         }
         else
             return {};
+    }
+
+    Box PatternMatchingTrie::apply_substitution(
+        const Box& b, const std::shared_ptr<substitutions_map>& subs, bool backward
+    ) {
+        Box new_b;
+        const auto& sub_func = backward ? subs->second : subs->first;
+        for (const auto& [a, aP] : sub_func) {
+            const auto& ba = b[a];
+            new_b.Add(aP, ba.lb(), ba.ub());
+        }
+        return new_b;
     }
 }

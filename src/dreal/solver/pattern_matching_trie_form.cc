@@ -14,19 +14,19 @@ namespace dreal
 {
 #define VISIT_DECL(name) \
 PatternMatchingTrie::f_partial_matches_vec PatternMatchingTrie::name ( \
-    const Formula &_f, FormNode &parent, \
+    const Formula &_f, const FormNode &parent, \
     const std::shared_ptr<substitutions_map> &substitutions, f_matches_vec &matches \
-)
+) const
 #define ADD_DECL(name) \
 PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, FormNode &parent, const std::optional<Formula> &is_terminal)
 
     ADD_DECL(VisitFalse) {
-        return parent.c[FormulaKind::False].emplace_back(f, is_terminal);
+        return parent.c(FormulaKind::False).emplace_back(f, is_terminal);
     }
 
     VISIT_DECL(VisitFalse) {
         f_partial_matches_vec partial_matches;
-        for (auto& node : parent.c[FormulaKind::False]) {
+        for (auto& node : parent.c(FormulaKind::False)) {
             if (!node.terminal_expression.has_value())
                 partial_matches.emplace_back(&node, substitutions);
             else
@@ -36,12 +36,12 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     }
 
     ADD_DECL(VisitTrue) {
-        return parent.c[FormulaKind::True].emplace_back(f, is_terminal);
+        return parent.c(FormulaKind::True).emplace_back(f, is_terminal);
     }
 
     VISIT_DECL(VisitTrue) {
         f_partial_matches_vec partial_matches;
-        for (auto& node : parent.c[FormulaKind::True]) {
+        for (auto& node : parent.c(FormulaKind::True)) {
             if (!node.terminal_expression.has_value())
                 partial_matches.emplace_back(&node, substitutions);
             else
@@ -51,13 +51,13 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     }
 
     ADD_DECL(VisitVariable) {
-        return parent.c[FormulaKind::Var].emplace_back(f, is_terminal);
+        return parent.c(FormulaKind::Var).emplace_back(f, is_terminal);
     }
 
     VISIT_DECL(VisitVariable) {
         const auto& f = get_variable(_f);
         f_partial_matches_vec partial_matches;
-        for (auto& node : parent.c[FormulaKind::Var]) {
+        for (auto& node : parent.c(FormulaKind::Var)) {
             const auto& matched_f = get_variable(*node.leaf);
             const auto matched_subs = attempt_substitution(substitutions, matched_f, f);
 
@@ -90,11 +90,11 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
 
     PatternMatchingTrie::f_partial_matches_vec PatternMatchingTrie::BinaryOpMatchHelper(
         const Formula& _f, const FormulaKind& k,
-        FormNode& parent, const std::shared_ptr<substitutions_map>& s1, f_matches_vec& matches
-    ) {
+        const FormNode& parent, const std::shared_ptr<substitutions_map>& s1, f_matches_vec& matches
+    ) const {
         e_matches_vec e_matches;
         e_partial_matches_vec e_partial_matches;
-        for (auto& n1 : parent.c[k]) {
+        for (auto& n1 : parent.c(k)) {
             for (auto& [n2, s2] : recMatchExpr(get_lhs_expression(_f), *n1.switch_kind, s1, e_matches)) {
                 DREAL_ASSERT(!n1.leaf.has_value());
                 DREAL_ASSERT(!n1.terminal_expression.has_value());
@@ -183,7 +183,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     VISIT_DECL(VisitConjunction) {
         f_partial_matches_vec partial_matches;
         const auto f = to_conjunction(_f);
-        for (auto& n1 : parent.c[FormulaKind::And]) {
+        for (auto& n1 : parent.c(FormulaKind::And)) {
             f_partial_matches_vec state{{&n1, substitutions}}, next_state;
             for (const auto& form : f->get_operands()) {
                 next_state.clear();
@@ -222,7 +222,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     VISIT_DECL(VisitDisjunction) {
         f_partial_matches_vec partial_matches;
         const auto f = to_disjunction(_f);
-        for (auto& n1 : parent.c[FormulaKind::Or]) {
+        for (auto& n1 : parent.c(FormulaKind::Or)) {
             f_partial_matches_vec state{{&n1, substitutions}}, next_state;
             for (const auto& form : f->get_operands()) {
                 next_state.clear();
@@ -252,7 +252,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
 
     VISIT_DECL(VisitNegation) {
         f_partial_matches_vec partial_matches;
-        for (auto& n1 : parent.c[FormulaKind::Not]) {
+        for (auto& n1 : parent.c(FormulaKind::Not)) {
             DREAL_ASSERT(!n1.leaf.has_value());
             DREAL_ASSERT(!n1.terminal_expression.has_value());
             auto n2s2 = recMatchForm(get_operand(_f), n1, substitutions, matches);

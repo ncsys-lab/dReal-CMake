@@ -13,6 +13,7 @@
 #include <dreal/util/exception.h>
 
 #include "dreal/symbolic/symbolic.h"
+#include "dreal/util/box.h"
 
 namespace dreal
 {
@@ -28,17 +29,18 @@ namespace dreal
             Formula, std::shared_ptr<substitutions_map>
         >>;
 
-        std::vector<std::pair<std::vector<Formula>, std::shared_ptr<substitutions_map>>> find_matches(
+        [[nodiscard]] std::vector<std::pair<std::set<Formula>, std::shared_ptr<PatternMatchingTrie::substitutions_map>>>
+        find_matches(
             const std::set<Formula>& literals
-        );
-        f_matches_vec find_matches(
+        ) const;
+        [[nodiscard]] f_matches_vec find_matches(
             const Formula& f,
             const std::optional<std::shared_ptr<substitutions_map>>& substitutions_primer = {}
-        );
-        e_matches_vec find_matches(
+        ) const;
+        [[nodiscard]] e_matches_vec find_matches(
             const Expression& f,
             const std::optional<std::shared_ptr<substitutions_map>>& substitutions_primer = {}
-        );
+        ) const;
 
         void insert(const Formula& f);
         void insert(const Expression& f);
@@ -48,18 +50,18 @@ namespace dreal
         class TrieNode
         {
         public:
-            TrieNode(): c{4} {}
+            TrieNode(): children{4} {}
 
             TrieNode(
                 const std::optional<This>& leaf,
                 const std::optional<This>& terminal_expression = {}
-            ): switch_kind{}, c{4}, leaf{leaf}, terminal_expression{terminal_expression} {}
+            ): switch_kind{}, children{4}, leaf{leaf}, terminal_expression{terminal_expression} {}
 
             TrieNode(const TrieNode& other) = default;
 
             TrieNode(TrieNode&& other) noexcept
                 : switch_kind{std::move(other.switch_kind)},
-                  c{std::move(other.c)},
+                  children{std::move(other.children)},
                   leaf{std::move(other.leaf)},
                   terminal_expression{std::move(other.terminal_expression)} {}
 
@@ -67,25 +69,43 @@ namespace dreal
                 if (switch_kind != nullptr) delete switch_kind;
             };
 
-        private:
-            TrieNode<OKind, Other, TKind, This>& init_switch_kind() {
+            [[nodiscard]] TrieNode<OKind, Other, TKind, This>& init_switch_kind() {
                 if (switch_kind == nullptr) switch_kind = new TrieNode<OKind, Other, TKind, This>;
                 return *switch_kind;
             }
 
-            TrieNode<TKind, This, OKind, Other>& c_leafless(const TKind& k) {
-                auto& vec = c[k];
-                if (vec.empty()) vec.emplace_back();
-                DREAL_ASSERT(vec.size() == 1);
-                return vec.back();
+            [[nodiscard]] const std::vector<TrieNode<TKind, This, OKind, Other>>& c(const TKind& k) const {
+                const auto it = children.find(k);
+                if (it != children.end()) return it->second;
+                const static std::vector<TrieNode<TKind, This, OKind, Other>> t_empty;
+                return t_empty;
             }
 
-            // important for ITEs which contain both Formulas and Expressions
-            TrieNode<OKind, Other, TKind, This>* switch_kind = nullptr;
-            std::unordered_map<TKind, std::vector<TrieNode>> c;
+            [[nodiscard]] std::vector<TrieNode<TKind, This, OKind, Other>>& c(const TKind& k) {
+                return children[k];
+            }
+
+            [[nodiscard]] const TrieNode<TKind, This, OKind, Other>& c_leafless(const TKind& k) const {
+                const auto& vec = c(k);
+                DREAL_ASSERT(vec.size() == 1);
+                return vec[0];
+            }
+
+            [[nodiscard]] TrieNode<TKind, This, OKind, Other>& c_leafless(const TKind& k) {
+                auto& vec = c(k);
+                if (vec.empty()) vec.emplace_back();
+                DREAL_ASSERT(vec.size() == 1);
+                return vec[0];
+            }
+
             std::optional<This> leaf{};
             std::optional<This> terminal_expression{};
-            friend PatternMatchingTrie;
+            // important for ITEs which contain both Formulas and Expressions
+            TrieNode<OKind, Other, TKind, This>* switch_kind = nullptr;
+
+        private:
+            std::unordered_map<TKind, std::vector<TrieNode>> children;
+            // friend PatternMatchingTrie;
         };
 
         using ExprNode = TrieNode<ExpressionKind, Expression, FormulaKind, Formula>;
@@ -93,8 +113,8 @@ namespace dreal
         ExprNode e_root;
         FormNode f_root;
 
-        using e_partial_matches_vec = std::vector<std::pair<ExprNode*, std::shared_ptr<substitutions_map>>>;
-        using f_partial_matches_vec = std::vector<std::pair<FormNode*, std::shared_ptr<substitutions_map>>>;
+        using e_partial_matches_vec = std::vector<std::pair<const ExprNode*, std::shared_ptr<substitutions_map>>>;
+        using f_partial_matches_vec = std::vector<std::pair<const FormNode*, std::shared_ptr<substitutions_map>>>;
 
         static std::optional<std::shared_ptr<substitutions_map>> attempt_substitution(
             const std::shared_ptr<substitutions_map>& substitutions,
@@ -102,10 +122,29 @@ namespace dreal
             const Variable& aP
         );
 
+        template <typename T>
+        static T apply_substitution(
+            const T& f, const std::shared_ptr<substitutions_map>& subs, bool backward
+        ) {
+            ExpressionSubstitution esub;
+            FormulaSubstitution fsub;
+            const auto& sub_func = backward ? subs->second : subs->first;
+            for (const auto& [a, aP] : sub_func) {
+                if (a.get_type() == Variable::Type::BOOLEAN)
+                    fsub.emplace(a, Formula{aP});
+                else
+                    esub.emplace(a, aP);
+            }
+            return f.Substitute(esub, fsub);
+        }
+        static Box apply_substitution(
+            const Box& b, const std::shared_ptr<substitutions_map>& subs, bool backward = false
+        );
+
 #define VISIT_DECL(name) e_partial_matches_vec name ( \
-    const Expression &_e, ExprNode &parent, \
+    const Expression &_e, const ExprNode &parent, \
     const std::shared_ptr<substitutions_map> &substitutions, e_matches_vec &matches \
-)
+) const
 #define ADD_DECL(name) ExprNode& name (const Expression &e, ExprNode &parent, const std::optional<Expression> &is_terminal)
 #define VISIT_AND_ADD_DECL(name) \
         VISIT_DECL(name); \
@@ -140,9 +179,9 @@ namespace dreal
 #undef VISIT_AND_ADD_DECL
 
 #define VISIT_DECL(name) f_partial_matches_vec name ( \
-    const Formula &f, FormNode &parent, \
+    const Formula &f, const FormNode &parent, \
     const std::shared_ptr<substitutions_map> &substitutions, f_matches_vec &matches \
-)
+) const
 #define ADD_DECL(name) FormNode& name (const Formula &f, FormNode &parent, const std::optional<Formula> &is_terminal)
 #define VISIT_AND_ADD_DECL(name) \
         VISIT_DECL(name); \
@@ -164,18 +203,18 @@ namespace dreal
 #undef ADD_DECL
 #undef VISIT_AND_ADD_DECL
 
-        e_partial_matches_vec BinaryOpMatchHelper(const Expression& e, const ExpressionKind& k, ExprNode& parent,
+        e_partial_matches_vec BinaryOpMatchHelper(const Expression& e, const ExpressionKind& k, const ExprNode& parent,
                                                   const std::shared_ptr<substitutions_map>& substitutions,
-                                                  e_matches_vec& matches);
-        f_partial_matches_vec BinaryOpMatchHelper(const Formula& f, const FormulaKind& k, FormNode& parent,
+                                                  e_matches_vec& matches) const;
+        f_partial_matches_vec BinaryOpMatchHelper(const Formula& f, const FormulaKind& k, const FormNode& parent,
                                                   const std::shared_ptr<substitutions_map>& substitutions,
-                                                  f_matches_vec& matches);
-        e_partial_matches_vec UnaryOpMatchHelper(const Expression& e, const ExpressionKind& k, ExprNode& parent,
+                                                  f_matches_vec& matches) const;
+        e_partial_matches_vec UnaryOpMatchHelper(const Expression& e, const ExpressionKind& k, const ExprNode& parent,
                                                  const std::shared_ptr<substitutions_map>& substitutions,
-                                                 e_matches_vec& matches);
-        f_partial_matches_vec UnaryOpMatchHelper(const Formula& e, const FormulaKind& k, FormNode& parent,
+                                                 e_matches_vec& matches) const;
+        f_partial_matches_vec UnaryOpMatchHelper(const Formula& e, const FormulaKind& k, const FormNode& parent,
                                                  const std::shared_ptr<substitutions_map>& substitutions,
-                                                 f_matches_vec& matches);
+                                                 f_matches_vec& matches) const;
         ExprNode& BinaryOpAddHelper(const Expression& f, const ExpressionKind& k, ExprNode& parent,
                                     const std::optional<Expression>& is_terminal);
         FormNode& BinaryOpAddHelper(const Formula& f, const FormulaKind& k, FormNode& parent,
@@ -186,18 +225,18 @@ namespace dreal
                                    const std::optional<Formula>& is_terminal);
 
         inline e_partial_matches_vec recMatchExpr(
-            const Expression& e, ExprNode& parent, const std::shared_ptr<substitutions_map>& substitutions,
+            const Expression& e, const ExprNode& parent, const std::shared_ptr<substitutions_map>& substitutions,
             e_matches_vec& matches
-        ) { return VisitExpression<e_partial_matches_vec>(this, e, parent, substitutions, matches); }
+        ) const { return VisitExpression<e_partial_matches_vec>(this, e, parent, substitutions, matches); }
 
         inline ExprNode& recAddExpr(
             const Expression& e, ExprNode& parent, const std::optional<Expression>& is_terminal
         ) { return VisitExpression<ExprNode&>(this, e, parent, is_terminal); }
 
         inline f_partial_matches_vec recMatchForm(
-            const Formula& f, FormNode& parent, const std::shared_ptr<substitutions_map>& substitutions,
+            const Formula& f, const FormNode& parent, const std::shared_ptr<substitutions_map>& substitutions,
             f_matches_vec& matches
-        ) { return VisitFormula<f_partial_matches_vec>(this, f, parent, substitutions, matches); }
+        ) const { return VisitFormula<f_partial_matches_vec>(this, f, parent, substitutions, matches); }
 
         inline FormNode& recAddForm(
             const Formula& f, FormNode& parent, const std::optional<Formula>& is_terminal
@@ -205,7 +244,7 @@ namespace dreal
 
         friend e_partial_matches_vec drake::symbolic::VisitExpression<e_partial_matches_vec>(
             PatternMatchingTrie*, const Expression& e,
-            ExprNode& parent, const std::shared_ptr<substitutions_map>& substitutions, e_matches_vec& matches
+            const ExprNode& parent, const std::shared_ptr<substitutions_map>& substitutions, e_matches_vec& matches
         );
         friend ExprNode& drake::symbolic::VisitExpression<ExprNode&>(
             PatternMatchingTrie*, const Expression& e, ExprNode& parent,
@@ -213,7 +252,7 @@ namespace dreal
         );
         friend f_partial_matches_vec drake::symbolic::VisitFormula<f_partial_matches_vec>(
             PatternMatchingTrie*, const Formula& e,
-            FormNode& parent, const std::shared_ptr<substitutions_map>& substitutions, f_matches_vec& matches
+            const FormNode& parent, const std::shared_ptr<substitutions_map>& substitutions, f_matches_vec& matches
         );
         friend FormNode& drake::symbolic::VisitFormula<FormNode&>(
             PatternMatchingTrie*, const Formula& e, FormNode& parent,

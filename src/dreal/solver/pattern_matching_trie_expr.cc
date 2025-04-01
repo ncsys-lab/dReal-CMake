@@ -11,21 +11,21 @@ namespace dreal
 {
 #define VISIT_DECL(name) \
 PatternMatchingTrie::e_partial_matches_vec PatternMatchingTrie::name ( \
-    const Expression &_e, ExprNode &parent, \
+    const Expression &_e, const ExprNode &parent, \
     const std::shared_ptr<substitutions_map> &substitutions, e_matches_vec &matches \
-)
+) const
 #define ADD_DECL(name) \
 PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, ExprNode &parent, const std::optional<Expression> &is_terminal)
 
     ADD_DECL(VisitVariable) {
         // todo: dedupe?
-        return parent.c[ExpressionKind::Var].emplace_back(e, is_terminal);
+        return parent.c(ExpressionKind::Var).emplace_back(e, is_terminal);
     }
 
     VISIT_DECL(VisitVariable) {
         const auto& e = get_variable(_e);
         e_partial_matches_vec partial_matches;
-        for (auto& node : parent.c[ExpressionKind::Var]) {
+        for (auto& node : parent.c(ExpressionKind::Var)) {
             const auto& matched_e = get_variable(*node.leaf);
             const auto matched_subs = attempt_substitution(substitutions, matched_e, e);
 
@@ -45,13 +45,13 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     ADD_DECL(VisitConstant) {
-        return parent.c[ExpressionKind::Constant].emplace_back(e, is_terminal);
+        return parent.c(ExpressionKind::Constant).emplace_back(e, is_terminal);
     }
 
     VISIT_DECL(VisitConstant) {
         const auto e = get_constant_value(_e);
         e_partial_matches_vec partial_matches;
-        for (auto& node : parent.c[ExpressionKind::Constant]) {
+        for (auto& node : parent.c(ExpressionKind::Constant)) {
             const auto& matched_e = get_constant_value(*node.leaf);
             if (e != matched_e) continue;
             else if (!node.terminal_expression.has_value())
@@ -63,13 +63,13 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     ADD_DECL(VisitRealConstant) {
-        return parent.c[ExpressionKind::RealConstant].emplace_back(e, is_terminal);
+        return parent.c(ExpressionKind::RealConstant).emplace_back(e, is_terminal);
     }
 
     VISIT_DECL(VisitRealConstant) {
         const auto e = to_real_constant(_e);
         e_partial_matches_vec partial_matches;
-        for (auto& node : parent.c[ExpressionKind::RealConstant]) {
+        for (auto& node : parent.c(ExpressionKind::RealConstant)) {
             const auto& matched_e = to_real_constant(*node.leaf);
             if (!e->EqualTo(*matched_e)) continue; // confirmed non-recursive / simple one-liner
             else if (!node.terminal_expression.has_value())
@@ -81,7 +81,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     ADD_DECL(VisitAddition) {
-        auto& n1 = parent.c[ExpressionKind::Add].emplace_back(e);
+        auto& n1 = parent.c(ExpressionKind::Add).emplace_back(e);
         ExprNode *stateCoeff = &n1, *stateExpr = nullptr;
         std::multimap<double, Expression> multimap; // canonicalize
         for (auto& [expr, coeff] : to_addition(e)->get_expr_to_coeff_map()) {
@@ -101,7 +101,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     VISIT_DECL(VisitAddition) {
         e_partial_matches_vec partial_matches;
         const auto e = to_addition(_e);
-        for (auto& n1 : parent.c[ExpressionKind::Add]) {
+        for (auto& n1 : parent.c(ExpressionKind::Add)) {
             const auto& m = to_addition(*n1.leaf);
             if (e->get_constant() != m->get_constant()) continue;
             if (e->get_expr_to_coeff_map().size() != m->get_expr_to_coeff_map().size()) continue;
@@ -145,7 +145,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     ADD_DECL(VisitMultiplication) {
-        auto& n1 = parent.c[ExpressionKind::Mul].emplace_back(e);
+        auto& n1 = parent.c(ExpressionKind::Mul).emplace_back(e);
         ExprNode *stateExp = &n1, *stateBase = nullptr;
         std::multimap<Expression, Expression> multimap; // canonicalize..ish
         for (auto& [base, expo] : to_multiplication(e)->get_base_to_exponent_map()) {
@@ -165,7 +165,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     VISIT_DECL(VisitMultiplication) {
         e_partial_matches_vec partial_matches;
         const auto e = to_multiplication(_e);
-        for (auto& n1 : parent.c[ExpressionKind::Mul]) {
+        for (auto& n1 : parent.c(ExpressionKind::Mul)) {
             const auto& m = to_multiplication(*n1.leaf);
             if (e->get_constant() != m->get_constant()) continue;
             if (e->get_base_to_exponent_map().size() != m->get_base_to_exponent_map().size()) continue;
@@ -213,10 +213,10 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
     PatternMatchingTrie::e_partial_matches_vec PatternMatchingTrie::BinaryOpMatchHelper(
         const Expression& _e, const ExpressionKind& k,
-        ExprNode& parent, const std::shared_ptr<substitutions_map>& s1, e_matches_vec& matches
-    ) {
+        const ExprNode& parent, const std::shared_ptr<substitutions_map>& s1, e_matches_vec& matches
+    ) const {
         e_partial_matches_vec partial_matches;
-        for (auto& n1 : parent.c[k]) {
+        for (auto& n1 : parent.c(k)) {
             for (auto& [n2, s2] : recMatchExpr(get_first_argument(_e), n1, s1, matches)) {
                 DREAL_ASSERT(!n1.leaf.has_value());
                 DREAL_ASSERT(!n1.terminal_expression.has_value());
@@ -242,10 +242,10 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
     PatternMatchingTrie::e_partial_matches_vec PatternMatchingTrie::UnaryOpMatchHelper(
         const Expression& e, const ExpressionKind& k,
-        ExprNode& parent, const std::shared_ptr<substitutions_map>& s1, e_matches_vec& matches
-    ) {
+        const ExprNode& parent, const std::shared_ptr<substitutions_map>& s1, e_matches_vec& matches
+    ) const {
         e_partial_matches_vec partial_matches;
-        for (auto& n1 : parent.c[k]) {
+        for (auto& n1 : parent.c(k)) {
             DREAL_ASSERT(!n1.leaf.has_value());
             DREAL_ASSERT(!n1.terminal_expression.has_value());
             auto n2s2 = recMatchExpr(get_argument(e), n1, s1, matches);
@@ -413,7 +413,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     VISIT_DECL(VisitIfThenElse) {
         const auto e = to_if_then_else(_e);
         e_partial_matches_vec partial_matches;
-        for (auto& n1 : parent.c[ExpressionKind::IfThenElse]) {
+        for (auto& n1 : parent.c(ExpressionKind::IfThenElse)) {
             DREAL_ASSERT(n1.switch_kind != nullptr);
             f_matches_vec f_matches;
             for (
@@ -443,7 +443,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     ADD_DECL(VisitUninterpretedFunction) {
-        return parent.c[ExpressionKind::UninterpretedFunction].emplace_back(e, is_terminal);
+        return parent.c(ExpressionKind::UninterpretedFunction).emplace_back(e, is_terminal);
     }
 
     VISIT_DECL(VisitUninterpretedFunction) {
@@ -451,7 +451,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
         // but doesn't really make sense for dReal.
         const auto e = to_uninterpreted_function(_e);
         e_partial_matches_vec partial_matches;
-        for (auto& node : parent.c[ExpressionKind::UninterpretedFunction]) {
+        for (auto& node : parent.c(ExpressionKind::UninterpretedFunction)) {
             const auto& matched_e = to_uninterpreted_function(*node.leaf);
             if (!e->EqualTo(*matched_e)) continue; // confirmed non-recursive / simple one-liner
             else if (!node.terminal_expression.has_value())

@@ -85,6 +85,18 @@ namespace dreal
                 }
                 EXPECT_TRUE(form.Substitute(fwd_esub, fwd_fsub).EqualTo(pattern));
                 EXPECT_TRUE(pattern.Substitute(bwd_esub, bwd_fsub).EqualTo(form));
+                EXPECT_TRUE(PatternMatchingTrie::apply_substitution(form, subs, false).EqualTo(pattern));
+                EXPECT_TRUE(PatternMatchingTrie::apply_substitution(pattern, subs, true).EqualTo(form));
+                EXPECT_TRUE(
+                    PatternMatchingTrie::apply_substitution(
+                        PatternMatchingTrie::apply_substitution(form, subs, false), subs, true
+                    ).EqualTo(form)
+                );
+                EXPECT_TRUE(
+                    PatternMatchingTrie::apply_substitution(
+                        PatternMatchingTrie::apply_substitution(pattern, subs, true), subs, false
+                    ).EqualTo(pattern)
+                );
                 found.insert(form);
             }
 
@@ -114,10 +126,10 @@ namespace dreal
             EXPECT_EQ(related_clauses.size(), 2);
 
             // todo: make less brittle... depends on hash values.
-            EXPECT_TRUE(related_clauses[0].first[0].EqualTo(y1 == sin(x1)));
-            EXPECT_TRUE(related_clauses[0].first[1].EqualTo(y1 == atan(x1)));
-            EXPECT_TRUE(related_clauses[1].first[0].EqualTo(y2 == sin(x2)));
-            EXPECT_TRUE(related_clauses[1].first[1].EqualTo(y2 == atan(x2)));
+            EXPECT_EQ(related_clauses[0].first.count(y1 == sin(x1)), 1);
+            EXPECT_EQ(related_clauses[0].first.count(y1 == atan(x1)), 1);
+            EXPECT_EQ(related_clauses[1].first.count(y2 == sin(x2)), 1);
+            EXPECT_EQ(related_clauses[1].first.count(y2 == atan(x2)), 1);
         }
 
         TEST_F(PatternMatchingTest, ComplicatedIteExpression) {
