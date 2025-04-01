@@ -20,6 +20,7 @@
 #include <set>
 #include <sstream>
 
+#include "dreal/util/exception.h"
 #include "dreal/util/logging.h"
 #include "dreal/util/stat.h"
 #include "dreal/util/timer.h"
@@ -127,21 +128,24 @@ Formula PredicateAbstractor::VisitEqualTo(const Formula& f) {
 }
 
 Formula PredicateAbstractor::VisitNotEqualTo(const Formula& f) {
-  const Expression& lhs{get_lhs_expression(f)};
-  const Expression& rhs{get_rhs_expression(f)};
-  return !VisitAtomic(lhs == rhs);
+  throw DREAL_RUNTIME_ERROR("Formula {} should have already been normalized", f);
+  // const Expression& lhs{get_lhs_expression(f)};
+  // const Expression& rhs{get_rhs_expression(f)};
+  // return !VisitAtomic(lhs == rhs);
 }
 
 Formula PredicateAbstractor::VisitGreaterThan(const Formula& f) {
-  const Expression& lhs{get_lhs_expression(f)};
-  const Expression& rhs{get_rhs_expression(f)};
-  return !VisitAtomic(lhs <= rhs);
+  throw DREAL_RUNTIME_ERROR("Formula {} should have already been normalized", f);
+  // const Expression& lhs{get_lhs_expression(f)};
+  // const Expression& rhs{get_rhs_expression(f)};
+  // return !VisitAtomic(lhs <= rhs);
 }
 
 Formula PredicateAbstractor::VisitGreaterThanOrEqualTo(const Formula& f) {
-  const Expression& lhs{get_lhs_expression(f)};
-  const Expression& rhs{get_rhs_expression(f)};
-  return !VisitAtomic(lhs < rhs);
+  throw DREAL_RUNTIME_ERROR("Formula {} should have already been normalized", f);
+  // const Expression& lhs{get_lhs_expression(f)};
+  // const Expression& rhs{get_rhs_expression(f)};
+  // return !VisitAtomic(lhs < rhs);
 }
 
 Formula PredicateAbstractor::VisitLessThan(const Formula& f) {
