@@ -7,6 +7,7 @@
 #include <dreal/symbolic/symbolic_formula_cell.h>
 #include <dreal/symbolic/symbolic_expression_cell.h>
 #include <dreal/util/assert.h>
+#include <dreal/util/logging.h>
 
 namespace dreal
 {
@@ -59,17 +60,21 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
             const auto& matched_f = get_variable(*node.leaf);
             const auto matched_subs = attempt_substitution(substitutions, matched_f, f);
 
-            if (matched_subs == nullptr)
+            if (matched_subs == nullptr) {
                 // match already substituted for something else, stop.
+                DREAL_LOG_TRACE("Formula pattern matching attempt failed after {} substitutions.", substitutions->size);
                 continue;
+            }
 
             else if (!node.terminal_expression.has_value())
                 // partial match, keep going!
                 partial_matches.emplace_back(&node, matched_subs);
 
-            else
+            else {
                 // terminal match! BINGO!
+                DREAL_LOG_DEBUG("Found match after {} substitutions.", substitutions->size);
                 matches.emplace_back(*node.terminal_expression, matched_subs);
+            }
         }
         return partial_matches;
     }

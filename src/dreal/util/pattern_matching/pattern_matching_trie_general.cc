@@ -7,25 +7,25 @@
 #include <dreal/symbolic/symbolic_formula_cell.h>
 #include <dreal/util/assert.h>
 #include <dreal/util/box.h>
+#include <dreal/util/logging.h>
 
 #include "pattern_matching_trie.h"
 
 namespace dreal
 {
-    std::vector<std::pair<std::set<Formula>, substitutions_map_ptr>>
+    std::vector<std::pair<std::vector<Formula>, substitutions_map_ptr>>
     PatternMatchingTrie::find_matches(const std::set<Formula>& literals) const {
-        std::vector<std::pair<std::set<Formula>, substitutions_map_ptr>> state{
+        std::vector<std::pair<std::vector<Formula>, substitutions_map_ptr>> state{
                 {{}, nullptr}
             }, next_state;
+        DREAL_LOG_DEBUG("Finding matches for literals: {}", !make_conjunction(literals));
 
         for (const auto& form : literals) {
             next_state.clear();
             for (const auto& [some_literals, subs] : state) {
                 for (const auto& [new_literal, new_subs] : find_matches(form, subs)) {
-                    // todo: check how bad this is.
-                    // todo: check if using vector, and then converting to set, makes it faster. or just doing it all with set.
                     auto some_literals_copy = some_literals;
-                    some_literals_copy.emplace(new_literal);
+                    some_literals_copy.emplace_back(new_literal);
                     next_state.emplace_back(some_literals_copy, new_subs);
                 }
             }
@@ -38,6 +38,7 @@ namespace dreal
         const Formula& f,
         const substitutions_map_ptr& substitutions
     ) const {
+        DREAL_LOG_TRACE("Finding matches for formula {}", f.to_string());
         f_matches_vec matches;
         recMatchForm(f, f_root, substitutions, matches);
         return matches;
@@ -47,6 +48,7 @@ namespace dreal
         const Expression& e,
         const substitutions_map_ptr& substitutions
     ) const {
+        DREAL_LOG_TRACE("Finding matches for expression {}", e.to_string());
         e_matches_vec matches;
         recMatchExpr(e, e_root, substitutions, matches);
         return matches;

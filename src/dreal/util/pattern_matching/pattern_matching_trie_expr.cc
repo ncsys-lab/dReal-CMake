@@ -7,6 +7,7 @@
 #include <dreal/symbolic/symbolic_formula_cell.h>
 #include <dreal/symbolic/symbolic_expression_cell.h>
 #include <dreal/util/assert.h>
+#include <dreal/util/logging.h>
 
 namespace dreal
 {
@@ -30,17 +31,22 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
             const auto& matched_e = get_variable(*node.leaf);
             const auto matched_subs = attempt_substitution(substitutions, matched_e, e);
 
-            if (matched_subs == nullptr)
+            if (matched_subs == nullptr) {
                 // match already substituted for something else, stop.
+                DREAL_LOG_TRACE("Expression pattern matching attempt failed after {} substitutions.", substitutions->size);
                 continue;
+            }
 
-            else if (!node.terminal_expression.has_value())
+            else if (!node.terminal_expression.has_value()) {
                 // partial match, keep going!
                 partial_matches.emplace_back(&node, matched_subs);
+            }
 
-            else
+            else {
                 // terminal match! BINGO!
+                DREAL_LOG_DEBUG("Found match after {} substitutions.", substitutions->size);
                 matches.emplace_back(*node.terminal_expression, matched_subs);
+            }
         }
         return partial_matches;
     }
@@ -86,7 +92,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
         ExprNode *stateCoeff = &n1, *stateExpr = nullptr;
         std::multimap<double, Expression> multimap; // canonicalize
         for (auto& [expr, coeff] : to_addition(e)->get_expr_to_coeff_map()) {
-            multimap.insert({coeff, expr});
+            multimap.emplace(coeff, expr);
         }
         size_t i = 0;
         for (const auto& [coeff, expr] : multimap) {
@@ -108,15 +114,8 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
             if (e->get_expr_to_coeff_map().size() != m->get_expr_to_coeff_map().size()) continue;
 
             std::multimap<double, Expression> e_canon_coeff_to_expr_map;
-            { // todo: figure out if this actually improves performance or not.
-                std::multiset<double> e_coeffs, m_coeffs;
-                for (auto& [expr, coeff] : m->get_expr_to_coeff_map()) m_coeffs.emplace(coeff);
-                for (auto& [expr, coeff] : e->get_expr_to_coeff_map()) {
-                    e_coeffs.emplace(coeff);
-                    e_canon_coeff_to_expr_map.emplace(coeff, expr);
-                }
-                if (e_coeffs != m_coeffs) continue;
-            }
+            for (auto& [expr, coeff] : e->get_expr_to_coeff_map())
+                e_canon_coeff_to_expr_map.emplace(coeff, expr);
             e_partial_matches_vec state{{&n1, substitutions}}, next_state;
             for (auto& [coeff,expr] : e_canon_coeff_to_expr_map) {
                 next_state.clear();
@@ -150,7 +149,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
         ExprNode *stateExp = &n1, *stateBase = nullptr;
         std::multimap<Expression, Expression> multimap; // canonicalize..ish
         for (auto& [base, expo] : to_multiplication(e)->get_base_to_exponent_map()) {
-            multimap.insert({expo, base});
+            multimap.emplace(expo, base);
         }
         size_t i = 0;
         for (const auto& [expo, base] : multimap) {

@@ -25,7 +25,7 @@ namespace dreal
             Formula, substitutions_map_ptr
         >>;
 
-        [[nodiscard]] std::vector<std::pair<std::set<Formula>, substitutions_map_ptr>>
+        [[nodiscard]] std::vector<std::pair<std::vector<Formula>, substitutions_map_ptr>>
         find_matches(
             const std::set<Formula>& literals
         ) const;

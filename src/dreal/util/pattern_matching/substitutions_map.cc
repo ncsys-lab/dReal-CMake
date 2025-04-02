@@ -15,15 +15,17 @@ namespace dreal
         if (a.get_type() != aP.get_type())
             return {};
 
-        if (subs == nullptr) return std::make_shared<substitutions_map_node>(a, aP, subs);
-        // else {
         // must be bijective.
-        for (const auto& sub : *subs) {
+        if (subs != nullptr) for (const auto& sub : *subs) {
             const bool is_a = sub->a.equal_to(a);
             const bool is_aP = sub->aP.equal_to(aP);
             if (!is_a && !is_aP) continue;
-            if (is_a && is_aP) return {subs};
+            if (is_a && is_aP) return subs;
             // one or the other is already mapped to something else... must be bijective.
+            DREAL_LOG_TRACE(
+                "Substitution failed. new 'a' {} is already {}, while new 'aP' {} is already {}",
+                a.get_name(), sub->a.get_name(), aP.get_name(), sub->aP.get_name()
+            );
             return {};
         }
         // mapping does not exist, create it!
