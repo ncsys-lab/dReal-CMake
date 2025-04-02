@@ -5,17 +5,15 @@
 #include "pattern_matching_trie.h"
 
 #include <dreal/symbolic/symbolic_formula_cell.h>
+#include <dreal/symbolic/symbolic_expression_cell.h>
 #include <dreal/util/assert.h>
-
-#include "pattern_matching_trie.h"
-#include "pattern_matching_trie.h"
 
 namespace dreal
 {
 #define VISIT_DECL(name) \
 PatternMatchingTrie::f_partial_matches_vec PatternMatchingTrie::name ( \
     const Formula &_f, const FormNode &parent, \
-    const std::shared_ptr<substitutions_map> &substitutions, f_matches_vec &matches \
+    const substitutions_map_ptr &substitutions, f_matches_vec &matches \
 ) const
 #define ADD_DECL(name) \
 PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, FormNode &parent, const std::optional<Formula> &is_terminal)
@@ -61,17 +59,17 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
             const auto& matched_f = get_variable(*node.leaf);
             const auto matched_subs = attempt_substitution(substitutions, matched_f, f);
 
-            if (!matched_subs.has_value())
+            if (matched_subs == nullptr)
                 // match already substituted for something else, stop.
                 continue;
 
             else if (!node.terminal_expression.has_value())
                 // partial match, keep going!
-                partial_matches.emplace_back(&node, *matched_subs);
+                partial_matches.emplace_back(&node, matched_subs);
 
             else
                 // terminal match! BINGO!
-                matches.emplace_back(*node.terminal_expression, *matched_subs);
+                matches.emplace_back(*node.terminal_expression, matched_subs);
         }
         return partial_matches;
     }
@@ -90,7 +88,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
 
     PatternMatchingTrie::f_partial_matches_vec PatternMatchingTrie::BinaryOpMatchHelper(
         const Formula& _f, const FormulaKind& k,
-        const FormNode& parent, const std::shared_ptr<substitutions_map>& s1, f_matches_vec& matches
+        const FormNode& parent, const substitutions_map_ptr& s1, f_matches_vec& matches
     ) const {
         e_matches_vec e_matches;
         e_partial_matches_vec e_partial_matches;

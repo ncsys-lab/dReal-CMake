@@ -99,7 +99,7 @@ void SatSolver::AddLearnedClausePattern(
   DREAL_ASSERT(!all_related_conflicts.empty()); // should AT LEAST match with itself.
   std::cout << "Matched " << all_related_conflicts.size() << " for the price of 1." << std::endl;
   for (const auto& [conflict_clause, subs] : all_related_conflicts) {
-    Box conflict_box = PatternMatchingTrie::apply_substitution(base_box, subs, true);
+    Box conflict_box = substitutions_map_node::apply_substitution(base_box, subs, true);
 
     // audit(!make_conjunction(conflict_clause), conflict_box); // todo: gate.
 

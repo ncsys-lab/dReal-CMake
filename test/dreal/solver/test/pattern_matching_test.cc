@@ -13,7 +13,7 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 */
-#include <dreal/solver/pattern_matching_trie.h>
+#include <dreal/util/pattern_matching/pattern_matching_trie.h>
 #include <dreal/symbolic/symbolic_formula_cell.h>
 
 #include "dreal/solver/filter_assertion.h"
@@ -69,32 +69,16 @@ namespace dreal
             std::set<T1> found;
             for (const auto& [form, subs] : trie.find_matches(pattern)) {
                 // check substitutions are correct and injective:
-                ExpressionSubstitution fwd_esub, bwd_esub;
-                FormulaSubstitution fwd_fsub, bwd_fsub;
-                for (const auto& [a, aP] : subs->first)
-                    EXPECT_TRUE(subs->second[aP].equal_to(a));
-                for (const auto& [a, aP] : subs->first) {
-                    if (a.get_type() == Variable::Type::BOOLEAN) {
-                        fwd_fsub.emplace(a, Formula{aP});
-                        bwd_fsub.emplace(aP, Formula{a});
-                    }
-                    else {
-                        fwd_esub.emplace(a, aP);
-                        bwd_esub.emplace(aP, a);
-                    }
-                }
-                EXPECT_TRUE(form.Substitute(fwd_esub, fwd_fsub).EqualTo(pattern));
-                EXPECT_TRUE(pattern.Substitute(bwd_esub, bwd_fsub).EqualTo(form));
-                EXPECT_TRUE(PatternMatchingTrie::apply_substitution(form, subs, false).EqualTo(pattern));
-                EXPECT_TRUE(PatternMatchingTrie::apply_substitution(pattern, subs, true).EqualTo(form));
+                EXPECT_TRUE(substitutions_map_node::apply_substitution(form, subs, false).EqualTo(pattern));
+                EXPECT_TRUE(substitutions_map_node::apply_substitution(pattern, subs, true).EqualTo(form));
                 EXPECT_TRUE(
-                    PatternMatchingTrie::apply_substitution(
-                        PatternMatchingTrie::apply_substitution(form, subs, false), subs, true
+                    substitutions_map_node::apply_substitution(
+                        substitutions_map_node::apply_substitution(form, subs, false), subs, true
                     ).EqualTo(form)
                 );
                 EXPECT_TRUE(
-                    PatternMatchingTrie::apply_substitution(
-                        PatternMatchingTrie::apply_substitution(pattern, subs, true), subs, false
+                    substitutions_map_node::apply_substitution(
+                        substitutions_map_node::apply_substitution(pattern, subs, true), subs, false
                     ).EqualTo(pattern)
                 );
                 found.insert(form);

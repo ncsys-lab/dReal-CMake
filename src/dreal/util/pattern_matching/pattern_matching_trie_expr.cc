@@ -5,6 +5,7 @@
 #include "pattern_matching_trie.h"
 
 #include <dreal/symbolic/symbolic_formula_cell.h>
+#include <dreal/symbolic/symbolic_expression_cell.h>
 #include <dreal/util/assert.h>
 
 namespace dreal
@@ -12,7 +13,7 @@ namespace dreal
 #define VISIT_DECL(name) \
 PatternMatchingTrie::e_partial_matches_vec PatternMatchingTrie::name ( \
     const Expression &_e, const ExprNode &parent, \
-    const std::shared_ptr<substitutions_map> &substitutions, e_matches_vec &matches \
+    const substitutions_map_ptr &substitutions, e_matches_vec &matches \
 ) const
 #define ADD_DECL(name) \
 PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, ExprNode &parent, const std::optional<Expression> &is_terminal)
@@ -29,17 +30,17 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
             const auto& matched_e = get_variable(*node.leaf);
             const auto matched_subs = attempt_substitution(substitutions, matched_e, e);
 
-            if (!matched_subs.has_value())
+            if (matched_subs == nullptr)
                 // match already substituted for something else, stop.
                 continue;
 
             else if (!node.terminal_expression.has_value())
                 // partial match, keep going!
-                partial_matches.emplace_back(&node, *matched_subs);
+                partial_matches.emplace_back(&node, matched_subs);
 
             else
                 // terminal match! BINGO!
-                matches.emplace_back(*node.terminal_expression, *matched_subs);
+                matches.emplace_back(*node.terminal_expression, matched_subs);
         }
         return partial_matches;
     }
@@ -213,7 +214,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
     PatternMatchingTrie::e_partial_matches_vec PatternMatchingTrie::BinaryOpMatchHelper(
         const Expression& _e, const ExpressionKind& k,
-        const ExprNode& parent, const std::shared_ptr<substitutions_map>& s1, e_matches_vec& matches
+        const ExprNode& parent, const substitutions_map_ptr& s1, e_matches_vec& matches
     ) const {
         e_partial_matches_vec partial_matches;
         for (auto& n1 : parent.c(k)) {
@@ -242,7 +243,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
     PatternMatchingTrie::e_partial_matches_vec PatternMatchingTrie::UnaryOpMatchHelper(
         const Expression& e, const ExpressionKind& k,
-        const ExprNode& parent, const std::shared_ptr<substitutions_map>& s1, e_matches_vec& matches
+        const ExprNode& parent, const substitutions_map_ptr& s1, e_matches_vec& matches
     ) const {
         e_partial_matches_vec partial_matches;
         for (auto& n1 : parent.c(k)) {

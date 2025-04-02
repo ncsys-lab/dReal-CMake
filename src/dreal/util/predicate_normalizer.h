@@ -17,7 +17,7 @@
 
 #include <unordered_map>
 #include <vector>
-#include <dreal/solver/pattern_matching_trie.h>
+#include <dreal/util/pattern_matching/pattern_matching_trie.h>
 
 #include "dreal/symbolic/symbolic.h"
 
@@ -28,7 +28,7 @@ namespace dreal
     public:
         Formula Convert(const Formula& f);
 
-        [[nodiscard]] std::vector<std::pair<std::set<Formula>, std::shared_ptr<PatternMatchingTrie::substitutions_map>>>
+        [[nodiscard]] std::vector<std::pair<std::set<Formula>, substitutions_map_ptr>>
         FindSimilar(const std::set<Formula>& f) const;
 
     private:
