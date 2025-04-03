@@ -110,10 +110,10 @@ namespace dreal
             EXPECT_EQ(related_clauses.size(), 2);
 
             // todo: make less brittle... depends on hash values.
-            EXPECT_EQ(related_clauses[0].first.count(y1 == sin(x1)), 1);
-            EXPECT_EQ(related_clauses[0].first.count(y1 == atan(x1)), 1);
-            EXPECT_EQ(related_clauses[1].first.count(y2 == sin(x2)), 1);
-            EXPECT_EQ(related_clauses[1].first.count(y2 == atan(x2)), 1);
+            EXPECT_TRUE(related_clauses[0].first[0].EqualTo(y1 == sin(x1)));
+            EXPECT_TRUE(related_clauses[0].first[1].EqualTo(y1 == atan(x1)));
+            EXPECT_TRUE(related_clauses[1].first[0].EqualTo(y2 == sin(x2)));
+            EXPECT_TRUE(related_clauses[1].first[1].EqualTo(y2 == atan(x2)));
         }
 
         TEST_F(PatternMatchingTest, ComplicatedIteExpression) {

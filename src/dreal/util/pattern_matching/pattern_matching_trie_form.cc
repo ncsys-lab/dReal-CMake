@@ -28,7 +28,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         for (auto& node : parent.c(FormulaKind::False)) {
             if (!node.terminal_expression.has_value())
                 partial_matches.emplace_back(&node, substitutions);
-            else
+            else if (substitutions_map_node::verify_substitutions(substitutions))
                 matches.emplace_back(*node.terminal_expression, substitutions);
         }
         return partial_matches;
@@ -43,7 +43,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         for (auto& node : parent.c(FormulaKind::True)) {
             if (!node.terminal_expression.has_value())
                 partial_matches.emplace_back(&node, substitutions);
-            else
+            else if (substitutions_map_node::verify_substitutions(substitutions))
                 matches.emplace_back(*node.terminal_expression, substitutions);
         }
         return partial_matches;
@@ -58,23 +58,20 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         f_partial_matches_vec partial_matches;
         for (auto& node : parent.c(FormulaKind::Var)) {
             const auto& matched_f = get_variable(*node.leaf);
-            const auto matched_subs = attempt_substitution(substitutions, matched_f, f);
+            const auto matched_subs = substitutions_map_node::attempt_substitution(substitutions, matched_f, f);
 
-            if (matched_subs == nullptr) {
-                // match already substituted for something else, stop.
-                DREAL_LOG_TRACE("Formula pattern matching attempt failed after {} substitutions.", substitutions->size);
+            if (!matched_subs.has_value())
+                // type check failed
+                // or match already substituted for something else, stop.
                 continue;
-            }
 
             else if (!node.terminal_expression.has_value())
                 // partial match, keep going!
-                partial_matches.emplace_back(&node, matched_subs);
+                partial_matches.emplace_back(&node, *matched_subs);
 
-            else {
+            else if (substitutions_map_node::verify_substitutions(*matched_subs))
                 // terminal match! BINGO!
-                DREAL_LOG_DEBUG("Found match after {} substitutions.", substitutions->size);
-                matches.emplace_back(*node.terminal_expression, matched_subs);
-            }
+                matches.emplace_back(*node.terminal_expression, *matched_subs);
         }
         return partial_matches;
     }
@@ -114,7 +111,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         for (const auto& [node,subs] : e_partial_matches) {
             if (!node->switch_kind->terminal_expression.has_value())
                 f_partial_matches.emplace_back(node->switch_kind, subs);
-            else
+            else if (substitutions_map_node::verify_substitutions(subs))
                 matches.emplace_back(*node->switch_kind->terminal_expression, subs);
         }
         return f_partial_matches;

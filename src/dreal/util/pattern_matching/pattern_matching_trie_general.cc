@@ -38,7 +38,7 @@ namespace dreal
         const Formula& f,
         const substitutions_map_ptr& substitutions
     ) const {
-        DREAL_LOG_TRACE("Finding matches for formula {}", f.to_string());
+        DREAL_LOG_TRACE("Finding matches for formula {}", fmt::streamed(f));
         f_matches_vec matches;
         recMatchForm(f, f_root, substitutions, matches);
         return matches;
@@ -48,7 +48,7 @@ namespace dreal
         const Expression& e,
         const substitutions_map_ptr& substitutions
     ) const {
-        DREAL_LOG_TRACE("Finding matches for expression {}", e.to_string());
+        DREAL_LOG_TRACE("Finding matches for expression {}", fmt::streamed(e));
         e_matches_vec matches;
         recMatchExpr(e, e_root, substitutions, matches);
         return matches;

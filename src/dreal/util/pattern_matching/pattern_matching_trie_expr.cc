@@ -29,24 +29,20 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
         e_partial_matches_vec partial_matches;
         for (auto& node : parent.c(ExpressionKind::Var)) {
             const auto& matched_e = get_variable(*node.leaf);
-            const auto matched_subs = attempt_substitution(substitutions, matched_e, e);
+            const auto matched_subs = substitutions_map_node::attempt_substitution(substitutions, matched_e, e);
 
-            if (matched_subs == nullptr) {
-                // match already substituted for something else, stop.
-                DREAL_LOG_TRACE("Expression pattern matching attempt failed after {} substitutions.", substitutions->size);
+            if (!matched_subs.has_value())
+                // type check failed
+                // or match already substituted for something else, stop.
                 continue;
-            }
 
-            else if (!node.terminal_expression.has_value()) {
+            else if (!node.terminal_expression.has_value())
                 // partial match, keep going!
-                partial_matches.emplace_back(&node, matched_subs);
-            }
+                partial_matches.emplace_back(&node, *matched_subs);
 
-            else {
+            else if (substitutions_map_node::verify_substitutions(*matched_subs))
                 // terminal match! BINGO!
-                DREAL_LOG_DEBUG("Found match after {} substitutions.", substitutions->size);
-                matches.emplace_back(*node.terminal_expression, matched_subs);
-            }
+                matches.emplace_back(*node.terminal_expression, *matched_subs);
         }
         return partial_matches;
     }
@@ -63,8 +59,9 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
             if (e != matched_e) continue;
             else if (!node.terminal_expression.has_value())
                 partial_matches.emplace_back(&node, substitutions);
-            else
+            else if (substitutions_map_node::verify_substitutions(substitutions)) {
                 matches.emplace_back(*node.terminal_expression, substitutions);
+            }
         }
         return partial_matches;
     }
@@ -81,7 +78,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
             if (!e->EqualTo(*matched_e)) continue; // confirmed non-recursive / simple one-liner
             else if (!node.terminal_expression.has_value())
                 partial_matches.emplace_back(&node, substitutions);
-            else
+            else if (substitutions_map_node::verify_substitutions(substitutions))
                 matches.emplace_back(*node.terminal_expression, substitutions);
         }
         return partial_matches;
@@ -456,7 +453,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
             if (!e->EqualTo(*matched_e)) continue; // confirmed non-recursive / simple one-liner
             else if (!node.terminal_expression.has_value())
                 partial_matches.emplace_back(&node, substitutions);
-            else
+            else if (substitutions_map_node::verify_substitutions(substitutions))
                 matches.emplace_back(*node.terminal_expression, substitutions);
         }
         return partial_matches;

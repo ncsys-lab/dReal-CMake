@@ -28,7 +28,10 @@ namespace dreal
 
         substitutions_map_node(
             Variable a, Variable aP, substitutions_map_ptr next
-        ): a(std::move(a)), aP(std::move(aP)), next(std::move(next)), size(1 + (next == nullptr ? 0 : next->size)) {}
+        ):
+            a(std::move(a)), aP(std::move(aP)),
+            next(std::move(next)),
+            size(1 + (next == nullptr ? 0 : next->size)) {}
 
         substitutions_map_node() = delete;
         ~substitutions_map_node() = default;
@@ -58,9 +61,10 @@ namespace dreal
             const Box& b, const substitutions_map_ptr& subs, bool backward = false
         );
 
-        [[nodiscard]] static substitutions_map_ptr attempt_substitution(
-            substitutions_map_ptr subs, const Variable& a, const Variable& aP
+        [[nodiscard]] static std::optional<substitutions_map_ptr> attempt_substitution(
+            const substitutions_map_ptr& subs, const Variable& a, const Variable& aP
         );
+        [[nodiscard]] static bool verify_substitutions(const substitutions_map_ptr& subs);
 
         class Iterator;
         class ConstIterator;
