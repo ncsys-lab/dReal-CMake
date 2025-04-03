@@ -46,7 +46,6 @@ ADD_FLEX_BISON_DEPENDENCY(dr_scanner dr_parser)
 # manually imported dependencies
 set(DRAKE_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_robotlocomotion_drake/")
 set(DYNBITSET_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_pinam45_dynamic_bitset/")
-set(OPTIONAL_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_tartanllama_optional/")
 set(THREADPOOL_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_progschj_threadpool/")
 set(EZPARSER_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_dreal-deps_ezoptionparser/")
 set(LIBCDS_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_khizmax_libcds/")
@@ -72,7 +71,6 @@ target_include_directories(dreal4_cmake PUBLIC
         "${PROJECT_SOURCE_DIR}/src/"
         "${DRAKE_HOME}"
         "${DYNBITSET_HOME}"
-        "${OPTIONAL_HOME}"
         "${THREADPOOL_HOME}"
         "${EZPARSER_HOME}"
         "${LIBCDS_HOME}"
