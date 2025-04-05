@@ -12,9 +12,10 @@
 namespace dreal
 {
 #define VISIT_DECL(name) \
-PatternMatchingTrie::e_partial_matches_vec PatternMatchingTrie::name ( \
+void PatternMatchingTrie::name ( \
     const Expression &_e, const ExprNode &parent, \
-    const substitutions_map_ptr &substitutions, e_matches_vec &matches \
+    const substitutions_map_ptr &substitutions, e_matches_vec &matches, \
+    const e_partial_matches_vec& partial_matches \
 ) const
 #define ADD_DECL(name) \
 PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, ExprNode &parent, const std::optional<Expression> &is_terminal)
@@ -26,7 +27,6 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
     VISIT_DECL(VisitVariable) {
         const auto& e = get_variable(_e);
-        e_partial_matches_vec partial_matches;
         for (auto& node : parent.c(ExpressionKind::Var)) {
             const auto& matched_e = get_variable(*node.leaf);
             const auto matched_subs = substitutions_map_node::attempt_substitution(substitutions, matched_e, e);
@@ -38,13 +38,12 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
             else if (!node.terminal_expression.has_value())
                 // partial match, keep going!
-                partial_matches.emplace_back(&node, *matched_subs);
+                partial_matches(node, *matched_subs);
 
             else if (substitutions_map_node::verify_substitutions(*matched_subs))
                 // terminal match! BINGO!
                 matches.emplace_back(*node.terminal_expression, *matched_subs);
         }
-        return partial_matches;
     }
 
     ADD_DECL(VisitConstant) {
@@ -53,17 +52,15 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
     VISIT_DECL(VisitConstant) {
         const auto e = get_constant_value(_e);
-        e_partial_matches_vec partial_matches;
         for (auto& node : parent.c(ExpressionKind::Constant)) {
             const auto& matched_e = get_constant_value(*node.leaf);
             if (e != matched_e) continue;
             else if (!node.terminal_expression.has_value())
-                partial_matches.emplace_back(&node, substitutions);
+                partial_matches(node, substitutions);
             else if (substitutions_map_node::verify_substitutions(substitutions)) {
                 matches.emplace_back(*node.terminal_expression, substitutions);
             }
         }
-        return partial_matches;
     }
 
     ADD_DECL(VisitRealConstant) {
@@ -72,16 +69,14 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
     VISIT_DECL(VisitRealConstant) {
         const auto e = to_real_constant(_e);
-        e_partial_matches_vec partial_matches;
         for (auto& node : parent.c(ExpressionKind::RealConstant)) {
             const auto& matched_e = to_real_constant(*node.leaf);
             if (!e->EqualTo(*matched_e)) continue; // confirmed non-recursive / simple one-liner
             else if (!node.terminal_expression.has_value())
-                partial_matches.emplace_back(&node, substitutions);
+                partial_matches(node, substitutions);
             else if (substitutions_map_node::verify_substitutions(substitutions))
                 matches.emplace_back(*node.terminal_expression, substitutions);
         }
-        return partial_matches;
     }
 
     ADD_DECL(VisitAddition) {
@@ -103,7 +98,6 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitAddition) {
-        e_partial_matches_vec partial_matches;
         const auto e = to_addition(_e);
         for (auto& n1 : parent.c(ExpressionKind::Add)) {
             const auto& m = to_addition(*n1.leaf);
@@ -113,32 +107,27 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
             std::multimap<double, Expression> e_canon_coeff_to_expr_map;
             for (auto& [expr, coeff] : e->get_expr_to_coeff_map())
                 e_canon_coeff_to_expr_map.emplace(coeff, expr);
-            e_partial_matches_vec state{{&n1, substitutions}}, next_state;
-            for (auto& [coeff,expr] : e_canon_coeff_to_expr_map) {
-                next_state.clear();
-                for (auto& [n2,s2] : state) {
-                    for (
-                        auto& [n3,s3] :
-                        recMatchExpr(coeff, *n2, s2, matches)
-                    ) {
-                        DREAL_ASSERT(!n1.terminal_expression.has_value());
-                        DREAL_ASSERT(!n2->terminal_expression.has_value());
-                        DREAL_ASSERT(!n3->terminal_expression.has_value());
-                        auto n4s4 = recMatchExpr(expr, *n3, s3, matches);
-                        next_state.insert(
-                            next_state.end(),
-                            std::make_move_iterator(n4s4.begin()), std::make_move_iterator(n4s4.end())
-                        );
-                    }
-                }
-                state = std::move(next_state);
-            }
-            partial_matches.insert(
-                partial_matches.end(),
-                std::make_move_iterator(state.begin()), std::make_move_iterator(state.end())
-            );
+
+            DREAL_ASSERT(!n1.terminal_expression.has_value());
+            const auto ibegin = e_canon_coeff_to_expr_map.begin();
+            const auto iend = e_canon_coeff_to_expr_map.end();
+            std::function<e_partial_matches_vec(typeof(ibegin))> it_to_match_coeff, it_to_match_expr;
+            it_to_match_coeff = [&](const auto& it1) {
+                return [&, /*copy*/ it1](const auto& n, const auto& s) {
+                    auto it2 = it1;
+                    ++it2;
+                    if (it2 == iend) partial_matches(n, s);
+                    else recMatchExpr(it2->first, n, s, matches, it_to_match_expr(it2));
+                };
+            };
+            it_to_match_expr = [&](const auto& it) {
+                return [&, /*copy*/ it](const auto& n, const auto& s) {
+                    DREAL_ASSERT(!n.terminal_expression.has_value());
+                    recMatchExpr(it->second, n, s, matches, it_to_match_coeff(it));
+                };
+            };
+            recMatchExpr(ibegin->first, n1, substitutions, matches, it_to_match_expr(ibegin));
         }
-        return partial_matches;
     }
 
     ADD_DECL(VisitMultiplication) {
@@ -160,7 +149,6 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitMultiplication) {
-        e_partial_matches_vec partial_matches;
         const auto e = to_multiplication(_e);
         for (auto& n1 : parent.c(ExpressionKind::Mul)) {
             const auto& m = to_multiplication(*n1.leaf);
@@ -170,32 +158,27 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
             std::multimap<Expression, Expression> e_canon_expo_to_base_map;
             for (auto& [base, expo] : e->get_base_to_exponent_map())
                 e_canon_expo_to_base_map.emplace(expo, base);
-            e_partial_matches_vec state{{&n1, substitutions}}, next_state;
-            for (auto& [expo,base] : e_canon_expo_to_base_map) {
-                next_state.clear();
-                for (auto& [n2,s2] : state) {
-                    for (
-                        auto& [n3,s3] :
-                        recMatchExpr(expo, *n2, s2, matches)
-                    ) {
-                        DREAL_ASSERT(!n1.terminal_expression.has_value());
-                        DREAL_ASSERT(!n2->terminal_expression.has_value());
-                        DREAL_ASSERT(!n3->terminal_expression.has_value());
-                        auto n4s4 = recMatchExpr(base, *n3, s3, matches);
-                        next_state.insert(
-                            next_state.end(),
-                            std::make_move_iterator(n4s4.begin()), std::make_move_iterator(n4s4.end())
-                        );
-                    }
-                }
-                state = std::move(next_state);
-            }
-            partial_matches.insert(
-                partial_matches.end(),
-                std::make_move_iterator(state.begin()), std::make_move_iterator(state.end())
-            );
+
+            DREAL_ASSERT(!n1.terminal_expression.has_value());
+            const auto ibegin = e_canon_expo_to_base_map.begin();
+            const auto iend = e_canon_expo_to_base_map.end();
+            std::function<e_partial_matches_vec(typeof(ibegin))> it_to_match_expo, it_to_match_base;
+            it_to_match_expo = [&](const auto& it1) {
+                return [&, /*copy*/ it1](const auto& n, const auto& s) {
+                    auto it2 = it1;
+                    ++it2;
+                    if (it2 == iend) partial_matches(n, s);
+                    else recMatchExpr(it2->first, n, s, matches, it_to_match_base(it2));
+                };
+            };
+            it_to_match_base = [&](const auto& it1) {
+                return [&, /*copy*/ it1](const auto& n, const auto& s) {
+                    DREAL_ASSERT(!n.terminal_expression.has_value());
+                    recMatchExpr(it1->second, n, s, matches, it_to_match_expo(it1));
+                };
+            };
+            recMatchExpr(ibegin->first, n1, substitutions, matches, it_to_match_base(ibegin));
         }
-        return partial_matches;
     }
 
     PatternMatchingTrie::ExprNode& PatternMatchingTrie::BinaryOpAddHelper(
@@ -208,24 +191,21 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
         return n3;
     }
 
-    PatternMatchingTrie::e_partial_matches_vec PatternMatchingTrie::BinaryOpMatchHelper(
+    void PatternMatchingTrie::BinaryOpMatchHelper(
         const Expression& _e, const ExpressionKind& k,
-        const ExprNode& parent, const substitutions_map_ptr& s1, e_matches_vec& matches
+        const ExprNode& parent, const substitutions_map_ptr& s1, e_matches_vec& matches,
+        const e_partial_matches_vec& partial_matches
     ) const {
-        e_partial_matches_vec partial_matches;
         for (auto& n1 : parent.c(k)) {
-            for (auto& [n2, s2] : recMatchExpr(get_first_argument(_e), n1, s1, matches)) {
+            recMatchExpr(get_first_argument(_e), n1, s1, matches, PM_CONT_LAMBDA(n2, s2) {
                 DREAL_ASSERT(!n1.leaf.has_value());
                 DREAL_ASSERT(!n1.terminal_expression.has_value());
-                DREAL_ASSERT(!n2->terminal_expression.has_value());
-                auto n3s3 = recMatchExpr(get_second_argument(_e), *n2, s2, matches);
-                partial_matches.insert(
-                    partial_matches.end(),
-                    std::make_move_iterator(n3s3.begin()), std::make_move_iterator(n3s3.end())
+                DREAL_ASSERT(!n2.terminal_expression.has_value());
+                recMatchExpr(get_second_argument(_e), n2, s2, matches,
+                             partial_matches
                 );
-            }
+            });
         }
-        return partial_matches;
     }
 
     PatternMatchingTrie::ExprNode& PatternMatchingTrie::UnaryOpAddHelper(
@@ -237,21 +217,16 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
         return n2;
     }
 
-    PatternMatchingTrie::e_partial_matches_vec PatternMatchingTrie::UnaryOpMatchHelper(
+    void PatternMatchingTrie::UnaryOpMatchHelper(
         const Expression& e, const ExpressionKind& k,
-        const ExprNode& parent, const substitutions_map_ptr& s1, e_matches_vec& matches
+        const ExprNode& parent, const substitutions_map_ptr& s1, e_matches_vec& matches,
+        const e_partial_matches_vec& partial_matches
     ) const {
-        e_partial_matches_vec partial_matches;
         for (auto& n1 : parent.c(k)) {
             DREAL_ASSERT(!n1.leaf.has_value());
             DREAL_ASSERT(!n1.terminal_expression.has_value());
-            auto n2s2 = recMatchExpr(get_argument(e), n1, s1, matches);
-            partial_matches.insert(
-                partial_matches.end(),
-                std::make_move_iterator(n2s2.begin()), std::make_move_iterator(n2s2.end())
-            );
+            recMatchExpr(get_argument(e), n1, s1, matches, partial_matches);
         }
-        return partial_matches;
     }
 
     ADD_DECL(VisitDivision) {
@@ -259,7 +234,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitDivision) {
-        return BinaryOpMatchHelper(_e, ExpressionKind::Div, parent, substitutions, matches);
+        return BinaryOpMatchHelper(_e, ExpressionKind::Div, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitLog) {
@@ -267,7 +242,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitLog) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Log, parent, substitutions, matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Log, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitAbs) {
@@ -275,7 +250,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitAbs) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Abs, parent, substitutions, matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Abs, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitExp) {
@@ -283,7 +258,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitExp) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Exp, parent, substitutions, matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Exp, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitSqrt) {
@@ -291,7 +266,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitSqrt) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Sqrt, parent, substitutions, matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Sqrt, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitPow) {
@@ -299,7 +274,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitPow) {
-        return BinaryOpMatchHelper(_e, ExpressionKind::Pow, parent, substitutions, matches);
+        return BinaryOpMatchHelper(_e, ExpressionKind::Pow, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitSin) {
@@ -307,7 +282,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitSin) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Sin, parent, substitutions, matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Sin, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitCos) {
@@ -315,7 +290,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitCos) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Cos, parent, substitutions, matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Cos, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitTan) {
@@ -323,7 +298,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitTan) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Tan, parent, substitutions, matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Tan, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitAsin) {
@@ -331,7 +306,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitAsin) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Asin, parent, substitutions, matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Asin, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitAcos) {
@@ -339,7 +314,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitAcos) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Acos, parent, substitutions, matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Acos, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitAtan) {
@@ -347,7 +322,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitAtan) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Atan, parent, substitutions, matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Atan, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitAtan2) {
@@ -355,7 +330,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitAtan2) {
-        return BinaryOpMatchHelper(_e, ExpressionKind::Atan2, parent, substitutions, matches);
+        return BinaryOpMatchHelper(_e, ExpressionKind::Atan2, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitSinh) {
@@ -363,7 +338,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitSinh) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Sinh, parent, substitutions, matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Sinh, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitCosh) {
@@ -371,7 +346,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitCosh) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Cosh, parent, substitutions, matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Cosh, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitTanh) {
@@ -379,7 +354,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitTanh) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Tanh, parent, substitutions, matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Tanh, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitMin) {
@@ -387,7 +362,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitMin) {
-        return BinaryOpMatchHelper(_e, ExpressionKind::Min, parent, substitutions, matches);
+        return BinaryOpMatchHelper(_e, ExpressionKind::Min, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitMax) {
@@ -395,7 +370,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitMax) {
-        return BinaryOpMatchHelper(_e, ExpressionKind::Max, parent, substitutions, matches);
+        return BinaryOpMatchHelper(_e, ExpressionKind::Max, parent, substitutions, matches, partial_matches);
     }
 
     ADD_DECL(VisitIfThenElse) {
@@ -409,34 +384,26 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
     VISIT_DECL(VisitIfThenElse) {
         const auto e = to_if_then_else(_e);
-        e_partial_matches_vec partial_matches;
         for (auto& n1 : parent.c(ExpressionKind::IfThenElse)) {
             DREAL_ASSERT(n1.switch_kind != nullptr);
             f_matches_vec f_matches;
-            for (
-                auto& [n2, s2] :
-                recMatchForm(e->get_conditional_formula(), *n1.switch_kind, substitutions, f_matches)
-            ) {
-                DREAL_ASSERT(n2 != nullptr);
-                DREAL_ASSERT(n2->switch_kind != nullptr);
-                DREAL_ASSERT(f_matches.empty());
-                for (
-                    auto& [n3, s3] :
-                    recMatchExpr(e->get_then_expression(), *n2->switch_kind, s2, matches)
-                ) {
-                    DREAL_ASSERT(!n1.leaf.has_value());
-                    DREAL_ASSERT(!n1.terminal_expression.has_value());
-                    DREAL_ASSERT(!n2->terminal_expression.has_value());
-                    DREAL_ASSERT(!n3->terminal_expression.has_value());
-                    auto n4s4 = recMatchExpr(e->get_else_expression(), *n3, s3, matches);
-                    partial_matches.insert(
-                        partial_matches.end(),
-                        std::make_move_iterator(n4s4.begin()), std::make_move_iterator(n4s4.end())
-                    );
-                }
-            }
+            recMatchForm(
+                e->get_conditional_formula(), *n1.switch_kind, substitutions, f_matches,
+                PM_CONT_LAMBDA(n2, s2) {
+                    DREAL_ASSERT(n2.switch_kind != nullptr);
+                    DREAL_ASSERT(f_matches.empty());
+                    recMatchExpr(
+                        e->get_then_expression(), *n2.switch_kind, s2, matches,
+                        PM_CONT_LAMBDA(n3, s3) {
+                            DREAL_ASSERT(!n1.leaf.has_value());
+                            DREAL_ASSERT(!n1.terminal_expression.has_value());
+                            DREAL_ASSERT(!n2.terminal_expression.has_value());
+                            DREAL_ASSERT(!n3.terminal_expression.has_value());
+                            recMatchExpr(e->get_else_expression(), n3, s3, matches,
+                                         partial_matches);
+                        });
+                });
         }
-        return partial_matches;
     }
 
     ADD_DECL(VisitUninterpretedFunction) {
@@ -447,16 +414,14 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
         // todo:  can an uninterpreted function be substituted?  yeah probably...
         // but doesn't really make sense for dReal.
         const auto e = to_uninterpreted_function(_e);
-        e_partial_matches_vec partial_matches;
         for (auto& node : parent.c(ExpressionKind::UninterpretedFunction)) {
             const auto& matched_e = to_uninterpreted_function(*node.leaf);
             if (!e->EqualTo(*matched_e)) continue; // confirmed non-recursive / simple one-liner
             else if (!node.terminal_expression.has_value())
-                partial_matches.emplace_back(&node, substitutions);
+                partial_matches(node, substitutions);
             else if (substitutions_map_node::verify_substitutions(substitutions))
                 matches.emplace_back(*node.terminal_expression, substitutions);
         }
-        return partial_matches;
     }
 #undef VISIT_DECL
 #undef ADD_DECL

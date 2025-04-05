@@ -40,7 +40,9 @@ namespace dreal
     ) const {
         DREAL_LOG_TRACE("Finding matches for formula {}", fmt::streamed(f));
         f_matches_vec matches;
-        recMatchForm(f, f_root, substitutions, matches);
+        recMatchForm(f, f_root, substitutions, matches, PM_CONT_LAMBDA(n, s) {
+            DREAL_LOG_ERROR("Unterminated partial matching? Not sure if this should ever be reachable.");
+        });
         return matches;
     }
 
@@ -50,7 +52,9 @@ namespace dreal
     ) const {
         DREAL_LOG_TRACE("Finding matches for expression {}", fmt::streamed(e));
         e_matches_vec matches;
-        recMatchExpr(e, e_root, substitutions, matches);
+        recMatchExpr(e, e_root, substitutions, matches, PM_CONT_LAMBDA(n, s) {
+            DREAL_LOG_ERROR("Unterminated partial matching? Not sure if this should ever be reachable.");
+        });
         return matches;
     }
 
