@@ -13,12 +13,12 @@
 
 namespace dreal
 {
-    std::vector<std::pair<std::vector<Formula>, substitutions_map_ptr>>
+    std::vector<std::pair<std::vector<Formula>, substitutions_map>>
     PatternMatchingTrie::find_matches(const std::set<Formula>& literals) const {
-        DREAL_LOG_DEBUG("Finding matches for literals: {}", !make_conjunction(literals));
+        DREAL_LOG_INFO("Finding matches for literals: {}", !make_conjunction(literals));
 
         std::vector<Formula> matches_vec;
-        std::vector<std::pair<std::vector<Formula>, substitutions_map_ptr>> result;
+        std::vector<std::pair<std::vector<Formula>, substitutions_map>> result;
         matches_vec.reserve(literals.size());
 
         const f_misses_vec misses = [](const auto& _) {};
@@ -31,7 +31,7 @@ namespace dreal
             // if (DREAL_LOG_DEBUG_ENABLED)
             for (const auto& lit : matches_vec) {
                 DREAL_ASSERT(literals.count(
-                    substitutions_map_node::apply_substitution(lit, s, false)
+                    substitutions_map::apply_substitution(lit, s, false)
                 ) == 1);
             }
             result.emplace_back(matches_vec, s);
@@ -39,8 +39,10 @@ namespace dreal
 
         const auto ibegin = literals.begin();
         const auto iend = literals.end();
-        std::function<f_matches_vec(typeof(ibegin))> match_next_literal = [&](const auto& it1) {
-            return [&, /*copy*/ it1](const auto& f, const auto& s2) {
+        std::function<
+            std::function<void(const Formula& f, substitutions_map& s)>(typeof(ibegin))
+        > match_next_literal = [&](const auto& it1) {
+            return [&, /*copy*/ it1](const auto& f, auto& s2) {
                 matches_vec.emplace_back(f);
                 if (it1 == iend) {
                     DREAL_ASSERT(literals.size() == 1);
@@ -53,20 +55,22 @@ namespace dreal
                 matches_vec.pop_back();
             };
         };
-        recMatchForm(*ibegin, f_root, {}, match_next_literal(ibegin), partial_matches, misses);
+
+        substitutions_map substitutions;
+        recMatchForm(*ibegin, f_root, substitutions, match_next_literal(ibegin), partial_matches, misses);
 
         return result;
     }
 
-    std::vector<std::pair<Formula, substitutions_map_ptr>> PatternMatchingTrie::find_matches(
+    std::vector<std::pair<Formula, substitutions_map>> PatternMatchingTrie::find_matches(
         const Formula& f,
-        const substitutions_map_ptr& substitutions
+        const substitutions_map& substitutions
     ) const {
-        std::vector<std::pair<Formula, substitutions_map_ptr>> match_vec;
         DREAL_LOG_TRACE("Finding matches for formula {}", fmt::streamed(f));
-        f_matches_vec matches;
+        std::vector<std::pair<Formula, substitutions_map>> match_vec;
+        substitutions_map substitutions_copy = substitutions;
         recMatchForm(
-            f, f_root, substitutions,
+            f, f_root, substitutions_copy,
             PM_CONT_LAMBDA(m, s) {
                 match_vec.emplace_back(m, s);
             },
@@ -75,17 +79,19 @@ namespace dreal
             },
             [](const auto& s) {}
         );
+        DREAL_ASSERT(substitutions_copy == substitutions);
         return match_vec;
     }
 
-    std::vector<std::pair<Expression, substitutions_map_ptr>> PatternMatchingTrie::find_matches(
+    std::vector<std::pair<Expression, substitutions_map>> PatternMatchingTrie::find_matches(
         const Expression& e,
-        const substitutions_map_ptr& substitutions
+        const substitutions_map& substitutions
     ) const {
         DREAL_LOG_TRACE("Finding matches for expression {}", fmt::streamed(e));
-        std::vector<std::pair<Expression, substitutions_map_ptr>> match_vec;
+        std::vector<std::pair<Expression, substitutions_map>> match_vec;
+        substitutions_map substitutions_copy = substitutions;
         recMatchExpr(
-            e, e_root, substitutions,
+            e, e_root, substitutions_copy,
             PM_CONT_LAMBDA(m, s) {
                 match_vec.emplace_back(m, s);
             },
@@ -94,6 +100,7 @@ namespace dreal
             },
             [](const auto& s) {}
         );
+        DREAL_ASSERT(substitutions_copy == substitutions);
         return match_vec;
     }
 

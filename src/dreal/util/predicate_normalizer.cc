@@ -20,7 +20,7 @@
 
 namespace dreal
 {
-    std::vector<std::pair<std::vector<Formula>, substitutions_map_ptr>>
+    std::vector<std::pair<std::vector<Formula>, substitutions_map>>
     PredicateNormalizer::FindSimilar(const std::set<Formula>& clause) const {
         for (const auto& f : clause) {
             const auto& atom = is_negation(f) ? get_operand(f) : f;

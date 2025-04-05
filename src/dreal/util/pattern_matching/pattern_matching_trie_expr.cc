@@ -14,7 +14,7 @@ namespace dreal
 #define VISIT_DECL(name) \
 void PatternMatchingTrie::name ( \
     const Expression &_e, const ExprNode &parent, \
-    const substitutions_map_ptr &substitutions, \
+    substitutions_map &substitutions, \
     const e_matches_vec &matches, \
     const e_partial_matches_vec& partial_matches, \
     const e_misses_vec &misses \
@@ -30,24 +30,26 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     VISIT_DECL(VisitVariable) {
         const auto& e = get_variable(_e);
         for (auto& node : parent.c(ExpressionKind::Var)) {
-            const auto& matched_e = get_variable(*node.leaf);
-            const auto matched_subs = substitutions_map_node::attempt_substitution(substitutions, matched_e, e);
+            substitutions.push();
 
-            if (!matched_subs.has_value())
+            const auto& matched_e = get_variable(*node.leaf);
+            if (!substitutions.attempt_substitution(matched_e, e))
                 // type check failed
                 // or match already substituted for something else, stop.
                 misses(substitutions);
 
             else if (!node.terminal_expression.has_value())
                 // partial match, keep going!
-                partial_matches(node, *matched_subs);
+                partial_matches(node, substitutions);
 
-            else if (substitutions_map_node::verify_substitutions(*matched_subs))
+            else if (substitutions_map::verify_substitutions(substitutions))
                 // terminal match! BINGO!
-                matches(*node.terminal_expression, *matched_subs);
+                matches(*node.terminal_expression, substitutions);
 
             else
                 misses(substitutions);
+
+            substitutions.pop();
         }
     }
 
@@ -63,7 +65,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
                 misses(substitutions);
             else if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
-            else if (substitutions_map_node::verify_substitutions(substitutions))
+            else if (substitutions_map::verify_substitutions(substitutions))
                 matches(*node.terminal_expression, substitutions);
             else
                 misses(substitutions);
@@ -82,7 +84,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
                 misses(substitutions);
             else if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
-            else if (substitutions_map_node::verify_substitutions(substitutions))
+            else if (substitutions_map::verify_substitutions(substitutions))
                 matches(*node.terminal_expression, substitutions);
             else
                 misses(substitutions);
@@ -123,7 +125,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
             const auto iend = e_canon_coeff_to_expr_map.end();
             std::function<e_partial_matches_vec(typeof(ibegin))> it_to_match_coeff, it_to_match_expr;
             it_to_match_coeff = [&](const auto& it1) {
-                return [&, /*copy*/ it1](const auto& n, const auto& s) {
+                return [&, /*copy*/ it1](const auto& n, auto& s) {
                     auto it2 = it1;
                     ++it2;
                     if (it2 == iend) partial_matches(n, s);
@@ -131,7 +133,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
                 };
             };
             it_to_match_expr = [&](const auto& it) {
-                return [&, /*copy*/ it](const auto& n, const auto& s) {
+                return [&, /*copy*/ it](const auto& n, auto& s) {
                     DREAL_ASSERT(!n.terminal_expression.has_value());
                     recMatchExpr(it->second, n, s, matches, it_to_match_coeff(it), misses);
                 };
@@ -174,7 +176,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
             const auto iend = e_canon_expo_to_base_map.end();
             std::function<e_partial_matches_vec(typeof(ibegin))> it_to_match_expo, it_to_match_base;
             it_to_match_expo = [&](const auto& it1) {
-                return [&, /*copy*/ it1](const auto& n, const auto& s) {
+                return [&, /*copy*/ it1](const auto& n, auto& s) {
                     auto it2 = it1;
                     ++it2;
                     if (it2 == iend) partial_matches(n, s);
@@ -182,7 +184,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
                 };
             };
             it_to_match_base = [&](const auto& it1) {
-                return [&, /*copy*/ it1](const auto& n, const auto& s) {
+                return [&, /*copy*/ it1](const auto& n, auto& s) {
                     DREAL_ASSERT(!n.terminal_expression.has_value());
                     recMatchExpr(it1->second, n, s, matches, it_to_match_expo(it1), misses);
                 };
@@ -203,7 +205,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
     void PatternMatchingTrie::BinaryOpMatchHelper(
         const Expression& _e, const ExpressionKind& k,
-        const ExprNode& parent, const substitutions_map_ptr& s1,
+        const ExprNode& parent, substitutions_map& s1,
         const e_matches_vec& matches,
         const e_partial_matches_vec& partial_matches,
         const e_misses_vec& misses
@@ -229,7 +231,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
     void PatternMatchingTrie::UnaryOpMatchHelper(
         const Expression& e, const ExpressionKind& k,
-        const ExprNode& parent, const substitutions_map_ptr& s1,
+        const ExprNode& parent, substitutions_map& s1,
         const e_matches_vec& matches,
         const e_partial_matches_vec& partial_matches,
         const e_misses_vec& misses
@@ -430,7 +432,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
                 misses(substitutions);
             else if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
-            else if (substitutions_map_node::verify_substitutions(substitutions))
+            else if (substitutions_map::verify_substitutions(substitutions))
                 matches(*node.terminal_expression, substitutions);
             else
                 misses(substitutions);

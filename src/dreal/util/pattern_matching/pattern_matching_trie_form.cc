@@ -14,7 +14,7 @@ namespace dreal
 #define VISIT_DECL(name) \
 void PatternMatchingTrie::name ( \
     const Formula &_f, const FormNode &parent, \
-    const substitutions_map_ptr &substitutions, \
+    substitutions_map &substitutions, \
     const f_matches_vec &matches, \
     const f_partial_matches_vec& partial_matches, \
     const f_misses_vec& misses \
@@ -30,7 +30,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         for (auto& node : parent.c(FormulaKind::False)) {
             if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
-            else if (substitutions_map_node::verify_substitutions(substitutions))
+            else if (substitutions_map::verify_substitutions(substitutions))
                 matches(*node.terminal_expression, substitutions);
             else
                 misses(substitutions);
@@ -45,7 +45,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         for (auto& node : parent.c(FormulaKind::True)) {
             if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
-            else if (substitutions_map_node::verify_substitutions(substitutions))
+            else if (substitutions_map::verify_substitutions(substitutions))
                 matches(*node.terminal_expression, substitutions);
             else
                 misses(substitutions);
@@ -59,24 +59,26 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     VISIT_DECL(VisitVariable) {
         const auto& f = get_variable(_f);
         for (auto& node : parent.c(FormulaKind::Var)) {
-            const auto& matched_f = get_variable(*node.leaf);
-            const auto matched_subs = substitutions_map_node::attempt_substitution(substitutions, matched_f, f);
+            substitutions.push();
 
-            if (!matched_subs.has_value())
+            const auto& matched_f = get_variable(*node.leaf);
+            if (!substitutions.attempt_substitution(matched_f, f))
                 // type check failed
                 // or match already substituted for something else, stop.
                 misses(substitutions);
 
             else if (!node.terminal_expression.has_value())
                 // partial match, keep going!
-                partial_matches(node, *matched_subs);
+                partial_matches(node, substitutions);
 
-            else if (substitutions_map_node::verify_substitutions(*matched_subs))
+            else if (substitutions_map::verify_substitutions(substitutions))
                 // terminal match! BINGO!
-                matches(*node.terminal_expression, *matched_subs);
+                matches(*node.terminal_expression, substitutions);
 
             else
                 misses(substitutions);
+
+            substitutions.pop();
         }
     }
 
@@ -94,7 +96,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
 
     void PatternMatchingTrie::BinaryOpMatchHelper(
         const Formula& _f, const FormulaKind& k,
-        const FormNode& parent, const substitutions_map_ptr& s1,
+        const FormNode& parent, substitutions_map& s1,
         const f_matches_vec& matches,
         const f_partial_matches_vec& partial_matches,
         const f_misses_vec& misses
@@ -108,7 +110,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
                 recMatchExpr(get_rhs_expression(_f), n2, s2, e_matches, PM_CONT_LAMBDA(n3, s3) {
                     if (!n3.switch_kind->terminal_expression.has_value())
                         partial_matches(*n3.switch_kind, s3);
-                    else if (substitutions_map_node::verify_substitutions(s3))
+                    else if (substitutions_map::verify_substitutions(s3))
                         matches(*n3.switch_kind->terminal_expression, s3);
                     else
                         misses(s3);
@@ -135,7 +137,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
 
     void PatternMatchingTrie::NaryOpMatchHelper(
         const Formula& f, const FormulaKind& k,
-        const FormNode& parent, const substitutions_map_ptr& s1,
+        const FormNode& parent, substitutions_map& s1,
         const f_matches_vec& matches,
         const f_partial_matches_vec& partial_matches,
         const f_misses_vec& misses
@@ -146,7 +148,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
             const auto ibegin = _f->get_operands().begin();
             const auto iend = _f->get_operands().end();
             std::function<f_partial_matches_vec(typeof(ibegin))> it_to_match_op = [&](const auto& it1) {
-                return [&, /*copy*/ it1](const auto& n2, const auto& s2) {
+                return [&, /*copy*/ it1](const auto& n2, auto& s2) {
                     if (it1 == iend) {
                         DREAL_ASSERT(get_operands(f).size() == 1);
                         return partial_matches(n2, s2);

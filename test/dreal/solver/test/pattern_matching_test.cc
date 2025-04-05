@@ -69,16 +69,16 @@ namespace dreal
             std::set<T1> found;
             for (const auto& [form, subs] : trie.find_matches(pattern)) {
                 // check substitutions are correct and injective:
-                EXPECT_TRUE(substitutions_map_node::apply_substitution(form, subs, false).EqualTo(pattern));
-                EXPECT_TRUE(substitutions_map_node::apply_substitution(pattern, subs, true).EqualTo(form));
+                EXPECT_TRUE(substitutions_map::apply_substitution(form, subs, false).EqualTo(pattern));
+                EXPECT_TRUE(substitutions_map::apply_substitution(pattern, subs, true).EqualTo(form));
                 EXPECT_TRUE(
-                    substitutions_map_node::apply_substitution(
-                        substitutions_map_node::apply_substitution(form, subs, false), subs, true
+                    substitutions_map::apply_substitution(
+                        substitutions_map::apply_substitution(form, subs, false), subs, true
                     ).EqualTo(form)
                 );
                 EXPECT_TRUE(
-                    substitutions_map_node::apply_substitution(
-                        substitutions_map_node::apply_substitution(pattern, subs, true), subs, false
+                    substitutions_map::apply_substitution(
+                        substitutions_map::apply_substitution(pattern, subs, true), subs, false
                     ).EqualTo(pattern)
                 );
                 found.insert(form);

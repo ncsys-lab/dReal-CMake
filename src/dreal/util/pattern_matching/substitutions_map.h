@@ -2,53 +2,33 @@
 // Created by Kunal Sheth on 4/1/25.
 //
 
-#ifndef substitutions_map_nodeH
-#define substitutions_map_nodeH
+#ifndef substitutions_mapH
+#define substitutions_mapH
 #include <utility>
 #include <dreal/symbolic/symbolic.h>
+#include <dreal/util/assert.h>
 #include <dreal/util/box.h>
+#include <dreal/util/logging.h>
+#include <dreal/util/scoped_unordered_map.h>
 
 namespace dreal
 {
-    class substitutions_map_node;
-    using substitutions_map_ptr = std::shared_ptr<const substitutions_map_node>;
-
-    class substitutions_map_node : public std::enable_shared_from_this<substitutions_map_node>
+    class substitutions_map : public std::enable_shared_from_this<substitutions_map>
     {
     private:
-        Variable a, aP;
-        substitutions_map_ptr next;
-
-        friend substitutions_map_ptr attempt_substitution(
-            substitutions_map_ptr subs, const Variable& a, const Variable& aP
-        );
+        std::unordered_map<Variable, Variable> fwd;
+        std::unordered_map<Variable, Variable> bwd;
+        std::vector<std::vector<std::pair<Variable, Variable>>> insertion_stack{1};
 
     public:
-        const size_t size;
-
-        substitutions_map_node(
-            Variable a, Variable aP, substitutions_map_ptr next
-        ):
-            a(std::move(a)), aP(std::move(aP)),
-            next(std::move(next)),
-            size(1 + (next == nullptr ? 0 : next->size)) {}
-
-        substitutions_map_node() = delete;
-        ~substitutions_map_node() = default;
-
-        static substitutions_map_ptr create_map(const Variable& a, const Variable& aP) {
-            return std::make_shared<substitutions_map_node>(a, aP, nullptr);
-        }
-
         template <typename T>
-        static T apply_substitution(
-            const T& f, const substitutions_map_ptr& subs, bool backward
+        [[nodiscard]] static T apply_substitution(
+            const T& f, const substitutions_map& subs, bool backward
         ) {
             ExpressionSubstitution esub;
             FormulaSubstitution fsub;
-            for (const auto& sub : *subs) {
-                const auto aP = backward ? sub->a : sub->aP;
-                const auto a = backward ? sub->aP : sub->a;
+            const auto& map = backward ? subs.bwd : subs.fwd;
+            for (const auto& [a,aP] : map) {
                 if (a.get_type() == Variable::Type::BOOLEAN)
                     fsub.emplace(a, Formula{aP});
                 else
@@ -58,53 +38,21 @@ namespace dreal
         }
 
         [[nodiscard]] static Box apply_substitution(
-            const Box& b, const substitutions_map_ptr& subs, bool backward = false
+            const Box& b, const substitutions_map& subs, bool backward = false
         );
 
-        [[nodiscard]] static std::optional<substitutions_map_ptr> attempt_substitution(
-            const substitutions_map_ptr& subs, const Variable& a, const Variable& aP
-        );
-        [[nodiscard]] static bool verify_substitutions(const substitutions_map_ptr& subs);
+        void push();
 
-        class Iterator;
-        class ConstIterator;
+        void pop();
 
-        [[nodiscard]] Iterator begin();
-        [[nodiscard]] Iterator end();
-        [[nodiscard]] ConstIterator begin() const;
-        [[nodiscard]] ConstIterator end() const;
+        bool attempt_substitution(const Variable& a, const Variable& aP);
 
-        class Iterator
-        {
-        private:
-            substitutions_map_ptr current;
+        static bool verify_substitutions(const substitutions_map& subs) { return true; } // legacy
 
-        public:
-            explicit Iterator(substitutions_map_ptr current) : current{std::move(current)} {}
-            substitutions_map_ptr operator*();
-            Iterator& operator++();
-            Iterator operator++(int);
-            bool operator==(const Iterator& other) const;
-            bool operator!=(const Iterator& other) const;
-        };
+        friend bool operator==(const substitutions_map& lhs, const substitutions_map& rhs);
 
-        class ConstIterator
-        {
-        private:
-            substitutions_map_ptr current;
-
-        public:
-            explicit ConstIterator(substitutions_map_ptr current): current{
-                std::move(current)
-            } {}
-
-            substitutions_map_ptr operator*() const;
-            ConstIterator& operator++();
-            ConstIterator operator++(int);
-            bool operator==(const ConstIterator& other) const;
-            bool operator!=(const ConstIterator& other) const;
-        };
+        friend bool operator!=(const substitutions_map& lhs, const substitutions_map& rhs) { return !(lhs == rhs); }
     };
 }
 
-#endif //substitutions_map_nodeH
+#endif //substitutions_mapH
