@@ -209,18 +209,23 @@ namespace dreal
             test_matches_and_misses(pattern, matches, misses);
         }
 
-        TEST_F(PatternMatchingTest, SimpleBooleanFormulas) {
+        TEST_F(PatternMatchingTest, ComplicatedBooleanFormulas) {
             PatternMatchingTrie trie;
             auto epattern = (x1 < x2) || (x2 > x1) || !((y1 <= y2) && (y2 >= y1));
             auto pattern = !(b1 && b2) || !(b2 || b3) && (b4 || epattern);
+
+            // todo: this is extremely brittle because AND and OR operations can't really be cannonicalized,
+            // and the order of operands depends on their alphabetical hash value
+            const Variable b5{"b5", Variable::Type::BOOLEAN}; // so substitutions stay alphabetical...
+            const Variable b6{"b6", Variable::Type::BOOLEAN};
             FormulaSubstitution fsubs1 = {
-                {b1, Formula{b2}}, {b2, Formula{b3}}, {b3, Formula{b4}}, {b4, Formula{b1}}
+                {b1, Formula{b2}}, {b2, Formula{b3}}, {b3, Formula{b4}}, {b4, Formula{b5}}
             };
             ExpressionSubstitution esubs1 = {
                 {x1, x2}, {y1, y2}, {z1, z2}, {x2, x1}, {y2, y1}, {z2, z1}
             };
             FormulaSubstitution fsubs2 = {
-                {b1, Formula{b3}}, {b2, Formula{b4}}, {b3, Formula{b1}}, {b4, Formula{b2}}
+                {b1, Formula{b3}}, {b2, Formula{b4}}, {b3, Formula{b5}}, {b4, Formula{b6}}
             };
 
             std::vector matches{
@@ -233,9 +238,7 @@ namespace dreal
                 pattern.Substitute(fsubs1),
                 pattern.Substitute(esubs1, fsubs1),
                 pattern.Substitute(esubs1),
-                // todo: this is extremely brittle because AND and OR operations can't really be cannonicalized,
-                // and the order of operands depends on their alphabetical hash value
-                // pattern.Substitute(fsubs2),
+                pattern.Substitute(fsubs2),
             };
             std::vector misses{
                 // pattern = !(b1 && b2) || !(b2 || b3) && (b4 || (x1 < x2) || (x2 > x1) || !((y1 <= y2) && (y2 >= y1))),
@@ -252,6 +255,86 @@ namespace dreal
                 !(b1 && b2) || !(b2 && b3) && (b4),
                 !(b1 && b2) || (b2 || b3) && (b4),
                 !(b1 && b2) || !(b2 || b3) && (b3)
+            };
+
+            test_matches_and_misses(pattern, matches, misses);
+        }
+
+        TEST_F(PatternMatchingTest, NestedComplicatedAddMulFormulas) {
+            const Variable z1{"z1", Variable::Type::INTEGER};
+            const Variable z2{"z2", Variable::Type::INTEGER};
+            const Variable z3{"z3", Variable::Type::INTEGER};
+            const Variable z4{"z4", Variable::Type::INTEGER};
+            const Variable z5{"z5", Variable::Type::INTEGER};
+            const Variable z6{"z6", Variable::Type::INTEGER};
+
+            // aims to find Continuation-Passing-Style related bugs in lambda capture of iterator references/objects
+            // like those found in `NaryOpMatchHelper` by `ComplicatedBooleanFormulas` test. 
+            PatternMatchingTrie trie;
+            auto epattern = (x1 / x2) + max(x2, x1) + -(atan2(y1, y2) * min(y2, y1));
+            auto pattern = -(z1 * z2) + -(z2 + z3) * (z4 + epattern);
+
+            // todo: this is extremely brittle because MUL and ADD operations can't really be cannonicalized,
+            // and the order of operands depends on their alphabetical hash value
+            ExpressionSubstitution fsubs1 = {
+                {z1, z2}, {z2, z3}, {z3, z4}, {z4, z5}
+            };
+            ExpressionSubstitution esubs1 = {
+                {x1, x2}, {y1, y2}, {x2, x1}, {y2, y1},
+            };
+            ExpressionSubstitution fsubs2 = {
+                {z1, z3}, {z2, z4}, {z3, z5}, {z4, z6}
+            };
+
+            std::vector matches{
+                -(z1 * z2) + -(z2 + z3) * (z4 + (x1 / x2) + (max(x2, x1)) + -((atan2(y1, y2)) * (min(y2, y1)))),
+                // exact match
+                -(z1 * z2) + -(z2 + z3 + 0) * (z4 + (x1 / x2) + (max(x2, x1)) + -((atan2(y1, y2)) * min(y2, y1))),
+                -(z1 * z2 * 1) + -(z2 + z3) * (z4 + (x1 / x2) + (max(x2, x1)) + -((atan2(y1, y2)) * min(y2, y1))),
+                pattern.Substitute(fsubs1),
+                pattern.Substitute(esubs1).Substitute(fsubs1),
+                pattern.Substitute(esubs1),
+                pattern.Substitute(fsubs2),
+            };
+            std::vector misses{
+                // pattern = -(z1 * z2) + -(z2 + z3) * (z4 + (x1 / x2) + (max(x2, x1)) + -((atan2(y1, y2)) * (min(y2, y1)))),
+                -(z1 * z2) + -(z2 + z3 + 0.1) * (z4 + (x1 / x2) + (max(x2, x1)) + -((atan2(y1, y2)) * min(y2, y1))),
+                -(z1 * z2 * 0.9) + -(z2 + z3) * (z4 + (x1 / x2) + (max(x2, x1)) + -((atan2(y1, y2)) * min(y2, y1))),
+
+                -(z1 * z2) + -(z2 + z3) * (z4 + (x1 / x2) + (max(x2, x1)) + -((y1 / y2) * (min(y2, y1)))),
+                -(z1 * z2) + -(z2 + z3) * (z4 + (atan2(x1, x2)) + (max(x2, x1)) + -((atan2(y1, y2)) * (min(y2, y1)))),
+                -(z1 * z2) + -(z2 + z3) * (z4 + (x1 / x2) + (max(x2, x1)) + -((atan2(p1, y2)) * (min(y2, p1)))),
+                -(z4 * z2) + -(z2 + z3) * (z4 + (x1 / x2) + (max(x2, x1)) + -((atan2(y1, y2)) * (min(y2, y1)))),
+                -(z4 * z2) + -(z2 + z3) * (z4 + (x1 / x2) + (max(x2, x1)) + -((atan2(y1, y2)) * (min(y2, y1)))),
+                -(z1 * z2) * -(z2 + z3) * (z4),
+                -(z1 * z2) + -(z2 * z3) * (z4),
+                -(z1 * z2) + (z2 + z3) * (z4),
+                -(z1 * z2) + -(z2 + z3) * (z3)
+            };
+
+            test_matches_and_misses(pattern, matches, misses);
+        }
+
+        TEST_F(PatternMatchingTest, SimpleBooleanFormulas) {
+            PatternMatchingTrie trie;
+
+            auto pattern = (b1 || !b2 || !b3) && b2 && b3;
+            std::vector matches{
+                (b1 || !b2 || !b3) && b2 && b3,
+                (b1 || !b2 || !b3 || Formula::False()) && b2 && b3,
+                (b1 || !b2 || !b3 || Formula::False()) && b2 && b3 && Formula::True(),
+                (b2 || !b3 || !b4) && b3 && b4 // brittle due to hashing
+            };
+            std::vector misses{
+                Formula{b1},
+                b1 || b2, b3 && !b4,
+                (b1 || !b4 || !b3) && b2 && b3,
+                (b2 || b3) && b3 && !b4,
+                !((b1 || b2) && b3 && !b4),
+                (b1 || b2) && b3 && b4,
+                (b1 && b2) || b3 && !b4,
+                Formula::True(),
+                Formula::False(),
             };
 
             test_matches_and_misses(pattern, matches, misses);
