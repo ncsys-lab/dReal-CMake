@@ -14,8 +14,10 @@ namespace dreal
 #define VISIT_DECL(name) \
 void PatternMatchingTrie::name ( \
     const Formula &_f, const FormNode &parent, \
-    const substitutions_map_ptr &substitutions, f_matches_vec &matches, \
-    const f_partial_matches_vec& partial_matches \
+    const substitutions_map_ptr &substitutions, \
+    const f_matches_vec &matches, \
+    const f_partial_matches_vec& partial_matches, \
+    const f_misses_vec& misses \
 ) const
 #define ADD_DECL(name) \
 PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, FormNode &parent, const std::optional<Formula> &is_terminal)
@@ -29,7 +31,9 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
             if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
             else if (substitutions_map_node::verify_substitutions(substitutions))
-                matches.emplace_back(*node.terminal_expression, substitutions);
+                matches(*node.terminal_expression, substitutions);
+            else
+                misses(substitutions);
         }
     }
 
@@ -42,7 +46,9 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
             if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
             else if (substitutions_map_node::verify_substitutions(substitutions))
-                matches.emplace_back(*node.terminal_expression, substitutions);
+                matches(*node.terminal_expression, substitutions);
+            else
+                misses(substitutions);
         }
     }
 
@@ -59,7 +65,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
             if (!matched_subs.has_value())
                 // type check failed
                 // or match already substituted for something else, stop.
-                continue;
+                misses(substitutions);
 
             else if (!node.terminal_expression.has_value())
                 // partial match, keep going!
@@ -67,7 +73,10 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
 
             else if (substitutions_map_node::verify_substitutions(*matched_subs))
                 // terminal match! BINGO!
-                matches.emplace_back(*node.terminal_expression, *matched_subs);
+                matches(*node.terminal_expression, *matched_subs);
+
+            else
+                misses(substitutions);
         }
     }
 
@@ -85,10 +94,12 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
 
     void PatternMatchingTrie::BinaryOpMatchHelper(
         const Formula& _f, const FormulaKind& k,
-        const FormNode& parent, const substitutions_map_ptr& s1, f_matches_vec& matches,
-        const f_partial_matches_vec& partial_matches
+        const FormNode& parent, const substitutions_map_ptr& s1,
+        const f_matches_vec& matches,
+        const f_partial_matches_vec& partial_matches,
+        const f_misses_vec& misses
     ) const {
-        e_matches_vec e_matches;
+        e_matches_vec e_matches = PM_CONT_LAMBDA(m, s) { DREAL_UNREACHABLE(); };
         for (auto& n1 : parent.c(k)) {
             recMatchExpr(get_lhs_expression(_f), *n1.switch_kind, s1, e_matches, PM_CONT_LAMBDA(n2, s2) {
                 DREAL_ASSERT(!n1.leaf.has_value());
@@ -98,9 +109,11 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
                     if (!n3.switch_kind->terminal_expression.has_value())
                         partial_matches(*n3.switch_kind, s3);
                     else if (substitutions_map_node::verify_substitutions(s3))
-                        matches.emplace_back(*n3.switch_kind->terminal_expression, s3);
-                });
-            });
+                        matches(*n3.switch_kind->terminal_expression, s3);
+                    else
+                        misses(s3);
+                }, misses);
+            }, misses);
         }
     }
 
@@ -122,8 +135,10 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
 
     void PatternMatchingTrie::NaryOpMatchHelper(
         const Formula& f, const FormulaKind& k,
-        const FormNode& parent, const substitutions_map_ptr& s1, f_matches_vec& matches,
-        const f_partial_matches_vec& partial_matches
+        const FormNode& parent, const substitutions_map_ptr& s1,
+        const f_matches_vec& matches,
+        const f_partial_matches_vec& partial_matches,
+        const f_misses_vec& misses
     ) const {
         const auto _f = to_nary(f);
         for (auto& n1 : parent.c(k)) {
@@ -139,10 +154,10 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
                     auto it2 = it1;
                     ++it2;
                     if (it2 == iend) partial_matches(n2, s2);
-                    else recMatchForm(*it2, n2, s2, matches, it_to_match_op(it2));
+                    else recMatchForm(*it2, n2, s2, matches, it_to_match_op(it2), misses);
                 };
             };
-            recMatchForm(*ibegin, n1, s1, matches, it_to_match_op(ibegin));
+            recMatchForm(*ibegin, n1, s1, matches, it_to_match_op(ibegin), misses);
         }
     }
 
@@ -151,7 +166,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     }
 
     VISIT_DECL(VisitEqualTo) {
-        return BinaryOpMatchHelper(_f, FormulaKind::Eq, parent, substitutions, matches, partial_matches);
+        return BinaryOpMatchHelper(_f, FormulaKind::Eq, parent, substitutions, matches, partial_matches, misses);
     }
 
     // todo: Canonical-ize NEQ to NOT + EQ ?
@@ -160,7 +175,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     }
 
     VISIT_DECL(VisitNotEqualTo) {
-        return BinaryOpMatchHelper(_f, FormulaKind::Neq, parent, substitutions, matches, partial_matches);
+        return BinaryOpMatchHelper(_f, FormulaKind::Neq, parent, substitutions, matches, partial_matches, misses);
     }
 
     // todo: Canonical-ize GT/LT to just one or the other ?
@@ -169,7 +184,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     }
 
     VISIT_DECL(VisitGreaterThan) {
-        return BinaryOpMatchHelper(_f, FormulaKind::Gt, parent, substitutions, matches, partial_matches);
+        return BinaryOpMatchHelper(_f, FormulaKind::Gt, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitGreaterThanOrEqualTo) {
@@ -177,7 +192,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     }
 
     VISIT_DECL(VisitGreaterThanOrEqualTo) {
-        return BinaryOpMatchHelper(_f, FormulaKind::Geq, parent, substitutions, matches, partial_matches);
+        return BinaryOpMatchHelper(_f, FormulaKind::Geq, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitLessThan) {
@@ -185,7 +200,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     }
 
     VISIT_DECL(VisitLessThan) {
-        return BinaryOpMatchHelper(_f, FormulaKind::Lt, parent, substitutions, matches, partial_matches);
+        return BinaryOpMatchHelper(_f, FormulaKind::Lt, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitLessThanOrEqualTo) {
@@ -193,7 +208,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     }
 
     VISIT_DECL(VisitLessThanOrEqualTo) {
-        return BinaryOpMatchHelper(_f, FormulaKind::Leq, parent, substitutions, matches, partial_matches);
+        return BinaryOpMatchHelper(_f, FormulaKind::Leq, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitConjunction) {
@@ -201,7 +216,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     }
 
     VISIT_DECL(VisitConjunction) {
-        NaryOpMatchHelper(_f, FormulaKind::And, parent, substitutions, matches, partial_matches);
+        NaryOpMatchHelper(_f, FormulaKind::And, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitDisjunction) {
@@ -209,7 +224,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     }
 
     VISIT_DECL(VisitDisjunction) {
-        NaryOpMatchHelper(_f, FormulaKind::Or, parent, substitutions, matches, partial_matches);
+        NaryOpMatchHelper(_f, FormulaKind::Or, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitNegation) {
@@ -221,7 +236,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         for (auto& n1 : parent.c(FormulaKind::Not)) {
             DREAL_ASSERT(!n1.leaf.has_value());
             DREAL_ASSERT(!n1.terminal_expression.has_value());
-            recMatchForm(get_operand(_f), n1, substitutions, matches, partial_matches);
+            recMatchForm(get_operand(_f), n1, substitutions, matches, partial_matches, misses);
         }
     }
 

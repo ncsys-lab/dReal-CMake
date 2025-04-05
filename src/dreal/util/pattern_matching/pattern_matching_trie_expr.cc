@@ -14,8 +14,10 @@ namespace dreal
 #define VISIT_DECL(name) \
 void PatternMatchingTrie::name ( \
     const Expression &_e, const ExprNode &parent, \
-    const substitutions_map_ptr &substitutions, e_matches_vec &matches, \
-    const e_partial_matches_vec& partial_matches \
+    const substitutions_map_ptr &substitutions, \
+    const e_matches_vec &matches, \
+    const e_partial_matches_vec& partial_matches, \
+    const e_misses_vec &misses \
 ) const
 #define ADD_DECL(name) \
 PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, ExprNode &parent, const std::optional<Expression> &is_terminal)
@@ -34,7 +36,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
             if (!matched_subs.has_value())
                 // type check failed
                 // or match already substituted for something else, stop.
-                continue;
+                misses(substitutions);
 
             else if (!node.terminal_expression.has_value())
                 // partial match, keep going!
@@ -42,7 +44,10 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
             else if (substitutions_map_node::verify_substitutions(*matched_subs))
                 // terminal match! BINGO!
-                matches.emplace_back(*node.terminal_expression, *matched_subs);
+                matches(*node.terminal_expression, *matched_subs);
+
+            else
+                misses(substitutions);
         }
     }
 
@@ -54,12 +59,14 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
         const auto e = get_constant_value(_e);
         for (auto& node : parent.c(ExpressionKind::Constant)) {
             const auto& matched_e = get_constant_value(*node.leaf);
-            if (e != matched_e) continue;
+            if (e != matched_e)
+                misses(substitutions);
             else if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
-            else if (substitutions_map_node::verify_substitutions(substitutions)) {
-                matches.emplace_back(*node.terminal_expression, substitutions);
-            }
+            else if (substitutions_map_node::verify_substitutions(substitutions))
+                matches(*node.terminal_expression, substitutions);
+            else
+                misses(substitutions);
         }
     }
 
@@ -71,11 +78,14 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
         const auto e = to_real_constant(_e);
         for (auto& node : parent.c(ExpressionKind::RealConstant)) {
             const auto& matched_e = to_real_constant(*node.leaf);
-            if (!e->EqualTo(*matched_e)) continue; // confirmed non-recursive / simple one-liner
+            if (!e->EqualTo(*matched_e) /* confirmed non-recursive, simple one-liner */)
+                misses(substitutions);
             else if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
             else if (substitutions_map_node::verify_substitutions(substitutions))
-                matches.emplace_back(*node.terminal_expression, substitutions);
+                matches(*node.terminal_expression, substitutions);
+            else
+                misses(substitutions);
         }
     }
 
@@ -117,16 +127,16 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
                     auto it2 = it1;
                     ++it2;
                     if (it2 == iend) partial_matches(n, s);
-                    else recMatchExpr(it2->first, n, s, matches, it_to_match_expr(it2));
+                    else recMatchExpr(it2->first, n, s, matches, it_to_match_expr(it2), misses);
                 };
             };
             it_to_match_expr = [&](const auto& it) {
                 return [&, /*copy*/ it](const auto& n, const auto& s) {
                     DREAL_ASSERT(!n.terminal_expression.has_value());
-                    recMatchExpr(it->second, n, s, matches, it_to_match_coeff(it));
+                    recMatchExpr(it->second, n, s, matches, it_to_match_coeff(it), misses);
                 };
             };
-            recMatchExpr(ibegin->first, n1, substitutions, matches, it_to_match_expr(ibegin));
+            recMatchExpr(ibegin->first, n1, substitutions, matches, it_to_match_expr(ibegin), misses);
         }
     }
 
@@ -168,16 +178,16 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
                     auto it2 = it1;
                     ++it2;
                     if (it2 == iend) partial_matches(n, s);
-                    else recMatchExpr(it2->first, n, s, matches, it_to_match_base(it2));
+                    else recMatchExpr(it2->first, n, s, matches, it_to_match_base(it2), misses);
                 };
             };
             it_to_match_base = [&](const auto& it1) {
                 return [&, /*copy*/ it1](const auto& n, const auto& s) {
                     DREAL_ASSERT(!n.terminal_expression.has_value());
-                    recMatchExpr(it1->second, n, s, matches, it_to_match_expo(it1));
+                    recMatchExpr(it1->second, n, s, matches, it_to_match_expo(it1), misses);
                 };
             };
-            recMatchExpr(ibegin->first, n1, substitutions, matches, it_to_match_base(ibegin));
+            recMatchExpr(ibegin->first, n1, substitutions, matches, it_to_match_base(ibegin), misses);
         }
     }
 
@@ -193,18 +203,18 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
     void PatternMatchingTrie::BinaryOpMatchHelper(
         const Expression& _e, const ExpressionKind& k,
-        const ExprNode& parent, const substitutions_map_ptr& s1, e_matches_vec& matches,
-        const e_partial_matches_vec& partial_matches
+        const ExprNode& parent, const substitutions_map_ptr& s1,
+        const e_matches_vec& matches,
+        const e_partial_matches_vec& partial_matches,
+        const e_misses_vec& misses
     ) const {
         for (auto& n1 : parent.c(k)) {
             recMatchExpr(get_first_argument(_e), n1, s1, matches, PM_CONT_LAMBDA(n2, s2) {
                 DREAL_ASSERT(!n1.leaf.has_value());
                 DREAL_ASSERT(!n1.terminal_expression.has_value());
                 DREAL_ASSERT(!n2.terminal_expression.has_value());
-                recMatchExpr(get_second_argument(_e), n2, s2, matches,
-                             partial_matches
-                );
-            });
+                recMatchExpr(get_second_argument(_e), n2, s2, matches, partial_matches, misses);
+            }, misses);
         }
     }
 
@@ -219,13 +229,15 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
     void PatternMatchingTrie::UnaryOpMatchHelper(
         const Expression& e, const ExpressionKind& k,
-        const ExprNode& parent, const substitutions_map_ptr& s1, e_matches_vec& matches,
-        const e_partial_matches_vec& partial_matches
+        const ExprNode& parent, const substitutions_map_ptr& s1,
+        const e_matches_vec& matches,
+        const e_partial_matches_vec& partial_matches,
+        const e_misses_vec& misses
     ) const {
         for (auto& n1 : parent.c(k)) {
             DREAL_ASSERT(!n1.leaf.has_value());
             DREAL_ASSERT(!n1.terminal_expression.has_value());
-            recMatchExpr(get_argument(e), n1, s1, matches, partial_matches);
+            recMatchExpr(get_argument(e), n1, s1, matches, partial_matches, misses);
         }
     }
 
@@ -234,7 +246,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitDivision) {
-        return BinaryOpMatchHelper(_e, ExpressionKind::Div, parent, substitutions, matches, partial_matches);
+        return BinaryOpMatchHelper(_e, ExpressionKind::Div, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitLog) {
@@ -242,7 +254,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitLog) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Log, parent, substitutions, matches, partial_matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Log, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitAbs) {
@@ -250,7 +262,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitAbs) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Abs, parent, substitutions, matches, partial_matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Abs, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitExp) {
@@ -258,7 +270,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitExp) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Exp, parent, substitutions, matches, partial_matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Exp, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitSqrt) {
@@ -266,7 +278,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitSqrt) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Sqrt, parent, substitutions, matches, partial_matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Sqrt, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitPow) {
@@ -274,7 +286,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitPow) {
-        return BinaryOpMatchHelper(_e, ExpressionKind::Pow, parent, substitutions, matches, partial_matches);
+        return BinaryOpMatchHelper(_e, ExpressionKind::Pow, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitSin) {
@@ -282,7 +294,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitSin) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Sin, parent, substitutions, matches, partial_matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Sin, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitCos) {
@@ -290,7 +302,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitCos) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Cos, parent, substitutions, matches, partial_matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Cos, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitTan) {
@@ -298,7 +310,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitTan) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Tan, parent, substitutions, matches, partial_matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Tan, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitAsin) {
@@ -306,7 +318,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitAsin) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Asin, parent, substitutions, matches, partial_matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Asin, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitAcos) {
@@ -314,7 +326,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitAcos) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Acos, parent, substitutions, matches, partial_matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Acos, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitAtan) {
@@ -322,7 +334,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitAtan) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Atan, parent, substitutions, matches, partial_matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Atan, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitAtan2) {
@@ -330,7 +342,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitAtan2) {
-        return BinaryOpMatchHelper(_e, ExpressionKind::Atan2, parent, substitutions, matches, partial_matches);
+        return BinaryOpMatchHelper(_e, ExpressionKind::Atan2, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitSinh) {
@@ -338,7 +350,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitSinh) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Sinh, parent, substitutions, matches, partial_matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Sinh, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitCosh) {
@@ -346,7 +358,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitCosh) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Cosh, parent, substitutions, matches, partial_matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Cosh, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitTanh) {
@@ -354,7 +366,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitTanh) {
-        return UnaryOpMatchHelper(_e, ExpressionKind::Tanh, parent, substitutions, matches, partial_matches);
+        return UnaryOpMatchHelper(_e, ExpressionKind::Tanh, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitMin) {
@@ -362,7 +374,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitMin) {
-        return BinaryOpMatchHelper(_e, ExpressionKind::Min, parent, substitutions, matches, partial_matches);
+        return BinaryOpMatchHelper(_e, ExpressionKind::Min, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitMax) {
@@ -370,7 +382,7 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
     }
 
     VISIT_DECL(VisitMax) {
-        return BinaryOpMatchHelper(_e, ExpressionKind::Max, parent, substitutions, matches, partial_matches);
+        return BinaryOpMatchHelper(_e, ExpressionKind::Max, parent, substitutions, matches, partial_matches, misses);
     }
 
     ADD_DECL(VisitIfThenElse) {
@@ -386,12 +398,11 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
         const auto e = to_if_then_else(_e);
         for (auto& n1 : parent.c(ExpressionKind::IfThenElse)) {
             DREAL_ASSERT(n1.switch_kind != nullptr);
-            f_matches_vec f_matches;
             recMatchForm(
-                e->get_conditional_formula(), *n1.switch_kind, substitutions, f_matches,
+                e->get_conditional_formula(), *n1.switch_kind, substitutions,
+                PM_CONT_LAMBDA(m, s) { DREAL_UNREACHABLE(); },
                 PM_CONT_LAMBDA(n2, s2) {
                     DREAL_ASSERT(n2.switch_kind != nullptr);
-                    DREAL_ASSERT(f_matches.empty());
                     recMatchExpr(
                         e->get_then_expression(), *n2.switch_kind, s2, matches,
                         PM_CONT_LAMBDA(n3, s3) {
@@ -399,10 +410,9 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
                             DREAL_ASSERT(!n1.terminal_expression.has_value());
                             DREAL_ASSERT(!n2.terminal_expression.has_value());
                             DREAL_ASSERT(!n3.terminal_expression.has_value());
-                            recMatchExpr(e->get_else_expression(), n3, s3, matches,
-                                         partial_matches);
-                        });
-                });
+                            recMatchExpr(e->get_else_expression(), n3, s3, matches, partial_matches, misses);
+                        }, misses);
+                }, misses);
         }
     }
 
@@ -416,11 +426,14 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
         const auto e = to_uninterpreted_function(_e);
         for (auto& node : parent.c(ExpressionKind::UninterpretedFunction)) {
             const auto& matched_e = to_uninterpreted_function(*node.leaf);
-            if (!e->EqualTo(*matched_e)) continue; // confirmed non-recursive / simple one-liner
+            if (!e->EqualTo(*matched_e) /*confirmed non-recursive, simple one-liner*/)
+                misses(substitutions);
             else if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
             else if (substitutions_map_node::verify_substitutions(substitutions))
-                matches.emplace_back(*node.terminal_expression, substitutions);
+                matches(*node.terminal_expression, substitutions);
+            else
+                misses(substitutions);
         }
     }
 #undef VISIT_DECL
