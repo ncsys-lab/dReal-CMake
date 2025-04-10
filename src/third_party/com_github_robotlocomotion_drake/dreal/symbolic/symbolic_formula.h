@@ -256,6 +256,7 @@ class Formula {
   friend FormulaCell;
   friend Formula forall(const Variables& vars, const Formula& f);
   friend Formula make_conjunction(const std::set<Formula>& formulas);
+  friend Formula make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::set<Formula> formulas);
   friend Formula make_disjunction(const std::set<Formula>& formulas);
   friend Formula operator!(const Formula& f);
   friend Formula operator==(const Expression& e1, const Expression& e2);
@@ -289,6 +290,7 @@ Formula forall(const Variables& vars, const Formula& f);
  *   f₂ ∧ f₃}) returns f₁ ∧ f₂ ∧ f₃.
  */
 Formula make_conjunction(const std::set<Formula>& formulas);
+Formula make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::set<Formula> formulas);
 Formula operator&&(const Formula& f1, const Formula& f2);
 Formula operator&&(const Formula& f1, Formula&& f2);
 Formula operator&&(Formula&& f1, const Formula& f2);
