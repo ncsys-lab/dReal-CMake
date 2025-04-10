@@ -127,11 +127,43 @@ namespace dreal
         return {match_vec, stats};
     }
 
+    // uint64_t PatternMatchingTrie::estimate_branches(const Formula& f) {
+    //     const auto it = f_branch_est_cache.find(f);
+    //     if (it != f_branch_est_cache.end()) return it->second;
+    //
+    //     uint64_t branches = 1;
+    //     const f_est_continuation_vec partial_matches = EST_CONT_LAMBDA(n) {
+    //         DREAL_LOG_ERROR("Unterminated partial matching?");
+    //         DREAL_UNREACHABLE(); // everything should AT LEAST match itself !?!?!
+    //     };
+    //     recEstForm(f, f_root, branches, partial_matches);
+    //     f_branch_est_cache.emplace(f, branches);
+    //     return branches;
+    // }
+    //
+    // uint64_t PatternMatchingTrie::estimate_branches(const Expression& e) {
+    //     const auto it = e_branch_est_cache.find(e);
+    //     if (it != e_branch_est_cache.end()) return it->second;
+    //
+    //     uint64_t branches = 1;
+    //     const e_est_continuation_vec partial_matches = EST_CONT_LAMBDA(n) {
+    //         DREAL_LOG_ERROR("Unterminated partial matching?");
+    //         DREAL_UNREACHABLE(); // everything should AT LEAST match itself !?!?!
+    //     };
+    //     recEstExpr(e, e_root, branches, partial_matches);
+    //     e_branch_est_cache.emplace(e, branches);
+    //     return branches;
+    // }
+
     void PatternMatchingTrie::insert(const Formula& f) {
+        // if (f_already_inserted.count(f)) return; // was relevant during c_unique() attempt.
         recAddForm(f, f_root, f);
+        // f_already_inserted.emplace(f);
     }
 
     void PatternMatchingTrie::insert(const Expression& e) {
+        // if (e_already_inserted.count(e)) return; // was relevant during c_unique() attempt.
         recAddExpr(e, e_root, e);
+        // e_already_inserted.emplace(e);
     }
 }

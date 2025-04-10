@@ -42,6 +42,13 @@ namespace dreal
         return trie.find_matches(ordered_clause);
     }
 
+    // ended up being completely friggen useless lol :(
+    // uint64_t PredicateNormalizer::EstimateMatchingCost(const std::set<Formula>& f) {
+        // uint64_t branches = 1;
+        // for (const auto & lit : f) branches += trie.estimate_branches(lit);
+        // return branches;
+    // }
+
     Formula PredicateNormalizer::Convert(const Formula& f) {
         const auto it = cache.find(f);
         if (it == cache.cend()) {
