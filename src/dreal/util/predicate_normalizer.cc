@@ -16,13 +16,25 @@
 #include "dreal/util/predicate_normalizer.h"
 #include <dreal/symbolic/symbolic_formula_cell.h>
 
-#include "dynamic_bitset.h"
-
 namespace dreal
 {
     std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, PatternMatchingTrie::matching_stats_t>
     PredicateNormalizer::FindSimilar(const std::set<Formula>& clause) const {
-        for (const auto& f : clause) {
+        std::vector ordered_clause(clause.begin(), clause.end());
+        std::sort(ordered_clause.begin(), ordered_clause.end(), [&](const Formula &a, const Formula &b) {
+            return a.GetFreeVariables().size() > b.GetFreeVariables().size(); // descending
+            // return trie.estimate_branches(a) > trie.estimate_branches(b);
+        });
+        if (DREAL_LOG_INFO_ENABLED) {
+           std::ostringstream s;
+           s << "!(";
+           for (const auto& lit : ordered_clause) s << '(' << lit << ") and ";
+           s << ")";
+           DREAL_LOG_INFO("Finding matches for: {}", s.str());
+        }
+        // todo `std::reverse()` and compare performance.
+
+        for (const auto& f : ordered_clause) {
             const auto& atom = is_negation(f) ? get_operand(f) : f;
             // Learned clauses MUST be a collection of normalized literals.
             DREAL_ASSERT(is_equal_to(atom) || is_less_than(atom) || is_less_than_or_equal_to(atom) || is_forall(atom));
