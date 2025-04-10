@@ -19,7 +19,7 @@
 #include <vector>
 #include <dreal/util/pattern_matching/pattern_matching_trie.h>
 
-#include "predicate_ranker.h"
+#include "predicate_heuristic.h"
 #include "dreal/symbolic/symbolic.h"
 
 namespace dreal
@@ -38,7 +38,7 @@ namespace dreal
         // useless heuristic
         // uint64_t EstimateMatchingCost(const std::set<Formula>& f);
 
-        PredicateRanker ranker; // todo: make private?
+        PredicateHeuristic heuristic; // todo: make private?
 
     private:
         Formula VisitFalse(const Formula& f);

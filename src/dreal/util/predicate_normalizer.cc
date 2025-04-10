@@ -16,6 +16,8 @@
 #include "dreal/util/predicate_normalizer.h"
 #include <dreal/symbolic/symbolic_formula_cell.h>
 
+#include "logging.h"
+
 namespace dreal
 {
     std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, PatternMatchingTrie::matching_stats_t>
@@ -66,18 +68,24 @@ namespace dreal
     Formula PredicateNormalizer::VisitEqualTo(const Formula& f) {
         trie.insert(f);
         trie.insert(!f);
+        heuristic.collect_statistics(f);
+        heuristic.collect_statistics(!f);
         return f;
     }
 
     Formula PredicateNormalizer::VisitLessThan(const Formula& f) {
         trie.insert(f);
         trie.insert(!f);
+        heuristic.collect_statistics(f);
+        heuristic.collect_statistics(!f);
         return f;
     }
 
     Formula PredicateNormalizer::VisitLessThanOrEqualTo(const Formula& f) {
         trie.insert(f);
         trie.insert(!f);
+        heuristic.collect_statistics(f);
+        heuristic.collect_statistics(!f);
         return f;
     }
 
