@@ -5,6 +5,7 @@
 #include "substitutions_map.h"
 
 #include <unordered_set>
+#include <dreal/util/assert.h>
 #include <dreal/util/logging.h>
 
 namespace dreal
@@ -45,8 +46,8 @@ namespace dreal
         const bool has_aP = it_aP != bwd.end();
 
         if (!has_a && !has_aP) { // do insert
-            fwd[a] = aP;
-            bwd[aP] = a;
+            fwd.try_emplace(a, aP);
+            bwd.try_emplace(aP, a);
             insertion_stack.back().emplace_back(a, aP);
             return true;
         }
@@ -64,6 +65,54 @@ namespace dreal
             a.get_name(), it_aP->second.get_name(), aP.get_name(), it_a->second.get_name()
         );
         return false;
+    }
+
+    // this is literally the hottest function in the entire code rn, when we pattern match aggressively. -KS
+    // ended up being actually slower??  a little.
+    /*
+    bool substitutions_map::attempt_substitution(const Variable& a, const Variable& aP) {
+        if (a.get_type() != aP.get_type()) return false;
+
+        // Attempt to find 'a' and 'aP' just once
+        const auto [a_iterator, a_was_inserted] = fwd.try_emplace(a, aP);
+        if (a_was_inserted) {
+            // Only try to insert into bwd if we successfully inserted into fwd
+            const auto [aP_iterator, aP_was_inserted] = bwd.try_emplace(aP, a);
+            if (aP_was_inserted) {
+                insertion_stack.back().emplace_back(a, aP);
+                return true;
+            }
+            else {
+                // Rollback fwd insertion if bwd insertion failed
+                fwd.erase(a_iterator);
+                return false;
+            }
+        }
+        else {
+            // Check if existing values match
+            const auto aP_iterator = bwd.find(aP);
+            if (
+                aP_iterator != bwd.end() &&
+                a_iterator->second.equal_to(aP) &&
+                aP_iterator->second.equal_to(a)
+            ) {
+                return true;
+            }
+
+            DREAL_LOG_TRACE(
+                "Substitution failed. New 'a' {} is already {}, while new 'aP' {} is already {}.",
+                a.get_name(), aP_iterator != bwd.end() ? aP_iterator->second.get_name() : "<?>",
+                aP.get_name(), a_iterator->second.get_name()
+            );
+            return false;
+        }
+        DREAL_UNREACHABLE();
+    }
+    */
+
+    size_t substitutions_map::size() const {
+        DREAL_ASSERT(fwd.size() == bwd.size());
+        return fwd.size();
     }
 
     bool operator==(const substitutions_map& lhs, const substitutions_map& rhs) {

@@ -4,11 +4,8 @@
 
 #ifndef substitutions_mapH
 #define substitutions_mapH
-#include <utility>
 #include <dreal/symbolic/symbolic.h>
-#include <dreal/util/assert.h>
 #include <dreal/util/box.h>
-#include <dreal/util/logging.h>
 #include <dreal/util/scoped_unordered_map.h>
 
 namespace dreal
@@ -46,6 +43,8 @@ namespace dreal
         void pop();
 
         bool attempt_substitution(const Variable& a, const Variable& aP);
+
+        size_t size() const;
 
         static bool verify_substitutions(const substitutions_map& subs) { return true; } // legacy
 
