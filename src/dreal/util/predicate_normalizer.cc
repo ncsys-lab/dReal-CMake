@@ -20,14 +20,14 @@
 
 namespace dreal
 {
-    std::vector<std::pair<std::vector<Formula>, substitutions_map>>
+    std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, PatternMatchingTrie::matching_stats_t>
     PredicateNormalizer::FindSimilar(const std::set<Formula>& clause) const {
         for (const auto& f : clause) {
             const auto& atom = is_negation(f) ? get_operand(f) : f;
             // Learned clauses MUST be a collection of normalized literals.
             DREAL_ASSERT(is_equal_to(atom) || is_less_than(atom) || is_less_than_or_equal_to(atom) || is_forall(atom));
         }
-        return trie.find_matches(clause);
+        return trie.find_matches(ordered_clause);
     }
 
     Formula PredicateNormalizer::Convert(const Formula& f) {

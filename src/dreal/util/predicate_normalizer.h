@@ -28,7 +28,10 @@ namespace dreal
     public:
         Formula Convert(const Formula& f);
 
-        [[nodiscard]] std::vector<std::pair<std::vector<Formula>, substitutions_map>>
+        [[nodiscard]] std::pair<
+            std::vector<std::pair<std::vector<Formula>, substitutions_map>>, PatternMatchingTrie::
+            matching_stats_t
+        >
         FindSimilar(const std::set<Formula>& f) const;
 
     private:

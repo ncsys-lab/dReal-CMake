@@ -18,21 +18,59 @@ namespace dreal
     class PatternMatchingTrie
     {
     public:
+        typedef struct
+        {
+            unsigned misses;
+            unsigned partial_matches;
+            unsigned matches;
+        } matching_stats_t;
+
+        static std::string matching_stats_csv_header(const std::string& prefix) {
+            std::ostringstream s;
+            s << prefix << "misses,";
+            s << prefix << "partial_matches,";
+            s << prefix << "matches";
+            return s.str();
+        }
+
         using e_matches_vec = std::function<void(const Expression& e, substitutions_map& s)>;
         using f_matches_vec = std::function<void(const Formula& f, substitutions_map& s)>;
 
-        [[nodiscard]] std::vector<std::pair<std::vector<Formula>, substitutions_map>>
+        [[nodiscard]] std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, matching_stats_t>
         find_matches(
-            const std::set<Formula>& literals
+            const std::vector<Formula>& literals
         ) const;
-        [[nodiscard]] std::vector<std::pair<Formula, substitutions_map>> find_matches(
+
+        [[nodiscard]] std::pair<std::vector<std::pair<Formula, substitutions_map>>, matching_stats_t> find_matches(
             const Formula& f,
-            const substitutions_map& substitutions = {}
+            substitutions_map& substitutions
         ) const;
-        [[nodiscard]] std::vector<std::pair<Expression, substitutions_map>> find_matches(
-            const Expression& f,
-            const substitutions_map& substitutions = {}
+
+        [[nodiscard]] std::pair<std::vector<std::pair<Formula, substitutions_map>>, matching_stats_t> find_matches(
+            const Formula& f
+        ) const {
+            substitutions_map s;
+            return find_matches(f, s);
+        }
+
+        [[nodiscard]] std::pair<std::vector<std::pair<Expression, substitutions_map>>, matching_stats_t> find_matches(
+            const Expression& e,
+            substitutions_map& substitutions
         ) const;
+
+        [[nodiscard]] std::pair<std::vector<std::pair<Expression, substitutions_map>>, matching_stats_t> find_matches(
+            const Expression& e
+        ) const {
+            substitutions_map s;
+            return find_matches(e, s);
+        }
+
+        // ended up being completely useless :(
+        // uint64_t estimate_branches(const Formula& f);
+        // uint64_t estimate_branches(const Expression& e);
+
+        // uint64_t estimate_branches(const Formula& f) const;
+        // uint64_t estimate_branches(const Expression& f) const;
 
         void insert(const Formula& f);
         void insert(const Expression& f);
@@ -262,6 +300,13 @@ namespace dreal
             const std::optional<Expression>& is_terminal
         );
     };
+
+    inline std::ostream& operator<<(std::ostream& os, const PatternMatchingTrie::matching_stats_t& stats) {
+        os << stats.misses << ',';
+        os << stats.partial_matches << ',';
+        os << stats.matches;
+        return os;
+    }
 } // namespace dreal
 
 
