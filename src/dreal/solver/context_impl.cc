@@ -19,12 +19,14 @@
 #include <cmath>
 #include <limits>
 #include <ostream>
+#include <random>
 #include <set>
 #include <sstream>
 #include <unordered_set>
 #include <utility>
 #include <dreal/symbolic/prefix_printer.h>
 #include <dreal/symbolic/symbolic_formula_cell.h>
+#include <dreal/util/predicate_heuristic.h>
 
 #include <fmt/format.h>
 
@@ -131,24 +133,84 @@ void Context::Impl::Assert(const Formula& f) {
 optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
                                           Box box,
                                           SatSolver* const sat_solver) {
+  ////////////////////////////////////////////////////////////////////////////////
+  std::ofstream myfile;
+  std::string file_name;
+  {
+    std::ostringstream s;
+    s << "./kunal_paper_data_epoch";
+    s << std::chrono::system_clock::now().time_since_epoch().count();
+
+    // Seed random number generator with high-resolution clock
+    static std::mt19937 rng(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    static std::uniform_int_distribution dist(1000, 9999); // random 4-digit numbers
+
+    s << "_random" << dist(rng) << dist(rng) << dist(rng) << dist(rng);;
+    s << ".csv";
+    file_name = s.str();
+
+    std::cout << "Logging statistics to " << file_name << std::endl;
+    std::cerr << "Logging statistics to " << file_name << std::endl;
+  }
+  myfile.open(file_name, std::ios::app);
+  if (!myfile) throw DREAL_RUNTIME_ERROR("Failed to open log file");
+
+  struct
+  {
+    unsigned box_continuous_count;
+    unsigned box_integer_count;
+    unsigned box_boolean_count;
+    unsigned assertions_size;
+    PredicateHeuristic::predicate_stats_t assertions_stats;
+    double theory_checksat_ms;
+    unsigned lemma_size;
+    PredicateHeuristic::predicate_stats_t lemma_stats;
+    uint64_t estimated_matching_cost;
+    double pattern_match_ms;
+    PatternMatchingTrie::matching_stats_t pattern_matching_stats;
+  } kunal_paper_data = {0};
+  ////////////////////////////////////////////////////////////////////////////////
+
   DREAL_LOG_DEBUG("ContextImpl::CheckSatCore()");
   DREAL_LOG_TRACE("ContextImpl::CheckSat: Box =\n{}", box);
-  if (box.empty()) {
-    return {};
-  }
+  if (box.empty()) return {};
   // If false ∈ stack, it's UNSAT.
-  for (const auto& f : stack.get_vector()) {
-    if (is_false(f)) {
-      return {};
-    }
-  }
+  for (const auto& f : stack.get_vector()) if (is_false(f)) return {};
   // If stack = ∅ or stack = {true}, it's trivially SAT.
   if (stack.empty() || (stack.size() == 1 && is_true(stack.first()))) {
     DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Found Model\n{}", box);
     return box;
   }
 
-  sat_solver->AddBox(pn_, box);
+  ////////////////////////////////////////////////////////////////////////////////
+  {
+    std::ostringstream s;
+    s << "box_continuous_count,";
+    s << "box_integer_count,";
+    s << "box_boolean_count,";
+    s << "assertions_size,";
+    s << PredicateHeuristic::predicate_stats_csv_header("assertions_stats_") << ',';
+    s << "theory_checksat_ms,";
+    s << "lemma_size,";
+    s << PredicateHeuristic::predicate_stats_csv_header("lemma_stats_") << ',';
+    s << "estimated_matching_cost,";
+    s << "pattern_match_ms,";
+    s << PatternMatchingTrie::matching_stats_csv_header("pattern_matching_stats_");
+    myfile << s.str() << std::endl;
+  }
+  ////////////////////////////////////////////////////////////////////////////////
+
+  sat_solver->AddBox(pn_, box); // SKIPS Boolean Variables ✔
+  ////////////////////////////////////////////////////////////////////////////////
+  for (const auto & variable : box.variables()) {
+    if (variable.get_type() == Variable::Type::CONTINUOUS) kunal_paper_data.box_continuous_count++;
+    else if (variable.get_type() == Variable::Type::INTEGER) kunal_paper_data.box_integer_count++;
+    else if (variable.get_type() == Variable::Type::BOOLEAN) kunal_paper_data.box_boolean_count++;
+    else if (variable.get_type() == Variable::Type::BINARY) kunal_paper_data.box_boolean_count++;
+    else DREAL_UNREACHABLE();
+  }
+  ////////////////////////////////////////////////////////////////////////////////
+
   while (true) {
     // Note that 'DREAL_CHECK_INTERRUPT' is only defined in setup.py,
     // when we build dReal python package.
@@ -162,24 +224,41 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
     const auto optional_model = sat_solver->CheckSat();
     if (optional_model) {
       const vector<pair<Variable, bool>>& boolean_model{optional_model->first};
-      for (const pair<Variable, bool>& p : boolean_model) {
-        box[p.first] = p.second ? 1.0 : 0.0;  // true -> 1.0 and false -> 0.0
-      }
       const vector<pair<Variable, bool>>& theory_model{optional_model->second};
+
+      for (const auto& [sat_var, assignment] : boolean_model)
+        box[sat_var] = assignment ? 1.0 : 0.0;  // true -> 1.0 and false -> 0.0
+
       if (!theory_model.empty()) {
         // SAT from SATSolver.
         DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Sat Check = SAT");
 
         vector<Formula> assertions;
         assertions.reserve(theory_model.size());
-        for (const pair<Variable, bool>& p : theory_model) {
-          assertions.push_back(p.second ? sat_solver->theory_literal(p.first)
-                                        : !sat_solver->theory_literal(p.first));
-        }
-        if (theory_solver_.CheckSat(box, assertions)) {
+        for (const auto& [sat_var, assignment] : theory_model)
+          assertions.emplace_back(
+            assignment ? sat_solver->theory_literal(sat_var) : !sat_solver->theory_literal(sat_var)
+          );
+
+        ////////////////////////////////////////////////////////////////////////////////
+        kunal_paper_data.assertions_size = assertions.size();
+
+        const auto ranking_start1 = std::chrono::high_resolution_clock::now();
+        std::set assertions_set(assertions.begin(), assertions.end());
+        kunal_paper_data.assertions_stats = pn_.heuristic.collect_statistics(make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(assertions_set)));
+        const auto ranking_end1 = std::chrono::high_resolution_clock::now();
+        const std::chrono::duration<double, std::milli> ranking_elapsed1 = ranking_end1 - ranking_start1;
+
+        const auto tscs_start = std::chrono::high_resolution_clock::now();
+        const auto tscs_result = theory_solver_.CheckSat(box, assertions);
+        const auto tscs_end = std::chrono::high_resolution_clock::now();
+        const std::chrono::duration<double, std::milli> tscs_elapsed = tscs_end - tscs_start;
+        kunal_paper_data.theory_checksat_ms = tscs_elapsed.count();
+        ////////////////////////////////////////////////////////////////////////////////
+
+        if (tscs_result) {
           // SAT from TheorySolver.
-          DREAL_LOG_DEBUG(
-              "ContextImpl::CheckSatCore() - Theory Check = delta-SAT");
+          DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Theory Check = delta-SAT");
           Box model{theory_solver_.GetModel()};
           return model;
         } else {
@@ -187,25 +266,77 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Theory Check = UNSAT");
           const set<Formula>& explanation{theory_solver_.GetExplanation()};
           DREAL_LOG_DEBUG(
-              "ContextImpl::CheckSatCore() - size of explanation = {} - stack "
-              "size = {}",
+              "ContextImpl::CheckSatCore() - size of explanation = {} - stack size = {}",
               explanation.size(), stack.get_vector().size());
 
-          sat_solver->AddLearnedClausePattern(pn_, explanation, box);
+          ////////////////////////////////////////////////////////////////////////////////
+          kunal_paper_data.lemma_size = explanation.size();
+
+          const auto ranking_start2 = std::chrono::high_resolution_clock::now();
+          kunal_paper_data.lemma_stats = pn_.heuristic.collect_statistics(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(explanation));
+          const auto ranking_end2 = std::chrono::high_resolution_clock::now();
+          const std::chrono::duration<double, std::milli> ranking_elapsed2 = ranking_end2 - ranking_start2;
+
+          // const auto emc_start = std::chrono::high_resolution_clock::now();
+          // kunal_paper_data.estimated_matching_cost = pn_.EstimateMatchingCost(explanation);
+          // const auto emc_end = std::chrono::high_resolution_clock::now();
+          // const std::chrono::duration<double, std::milli> emc_elapsed = emc_end - emc_start;
+          DREAL_LOG_INFO("Total lemma info: asserts={}, clause={}, ranking_ms={}",
+            kunal_paper_data.assertions_size, kunal_paper_data.lemma_size,
+            (ranking_elapsed1 + ranking_elapsed2).count()
+          );
+          if (/* we think its worth it? */ true) {
+            const auto alcp_start = std::chrono::high_resolution_clock::now();
+            const auto alcp_result = sat_solver->AddLearnedClausePattern(pn_, explanation, box);
+            const auto alcp_end = std::chrono::high_resolution_clock::now();
+            const std::chrono::duration<double, std::milli> alcp_elapsed = alcp_end - alcp_start;
+
+            kunal_paper_data.pattern_match_ms = alcp_elapsed.count();
+            kunal_paper_data.pattern_matching_stats = alcp_result;
+
+            const auto bnb_lpms = 1 / tscs_elapsed.count();
+            const auto pm_lpms = alcp_result.matches / alcp_elapsed.count();
+            DREAL_LOG_INFO("Worth it? {} \t B&B {} lpms v.s. PM {} lpms",
+                           bnb_lpms >= pm_lpms ? "NO" : "YES", bnb_lpms, pm_lpms);
+          } else {
+            std::cout << "Adding lemma" << std::endl;
+            sat_solver->AddLearnedClause(explanation, box);
+          }
+          ////////////////////////////////////////////////////////////////////////////////
+
+          ///////////////////////////////////////////////////////////////////////////////////
+          {
+            std::ostringstream s;
+            s << kunal_paper_data.box_continuous_count << ',';
+            s << kunal_paper_data.box_integer_count << ',';
+            s << kunal_paper_data.box_boolean_count << ',';
+            s << kunal_paper_data.assertions_size << ',';
+            s << kunal_paper_data.assertions_stats << ',';
+            s << kunal_paper_data.theory_checksat_ms << ',';
+            s << kunal_paper_data.lemma_size << ',';
+            s << kunal_paper_data.lemma_stats << ',';
+            s << kunal_paper_data.estimated_matching_cost << ',';
+            s << kunal_paper_data.pattern_match_ms << ',';
+            s << kunal_paper_data.pattern_matching_stats;
+            myfile << s.str() << std::endl; // also flushes
+
+            typeof(kunal_paper_data) reset_data{0};
+            reset_data.box_boolean_count = kunal_paper_data.box_boolean_count;
+            reset_data.box_integer_count = kunal_paper_data.box_integer_count;
+            reset_data.box_continuous_count = kunal_paper_data.box_continuous_count;
+            kunal_paper_data = reset_data;
+          }
+          ///////////////////////////////////////////////////////////////////////////////////
 
           if (DREAL_LOG_TRACE_ENABLED) {
-            for (const auto& f_i : stack.get_vector()) {
+            for (const auto& f_i : stack.get_vector())
               DREAL_LOG_TRACE("ContextImpl::CheckSatCore: Stack {}", f_i);
-            }
-            for (const auto& f_i : explanation) {
+            for (const auto& f_i : explanation)
               DREAL_LOG_TRACE("ContextImpl::CheckSatCore: Explanation {}", f_i);
-            }
           }
         }
-      } else {
-        return box;
-      }
-    } else {
+      } else /* theory_model.empty() */ return box;
+    } else /* !optional_model */ {
       // UNSAT from SATSolver. Escape the loop.
       DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Sat Check = UNSAT");
       return {};

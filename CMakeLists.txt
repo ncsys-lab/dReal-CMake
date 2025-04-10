@@ -52,6 +52,8 @@ set(LIBCDS_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_khizmax_libcds
 set(JSON_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_nlohmann_json/")
 set(PICOSAT_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_dreal-deps_picosat/")
 
+unset(DREAL_SOURCES)
+unset(DREAL_SOURCES CACHE)
 file(GLOB_RECURSE DREAL_SOURCES
         "${PROJECT_SOURCE_DIR}/src/dreal/*/**.cc"
         "${PROJECT_SOURCE_DIR}/src/dreal/*/**.yy"
