@@ -38,9 +38,10 @@ SatSolver::SatSolver(const Config& config) : cadical(new CaDiCaL::Solver) {
     cadical->set("seed", config.random_seed());
     DREAL_LOG_DEBUG("SatSolver::Set Random Seed {}", config.random_seed());
   }
-  cadical->set("phase", static_cast<int>(config.sat_default_phase()));
-  DREAL_LOG_DEBUG("SatSolver::Set Default Phase {}",
-                  config.sat_default_phase());
+  // this actually doesn't work lol.
+  // cadical->set("phase", static_cast<int>(config.sat_default_phase()));
+  // DREAL_LOG_DEBUG("SatSolver::Set Default Phase {}",
+                  // config.sat_default_phase());
 
   // todo: look into this? want to absolutely minimize calls to theory solver.
   // eliminate as many variables as possible. ?
@@ -65,7 +66,7 @@ void SatSolver::AddFormula(const Formula& f) {
 }
 
 void SatSolver::AddLearnedClause(const set<Formula>& conflicting_conjunction, const Box& box) {
-  // audit(!make_conjunction(conflicting_conjunction), box); // todo: gate.
+  if (DREAL_LOG_DEBUG_ENABLED) audit(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(conflicting_conjunction), box);
   for (const Formula& f : conflicting_conjunction) {
     AddLiteral(!predicate_abstractor_.Convert(f));
   }
@@ -82,47 +83,45 @@ void SatSolver::AddBox(PredicateNormalizer& pn, const Box& base_box) {
       is_conjunction(condition) ? get_operands(condition) : set{condition}
     ) {
       // todo: audit? currently can't because it is already predicate_abstractor-ed
-      // std::cout << "AddBox: " << lit << std::endl;
       AddLiteral(lit);
       cadical->add(0);
     }
   }
 }
 
-void SatSolver::AddLearnedClausePattern(
-  PredicateNormalizer &pn,
+PatternMatchingTrie::matching_stats_t SatSolver::AddLearnedClausePattern(
+  PredicateNormalizer& pn,
   const set<Formula>& base_conflict, const Box& base_box
 ) {
   // todo: clean this a little.. avoid duplicates. but some clauses aren't in the trie and don't match to themselves?
-  // AddLearnedClause(base_conflict, base_box);
-  const auto all_related_conflicts = pn.FindSimilar(base_conflict);
+  const auto [all_related_conflicts, match_statistics] = pn.FindSimilar(base_conflict);
   DREAL_ASSERT(!all_related_conflicts.empty()); // should AT LEAST match with itself.
-  std::cout << "Matched " << all_related_conflicts.size() << " for the price of 1." << std::endl;
-  for (const auto& [conflict_clause, subs] : all_related_conflicts) {
-    Box conflict_box = substitutions_map_node::apply_substitution(base_box, subs, true);
 
-    // audit(!make_conjunction(conflict_clause), conflict_box); // todo: gate.
+  for (const auto& [conflict_clause, subs] : all_related_conflicts) {
+    Box conflict_box = substitutions_map::apply_substitution(base_box, subs, false);
+
+    if (DREAL_LOG_DEBUG_ENABLED) { // todo: better gate.
+      std::set conflict_clause_set(conflict_clause.begin(), conflict_clause.end());
+      audit(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(conflict_clause_set)), conflict_box);
+    }
 
     // a & b & c & ... ==> ~(x & y & z & ...)
     // ~(a & b & c & ...) | ~(x & y & z & ...)
     // ~a | ~b | ~c | ... | ~x | ~y | ~z | ...
 
     for (const auto& v : conflict_box.variables()) {
-      if (v.get_type() == Variable::Type::BOOLEAN) continue;
+      // if (v.get_type() == Variable::Type::BOOLEAN) continue; // todo: commented, because maybe unsound????
       const auto condition = MakeSatIntervalVar(pn, v, conflict_box[v]);
       if (is_true(condition)) continue;
-      for (
-        const auto& lit :
-        is_conjunction(condition) ? get_operands(condition) : set{condition}
-      ) {
-        AddLiteral(!lit); // already predicate-converted.
-      }
+      else if (!is_conjunction(condition)) AddLiteral(!condition); // already predicate-converted.
+      else for (const auto& lit : get_operands(condition)) AddLiteral(!lit);
     }
-    for (const Formula& f : conflict_clause) {
-      AddLiteral(!predicate_abstractor_.Convert(f));
-    }
+    // ==>
+    for (const Formula& f : conflict_clause) AddLiteral(!predicate_abstractor_.Convert(f));
+
     cadical->add(0);
   }
+  return match_statistics;
 }
 
 void SatSolver::AddClause(const Formula& f) {
@@ -288,6 +287,7 @@ void SatSolver::MakeSatVar(const Variable& var) {
 
 Formula SatSolver::MakeSatIntervalVar(PredicateNormalizer &pn, const Variable& var, const Box::Interval& intv) {
   DREAL_ASSERT(var.get_type() != Variable::Type::BOOLEAN);
+  DREAL_LOG_DEBUG("SatSolver::MakeSatIntervalVar({} ∈ {})", fmt::streamed(var), fmt::streamed(intv));
   auto ub_pred = Formula::True();
   if (isfinite(intv.ub())) {
     ub_pred = var <= intv.ub(); // TODO: figure out if this is inclusive or exclusive.
