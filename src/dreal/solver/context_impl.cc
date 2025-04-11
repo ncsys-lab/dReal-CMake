@@ -135,9 +135,9 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
                                           Box box,
                                           SatSolver* const sat_solver) {
   ////////////////////////////////////////////////////////////////////////////////
+  static constexpr bool GENERATE_CSV = false;
   std::ofstream myfile;
-  std::string file_name;
-  {
+  if (GENERATE_CSV) {
     std::ostringstream s;
     s << "./kunal_paper_data_epoch";
     s << std::chrono::system_clock::now().time_since_epoch().count();
@@ -148,13 +148,14 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 
     s << "_random" << dist(rng) << dist(rng) << dist(rng) << dist(rng);;
     s << ".csv";
-    file_name = s.str();
+    const auto file_name = s.str();
 
     std::cout << "Logging statistics to " << file_name << std::endl;
     std::cerr << "Logging statistics to " << file_name << std::endl;
+
+    myfile.open(file_name, std::ios::app);
+    if (!myfile) throw DREAL_RUNTIME_ERROR("Failed to open log file");
   }
-  myfile.open(file_name, std::ios::app);
-  if (!myfile) throw DREAL_RUNTIME_ERROR("Failed to open log file");
 
   struct
   {
@@ -184,7 +185,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
   }
 
   ////////////////////////////////////////////////////////////////////////////////
-  {
+  if (GENERATE_CSV) {
     std::ostringstream s;
     s << "box_continuous_count,";
     s << "box_integer_count,";
@@ -314,7 +315,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           ////////////////////////////////////////////////////////////////////////////////
 
           ///////////////////////////////////////////////////////////////////////////////////
-          {
+          if (GENERATE_CSV) {
             std::ostringstream s;
             s << kunal_paper_data.box_continuous_count << ',';
             s << kunal_paper_data.box_integer_count << ',';
@@ -328,7 +329,9 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             s << kunal_paper_data.pattern_match_ms << ',';
             s << kunal_paper_data.pattern_matching_stats;
             myfile << s.str() << std::endl; // also flushes
+          }
 
+          {
             typeof(kunal_paper_data) reset_data{0};
             reset_data.box_boolean_count = kunal_paper_data.box_boolean_count;
             reset_data.box_integer_count = kunal_paper_data.box_integer_count;
