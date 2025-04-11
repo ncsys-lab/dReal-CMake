@@ -10,6 +10,15 @@
 
 namespace dreal
 {
+    substitutions_map::substitutions_map() {
+        fwd.max_load_factor(0.25);
+        bwd.max_load_factor(0.25);
+    }
+
+    substitutions_map::substitutions_map(const size_t reserved_size) : substitutions_map() {
+        reserve(reserved_size);
+    }
+
     Box substitutions_map::apply_substitution(
         const Box& b, const substitutions_map& subs, bool backward
     ) {
@@ -113,6 +122,12 @@ namespace dreal
     size_t substitutions_map::size() const {
         DREAL_ASSERT(fwd.size() == bwd.size());
         return fwd.size();
+    }
+
+    void substitutions_map::reserve(const size_t n) {
+        fwd.reserve(n);
+        bwd.reserve(n);
+        insertion_stack.reserve(n);
     }
 
     bool operator==(const substitutions_map& lhs, const substitutions_map& rhs) {

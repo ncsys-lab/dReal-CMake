@@ -18,6 +18,9 @@ namespace dreal
         std::vector<std::vector<std::pair<Variable, Variable>>> insertion_stack{1};
 
     public:
+        substitutions_map();
+        explicit substitutions_map(size_t reserve);
+
         template <typename T>
         [[nodiscard]] static T apply_substitution(
             const T& f, const substitutions_map& subs, bool backward
@@ -45,6 +48,8 @@ namespace dreal
         bool attempt_substitution(const Variable& a, const Variable& aP);
 
         size_t size() const;
+
+        void reserve(size_t n);
 
         static bool verify_substitutions(const substitutions_map& subs) { return true; } // legacy
 

@@ -48,7 +48,7 @@ namespace dreal
         [[nodiscard]] std::pair<std::vector<std::pair<Formula, substitutions_map>>, matching_stats_t> find_matches(
             const Formula& f
         ) const {
-            substitutions_map s;
+            substitutions_map s(f.GetFreeVariables().size());
             return find_matches(f, s);
         }
 
@@ -60,7 +60,7 @@ namespace dreal
         [[nodiscard]] std::pair<std::vector<std::pair<Expression, substitutions_map>>, matching_stats_t> find_matches(
             const Expression& e
         ) const {
-            substitutions_map s;
+            substitutions_map s(e.GetVariables().size());
             return find_matches(e, s);
         }
 

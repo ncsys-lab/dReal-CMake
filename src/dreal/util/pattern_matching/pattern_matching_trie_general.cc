@@ -60,7 +60,10 @@ namespace dreal
             };
         };
 
-        substitutions_map substitutions;
+        size_t sub_preallocations=0;
+        for (const auto & literal : literals) sub_preallocations += literal.GetFreeVariables().size();
+        substitutions_map substitutions(sub_preallocations);
+
         recMatchForm(*ibegin, f_root, substitutions, match_next_literal(ibegin), partial_matches, misses);
         DREAL_ASSERT(result.size() == stats.matches);
         DREAL_LOG_INFO("Found {} matches with {} misses.", stats.matches, stats.misses);
@@ -108,7 +111,6 @@ namespace dreal
     ) const {
         const auto init_size = substitutions.size();
         DREAL_LOG_TRACE("Finding matches for expression {}", fmt::streamed(e));
-        substitutions_map empty;
         matching_stats_t stats = {0};
         std::vector<std::pair<Expression, substitutions_map>> match_vec;
         recMatchExpr(
