@@ -27,6 +27,7 @@
 #include <dreal/symbolic/prefix_printer.h>
 #include <dreal/symbolic/symbolic_formula_cell.h>
 #include <dreal/util/predicate_heuristic.h>
+#include <dreal/util/predicate_heuristic_trained_model.h>
 
 #include <fmt/format.h>
 
@@ -274,18 +275,15 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 
           const auto ranking_start2 = std::chrono::high_resolution_clock::now();
           kunal_paper_data.lemma_stats = pn_.heuristic.collect_statistics(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(explanation));
+          const double predicted_log2_worth_it = WORTH_IT_REGRESSION_MODEL(kunal_paper_data);
           const auto ranking_end2 = std::chrono::high_resolution_clock::now();
           const std::chrono::duration<double, std::milli> ranking_elapsed2 = ranking_end2 - ranking_start2;
 
-          // const auto emc_start = std::chrono::high_resolution_clock::now();
-          // kunal_paper_data.estimated_matching_cost = pn_.EstimateMatchingCost(explanation);
-          // const auto emc_end = std::chrono::high_resolution_clock::now();
-          // const std::chrono::duration<double, std::milli> emc_elapsed = emc_end - emc_start;
-          DREAL_LOG_INFO("Total lemma info: asserts={}, clause={}, ranking_ms={}",
-            kunal_paper_data.assertions_size, kunal_paper_data.lemma_size,
-            (ranking_elapsed1 + ranking_elapsed2).count()
+          DREAL_LOG_INFO("Total lemma info: Predicted W.I.={}, in {}ms",
+            predicted_log2_worth_it, (ranking_elapsed1 + ranking_elapsed2).count()
           );
-          if (/* we think its worth it? */ true) {
+
+          if (/* true */ predicted_log2_worth_it > 1) {
             const auto alcp_start = std::chrono::high_resolution_clock::now();
             const auto alcp_result = sat_solver->AddLearnedClausePattern(pn_, explanation, box);
             const auto alcp_end = std::chrono::high_resolution_clock::now();
@@ -294,12 +292,23 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             kunal_paper_data.pattern_match_ms = alcp_elapsed.count();
             kunal_paper_data.pattern_matching_stats = alcp_result;
 
-            const auto bnb_lpms = 1 / tscs_elapsed.count();
-            const auto pm_lpms = alcp_result.matches / alcp_elapsed.count();
-            DREAL_LOG_INFO("Worth it? {} \t B&B {} lpms v.s. PM {} lpms",
-                           bnb_lpms >= pm_lpms ? "NO" : "YES", bnb_lpms, pm_lpms);
+            const double bb_lpms = 1 / tscs_elapsed.count();
+            const double pm_lpms = (alcp_result.matches - 0.999) / alcp_elapsed.count();
+            const double actual_worth_it = pm_lpms / bb_lpms;
+            const double actual_log2_worth_it = log2(actual_worth_it);
+
+            DREAL_LOG_INFO("Predicted W.I. = {}, Measured W.I. = {}", predicted_log2_worth_it, actual_log2_worth_it);
+            const bool overestimated = (actual_log2_worth_it < 1) && (predicted_log2_worth_it > 1);
+            const bool valid_over = (actual_log2_worth_it > 1) && (predicted_log2_worth_it > 1);
+            const bool valid_under = (actual_log2_worth_it < 1) && (predicted_log2_worth_it < 1);
+            const bool underestimated = (actual_log2_worth_it > 1) && (predicted_log2_worth_it < 1);
+            if (overestimated) DREAL_LOG_INFO("OVERESTIMATED. Had high hopes but were disappointed in the end.");
+            if (valid_over) DREAL_LOG_INFO("VALID_OVER. It was worth it like we thought.");
+            if (valid_under) DREAL_LOG_INFO("VALID_UNDER. We knew to avoid this one.");
+            if (underestimated) DREAL_LOG_INFO("UNDERESTIMATED. Sorry we didn't believe in you.");
+
           } else {
-            std::cout << "Adding lemma" << std::endl;
+            DREAL_LOG_INFO("Skipped pattern matching. Adding learned clause conventionally.");
             sat_solver->AddLearnedClause(explanation, box);
           }
           ////////////////////////////////////////////////////////////////////////////////

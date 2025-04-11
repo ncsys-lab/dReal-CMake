@@ -220,6 +220,4 @@ namespace dreal
     }
 } // namespace dreal
 
-// * learned regression model here *
-
 #endif //predicate_heuristic_H
