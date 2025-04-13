@@ -107,6 +107,7 @@ PatternMatchingTrie::matching_stats_t SatSolver::AddLearnedClausePattern(
     return match_statistics;
   }
 
+  /*
   for (const auto& [conflict_clause, subs] : all_related_conflicts) {
     Box conflict_box = substitutions_map::apply_substitution(base_box, subs, false);
 
@@ -131,6 +132,7 @@ PatternMatchingTrie::matching_stats_t SatSolver::AddLearnedClausePattern(
 
     cadical->add(0);
   }
+  */
   return match_statistics;
 }
 
