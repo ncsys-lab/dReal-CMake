@@ -33,7 +33,7 @@ namespace dreal
             std::vector<std::pair<std::vector<Formula>, substitutions_map>>, PatternMatchingTrie::
             matching_stats_t
         >
-        FindSimilar(const std::set<Formula>& f) const;
+        FindSimilar(const std::vector<Formula>& ordered_clause) const;
 
         // useless heuristic
         // uint64_t EstimateMatchingCost(const std::set<Formula>& f);

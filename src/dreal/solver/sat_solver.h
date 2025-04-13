@@ -68,10 +68,10 @@ class SatSolver {
 
   /// Given a @p formulas = {f₁, ..., fₙ}, adds a clause (¬f₁ ∨ ... ∨ ¬ fₙ) to
   /// the solver.
-  void AddLearnedClause(const std::set<Formula>& conflicting_conjunction, const Box& box);
+  void AddLearnedClause(const std::vector<Formula>& conflicting_conjunction, const Box& box);
   PatternMatchingTrie::matching_stats_t AddLearnedClausePattern(
       PredicateNormalizer& pn,
-      const std::set<Formula>& base_conflict,
+      const std::vector<Formula>& base_conflict,
       const Box& base_box);
   void AddBox(PredicateNormalizer& pn, const Box& base_box);
 

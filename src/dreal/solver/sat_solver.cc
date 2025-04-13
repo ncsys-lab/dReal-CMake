@@ -65,8 +65,8 @@ void SatSolver::AddFormula(const Formula& f) {
   }
 }
 
-void SatSolver::AddLearnedClause(const set<Formula>& conflicting_conjunction, const Box& box) {
-  if (DREAL_LOG_DEBUG_ENABLED) audit(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(conflicting_conjunction), box);
+void SatSolver::AddLearnedClause(const vector<Formula>& conflicting_conjunction, const Box& box) {
+  if (DREAL_LOG_DEBUG_ENABLED) audit(!make_conjunction(conflicting_conjunction), box);
   for (const Formula& f : conflicting_conjunction) {
     AddLiteral(!predicate_abstractor_.Convert(f));
   }
@@ -91,11 +91,15 @@ void SatSolver::AddBox(PredicateNormalizer& pn, const Box& base_box) {
 
 PatternMatchingTrie::matching_stats_t SatSolver::AddLearnedClausePattern(
   PredicateNormalizer& pn,
-  const set<Formula>& base_conflict, const Box& base_box
+  const vector<Formula>& base_conflict, const Box& base_box
 ) {
   // todo: clean this a little.. avoid duplicates. but some clauses aren't in the trie and don't match to themselves?
   const auto [all_related_conflicts, match_statistics] = pn.FindSimilar(base_conflict);
-  DREAL_ASSERT(!all_related_conflicts.empty()); // should AT LEAST match with itself.
+  if(all_related_conflicts.empty()) {
+    DREAL_LOG_ERROR("Clause did not match with itself? Adding regularly.");
+    AddLearnedClause(base_conflict, base_box);
+    return match_statistics;
+  }
 
   for (const auto& [conflict_clause, subs] : all_related_conflicts) {
     Box conflict_box = substitutions_map::apply_substitution(base_box, subs, false);

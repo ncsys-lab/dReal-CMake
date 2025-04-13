@@ -271,8 +271,15 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
               "ContextImpl::CheckSatCore() - size of explanation = {} - stack size = {}",
               explanation.size(), stack.get_vector().size());
 
+          // ordering the literals like this makes pattern matching fast.
+          // todo: abstract this away better. should not happen at the top-level like it is now.
+          std::vector explanation_vec(explanation.begin(), explanation.end());
+          std::sort(explanation_vec.begin(), explanation_vec.end(), [](const Formula &a, const Formula &b) {
+              return a.GetFreeVariables().size() > b.GetFreeVariables().size(); // descending
+          });
+
           ////////////////////////////////////////////////////////////////////////////////
-          kunal_paper_data.lemma_size = explanation.size();
+          kunal_paper_data.lemma_size = explanation_vec.size();
 
           const auto ranking_start2 = std::chrono::high_resolution_clock::now();
           kunal_paper_data.lemma_stats = pn_.heuristic.collect_statistics(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(explanation));
@@ -286,7 +293,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 
           if (/* true */ predicted_log2_worth_it > 1) {
             const auto alcp_start = std::chrono::high_resolution_clock::now();
-            const auto alcp_result = sat_solver->AddLearnedClausePattern(pn_, explanation, box);
+            const auto alcp_result = sat_solver->AddLearnedClausePattern(pn_, explanation_vec, box);
             const auto alcp_end = std::chrono::high_resolution_clock::now();
             const std::chrono::duration<double, std::milli> alcp_elapsed = alcp_end - alcp_start;
 
@@ -310,7 +317,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 
           } else {
             DREAL_LOG_INFO("Skipped pattern matching. Adding learned clause conventionally.");
-            sat_solver->AddLearnedClause(explanation, box);
+            sat_solver->AddLearnedClause(explanation_vec, box);
           }
           ////////////////////////////////////////////////////////////////////////////////
 

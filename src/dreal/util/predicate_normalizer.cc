@@ -21,12 +21,7 @@
 namespace dreal
 {
     std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, PatternMatchingTrie::matching_stats_t>
-    PredicateNormalizer::FindSimilar(const std::set<Formula>& clause) const {
-        std::vector ordered_clause(clause.begin(), clause.end());
-        std::sort(ordered_clause.begin(), ordered_clause.end(), [&](const Formula &a, const Formula &b) {
-            return a.GetFreeVariables().size() > b.GetFreeVariables().size(); // descending
-            // return trie.estimate_branches(a) > trie.estimate_branches(b);
-        });
+    PredicateNormalizer::FindSimilar(const std::vector<Formula>& ordered_clause) const {
         if (DREAL_LOG_INFO_ENABLED) {
            std::ostringstream s;
            s << "!(";
