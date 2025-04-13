@@ -164,9 +164,15 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
     unsigned box_boolean_count;
     unsigned assertions_size;
     PredicateHeuristic::predicate_stats_t assertions_stats;
+    PredicateHeuristic::predicate_stats_t biggest_assertion_stats;
+    PredicateHeuristic::predicate_stats_t middle_assertion_stats;
+    PredicateHeuristic::predicate_stats_t smallest_assertion_stats;
     double theory_checksat_ms;
     unsigned lemma_size;
     PredicateHeuristic::predicate_stats_t lemma_stats;
+    PredicateHeuristic::predicate_stats_t biggest_literal_stats;
+    PredicateHeuristic::predicate_stats_t middle_literal_stats;
+    PredicateHeuristic::predicate_stats_t smallest_literal_stats;
     uint64_t estimated_matching_cost;
     double pattern_match_ms;
     PatternMatchingTrie::matching_stats_t pattern_matching_stats;
@@ -192,9 +198,15 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
     s << "box_boolean_count,";
     s << "assertions_size,";
     s << PredicateHeuristic::predicate_stats_csv_header("assertions_stats_") << ',';
+    s << PredicateHeuristic::predicate_stats_csv_header("biggest_assertion_stats_") << ',';
+    s << PredicateHeuristic::predicate_stats_csv_header("middle_assertion_stats_") << ',';
+    s << PredicateHeuristic::predicate_stats_csv_header("smallest_assertion_stats_") << ',';
     s << "theory_checksat_ms,";
     s << "lemma_size,";
     s << PredicateHeuristic::predicate_stats_csv_header("lemma_stats_") << ',';
+    s << PredicateHeuristic::predicate_stats_csv_header("biggest_literal_stats_") << ',';
+    s << PredicateHeuristic::predicate_stats_csv_header("middle_literal_stats_") << ',';
+    s << PredicateHeuristic::predicate_stats_csv_header("smallest_literal_stats_") << ',';
     s << "estimated_matching_cost,";
     s << "pattern_match_ms,";
     s << PatternMatchingTrie::matching_stats_csv_header("pattern_matching_stats_");
@@ -213,6 +225,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
   }
   ////////////////////////////////////////////////////////////////////////////////
 
+  DREAL_LOG_INFO("Initialized. Beginning SAT <=> Theory cycles.");
   while (true) {
     // Note that 'DREAL_CHECK_INTERRUPT' is only defined in setup.py,
     // when we build dReal python package.
@@ -241,6 +254,9 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           assertions.emplace_back(
             assignment ? sat_solver->theory_literal(sat_var) : !sat_solver->theory_literal(sat_var)
           );
+        std::sort(assertions.begin(), assertions.end(), [](const Formula& a, const Formula& b) {
+          return a.GetFreeVariables().size() < b.GetFreeVariables().size(); // ascending
+        });
 
         ////////////////////////////////////////////////////////////////////////////////
         kunal_paper_data.assertions_size = assertions.size();
@@ -248,6 +264,10 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
         const auto ranking_start1 = std::chrono::high_resolution_clock::now();
         std::set assertions_set(assertions.begin(), assertions.end());
         kunal_paper_data.assertions_stats = pn_.heuristic.collect_statistics(make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(assertions_set)));
+        // cheap because cached.
+        kunal_paper_data.smallest_assertion_stats = pn_.heuristic.collect_statistics(assertions[0]);
+        kunal_paper_data.middle_assertion_stats = pn_.heuristic.collect_statistics(assertions[assertions.size()/2]);
+        kunal_paper_data.biggest_assertion_stats = pn_.heuristic.collect_statistics(assertions[assertions.size()-1]);
         const auto ranking_end1 = std::chrono::high_resolution_clock::now();
         const std::chrono::duration<double, std::milli> ranking_elapsed1 = ranking_end1 - ranking_start1;
 
@@ -283,6 +303,10 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 
           const auto ranking_start2 = std::chrono::high_resolution_clock::now();
           kunal_paper_data.lemma_stats = pn_.heuristic.collect_statistics(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(explanation));
+          // doing individual literals doesn't cost extra because they cache hit after running the entire conjunction
+          kunal_paper_data.biggest_literal_stats = pn_.heuristic.collect_statistics(explanation_vec[0]);
+          kunal_paper_data.middle_literal_stats = pn_.heuristic.collect_statistics(explanation_vec[explanation_vec.size() / 2]);
+          kunal_paper_data.smallest_literal_stats = pn_.heuristic.collect_statistics(explanation_vec[explanation_vec.size()-1]);
           const double predicted_log2_worth_it = WORTH_IT_REGRESSION_MODEL(kunal_paper_data);
           const auto ranking_end2 = std::chrono::high_resolution_clock::now();
           const std::chrono::duration<double, std::milli> ranking_elapsed2 = ranking_end2 - ranking_start2;
@@ -329,9 +353,15 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             s << kunal_paper_data.box_boolean_count << ',';
             s << kunal_paper_data.assertions_size << ',';
             s << kunal_paper_data.assertions_stats << ',';
+            s << kunal_paper_data.biggest_assertion_stats << ',';
+            s << kunal_paper_data.middle_assertion_stats << ',';
+            s << kunal_paper_data.smallest_assertion_stats << ',';
             s << kunal_paper_data.theory_checksat_ms << ',';
             s << kunal_paper_data.lemma_size << ',';
             s << kunal_paper_data.lemma_stats << ',';
+            s << kunal_paper_data.biggest_literal_stats << ',';
+            s << kunal_paper_data.middle_literal_stats << ',';
+            s << kunal_paper_data.smallest_literal_stats << ',';
             s << kunal_paper_data.estimated_matching_cost << ',';
             s << kunal_paper_data.pattern_match_ms << ',';
             s << kunal_paper_data.pattern_matching_stats;
