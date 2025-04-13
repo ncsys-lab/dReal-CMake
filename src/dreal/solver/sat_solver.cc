@@ -91,13 +91,19 @@ void SatSolver::AddBox(PredicateNormalizer& pn, const Box& base_box) {
 
 PatternMatchingTrie::matching_stats_t SatSolver::AddLearnedClausePattern(
   PredicateNormalizer& pn,
-  const vector<Formula>& base_conflict, const Box& base_box
+  const vector<Formula>& base_conflict, const Box& base_box,
+  const std::chrono::duration<uint64_t, std::micro> timeout
 ) {
-  // todo: clean this a little.. avoid duplicates. but some clauses aren't in the trie and don't match to themselves?
-  const auto [all_related_conflicts, match_statistics] = pn.FindSimilar(base_conflict);
-  if(all_related_conflicts.empty()) {
-    DREAL_LOG_ERROR("Clause did not match with itself? Adding regularly.");
-    AddLearnedClause(base_conflict, base_box);
+  // the pattern matching is kinda best-effort now.
+  // it breaks down when one clause pattern matches into 1000s of permutations of itself
+  // just make the best effort, and at the very minimum make sure the original at least gets inserted
+  AddLearnedClause(base_conflict, base_box);
+  const auto [
+    all_related_conflicts,
+    match_statistics
+    ] = pn.FindSimilar(base_conflict, timeout);
+  if (all_related_conflicts.empty()) {
+    DREAL_LOG_ERROR("Clause did not match with itself... Adding regularly.");
     return match_statistics;
   }
 

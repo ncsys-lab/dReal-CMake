@@ -317,7 +317,11 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 
           if (/* true */ predicted_log2_worth_it > 1) {
             const auto alcp_start = std::chrono::high_resolution_clock::now();
-            const auto alcp_result = sat_solver->AddLearnedClausePattern(pn_, explanation_vec, box);
+            const auto alcp_result = sat_solver->AddLearnedClausePattern(
+              pn_, explanation_vec, box,
+              // std::chrono::duration_cast<std::chrono::microseconds>(100 * tscs_elapsed)
+              std::chrono::seconds(30)
+            );
             const auto alcp_end = std::chrono::high_resolution_clock::now();
             const std::chrono::duration<double, std::milli> alcp_elapsed = alcp_end - alcp_start;
 

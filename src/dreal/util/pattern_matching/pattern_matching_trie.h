@@ -37,7 +37,8 @@ namespace dreal
 
         [[nodiscard]] std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, matching_stats_t>
         find_matches(
-            const std::vector<Formula>& literals
+            const std::vector<Formula>& literals,
+            std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
         ) const;
 
         [[nodiscard]] std::pair<std::vector<std::pair<Formula, substitutions_map>>, matching_stats_t> find_matches(

@@ -72,7 +72,7 @@ class SatSolver {
   PatternMatchingTrie::matching_stats_t AddLearnedClausePattern(
       PredicateNormalizer& pn,
       const std::vector<Formula>& base_conflict,
-      const Box& base_box);
+      const Box& base_box, std::chrono::duration<uint64_t, std::micro> timeout);
   void AddBox(PredicateNormalizer& pn, const Box& base_box);
 
   Formula MakeSatIntervalVar(PredicateNormalizer& pn, const Variable& var, const Box::Interval& intv);

@@ -10,15 +10,21 @@
 #include <dreal/util/assert.h>
 #include <dreal/util/box.h>
 #include <dreal/util/logging.h>
+#include <cmath>
 
 namespace dreal
 {
     std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, PatternMatchingTrie::matching_stats_t>
-    PatternMatchingTrie::find_matches(const std::vector<Formula>& literals) const {
+    PatternMatchingTrie::find_matches(
+        const std::vector<Formula>& literals,
+        const std::chrono::duration<uint64_t, std::micro> timeout
+    ) const {
         matching_stats_t stats = {0};
         std::vector<Formula> matches_vec;
         std::vector<std::pair<std::vector<Formula>, substitutions_map>> result;
         matches_vec.reserve(literals.size());
+
+        const auto start_time = std::chrono::steady_clock::now();
 
         const f_misses_vec misses = [&](const auto& _) {
             stats.misses++;
@@ -42,11 +48,30 @@ namespace dreal
 
         const auto ibegin = literals.begin();
         const auto iend = literals.end();
+        std::unordered_set<Formula> seen_truncateds; // lexo-compare for nary goes one by one...
+        seen_truncateds.reserve(1024 * literals.size());
         std::function<
             std::function<void(const Formula& f, substitutions_map& s)>(typeof(ibegin))
         > match_next_literal = [&](const auto& it1) {
             return [&, /*copy*/ it1](const auto& f, auto& s2) {
+                if (std::chrono::steady_clock::now() - start_time > timeout) {
+                    DREAL_LOG_ERROR("Pattern matching timed out after {} usec.", timeout.count());
+                    return;
+                }
+
                 matches_vec.emplace_back(f);
+
+                // avoid re-finding 1000s of permutations of the same clause on fedor_13.smt2, etc.
+                // copy required. do NOT modify matches_vec... that needs to be a pure stack
+                std::set matches_vec_set(matches_vec.begin(), matches_vec.end());
+                const auto [_, successful_emplace] = seen_truncateds.emplace(
+                    make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(matches_vec_set))
+                );
+                if (!successful_emplace) {
+                    matches_vec.pop_back();
+                    return;
+                }
+
                 if (it1 == iend) {
                     DREAL_ASSERT(literals.size() == 1);
                     return all_literals_match(s2);
@@ -60,13 +85,16 @@ namespace dreal
             };
         };
 
-        size_t sub_preallocations=0;
-        for (const auto & literal : literals) sub_preallocations += literal.GetFreeVariables().size();
+        size_t sub_preallocations = 0;
+        for (const auto& literal : literals) sub_preallocations += literal.GetFreeVariables().size();
         substitutions_map substitutions(sub_preallocations);
 
         recMatchForm(*ibegin, f_root, substitutions, match_next_literal(ibegin), partial_matches, misses);
         DREAL_ASSERT(result.size() == stats.matches);
-        DREAL_LOG_INFO("Found {} matches with {} misses.", stats.matches, stats.misses);
+        DREAL_LOG_INFO(
+            "Found {} matches of size {} ({} effective literals) with {} misses.",
+            stats.matches, literals.size(), stats.matches / ::pow(2, literals.size()), stats.misses
+        );
         // if (DREAL_LOG_INFO_ENABLED) {
         //     for (const auto& [matched_clause, _] : result) {
         //         std::ostringstream s;
