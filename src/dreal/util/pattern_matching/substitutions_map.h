@@ -6,7 +6,7 @@
 #define substitutions_mapH
 #include <dreal/symbolic/symbolic.h>
 #include <dreal/util/box.h>
-#include <dreal/util/scoped_unordered_map.h>
+#include <dreal/util/exception.h>
 
 namespace dreal
 {
@@ -18,6 +18,9 @@ namespace dreal
         std::vector<std::vector<std::pair<Variable, Variable>>> insertion_stack{1};
 
     public:
+        const std::unordered_map<Variable, Variable>& get_map() const { return fwd; }
+        const std::vector<std::pair<Variable, Variable>>& get_current_frame() const { return insertion_stack.back(); }
+
         substitutions_map();
         explicit substitutions_map(size_t reserve);
 
