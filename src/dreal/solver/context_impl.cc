@@ -27,7 +27,7 @@
 #include <dreal/symbolic/prefix_printer.h>
 #include <dreal/symbolic/symbolic_formula_cell.h>
 #include <dreal/util/predicate_heuristic.h>
-#include <dreal/util/predicate_heuristic_trained_model.h>
+#include <dreal/util/pattern_matching/pattern_matching_heuristic.h>
 
 #include <fmt/format.h>
 
@@ -157,26 +157,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
     if (!myfile) throw DREAL_RUNTIME_ERROR("Failed to open log file");
   }
 
-  struct
-  {
-    unsigned box_continuous_count;
-    unsigned box_integer_count;
-    unsigned box_boolean_count;
-    unsigned assertions_size;
-    PredicateHeuristic::predicate_stats_t assertions_stats;
-    PredicateHeuristic::predicate_stats_t biggest_assertion_stats;
-    PredicateHeuristic::predicate_stats_t middle_assertion_stats;
-    PredicateHeuristic::predicate_stats_t smallest_assertion_stats;
-    double theory_checksat_ms;
-    unsigned lemma_size;
-    PredicateHeuristic::predicate_stats_t lemma_stats;
-    PredicateHeuristic::predicate_stats_t biggest_literal_stats;
-    PredicateHeuristic::predicate_stats_t middle_literal_stats;
-    PredicateHeuristic::predicate_stats_t smallest_literal_stats;
-    uint64_t estimated_matching_cost;
-    double pattern_match_ms;
-    PatternMatchingTrie::matching_stats_t pattern_matching_stats;
-  } kunal_paper_data = {0};
+  PatternMatchingHeuristic::statistics kunal_paper_data;
   ////////////////////////////////////////////////////////////////////////////////
 
   DREAL_LOG_DEBUG("ContextImpl::CheckSatCore()");
@@ -307,12 +288,12 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           kunal_paper_data.biggest_literal_stats = pn_.heuristic.collect_statistics(explanation_vec[0]);
           kunal_paper_data.middle_literal_stats = pn_.heuristic.collect_statistics(explanation_vec[explanation_vec.size() / 2]);
           kunal_paper_data.smallest_literal_stats = pn_.heuristic.collect_statistics(explanation_vec[explanation_vec.size()-1]);
-          const double predicted_log2_worth_it = WORTH_IT_REGRESSION_MODEL(kunal_paper_data);
+          const double predicted_is_worth_it = PatternMatchingHeuristic::calculate(kunal_paper_data);
           const auto ranking_end2 = std::chrono::high_resolution_clock::now();
           const std::chrono::duration<double, std::milli> ranking_elapsed2 = ranking_end2 - ranking_start2;
 
-          DREAL_LOG_INFO("Total lemma info: Predicted W.I.={}, in {}ms",
-            predicted_log2_worth_it, (ranking_elapsed1 + ranking_elapsed2).count()
+          DREAL_LOG_INFO("Total lemma info: Predicted P(is W.I.)={}, in {}ms",
+            predicted_is_worth_it, (ranking_elapsed1 + ranking_elapsed2).count()
           );
 
           // if (/* true */ predicted_log2_worth_it > 1) {
@@ -334,11 +315,11 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             const double actual_worth_it = pm_lpms / bb_lpms;
             const double actual_log2_worth_it = log2(actual_worth_it);
 
-            DREAL_LOG_INFO("Predicted W.I. = {}, Measured W.I. = {}", predicted_log2_worth_it, actual_log2_worth_it);
-            const bool overestimated = (actual_log2_worth_it < 1) && (predicted_log2_worth_it > 1);
-            const bool valid_over = (actual_log2_worth_it > 1) && (predicted_log2_worth_it > 1);
-            const bool valid_under = (actual_log2_worth_it < 1) && (predicted_log2_worth_it < 1);
-            const bool underestimated = (actual_log2_worth_it > 1) && (predicted_log2_worth_it < 1);
+            DREAL_LOG_INFO("Predicted P(is W.I.)={}, Measured log2 W.I. ratio = {}", predicted_is_worth_it, actual_log2_worth_it);
+            const bool overestimated = (actual_log2_worth_it < 1) && (predicted_is_worth_it > 0.5);
+            const bool valid_over = (actual_log2_worth_it > 1) && (predicted_is_worth_it > 0.5);
+            const bool valid_under = (actual_log2_worth_it < 1) && (predicted_is_worth_it < 0.5);
+            const bool underestimated = (actual_log2_worth_it > 1) && (predicted_is_worth_it < 0.5);
             if (overestimated) DREAL_LOG_INFO("OVERESTIMATED. Had high hopes but were disappointed in the end.");
             if (valid_over) DREAL_LOG_INFO("VALID_OVER. It was worth it like we thought.");
             if (valid_under) DREAL_LOG_INFO("VALID_UNDER. We knew to avoid this one.");
