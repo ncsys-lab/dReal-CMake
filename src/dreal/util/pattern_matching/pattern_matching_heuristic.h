@@ -34,7 +34,13 @@ namespace dreal
             PatternMatchingTrie::matching_stats_t pattern_matching_stats;
         };
 
-        static float calculate(statistics k);
+        // todo: I have no idea why, but passing const ref instead of copying BREAKS it?!?!?!
+        // it goes from functioning perfectly normally.. to just returning 0 and only 0...
+        // the unit tests work, it only breaks the executable.
+        // I think it's a compiler bug.... the struct is massive, the function is pure / constexpr.
+        // lots to optimize away here.
+        // honestly passing by copy might let some fancier optimizations through so who knows.
+        static float calculate(const statistics& k);
     };
 }
 

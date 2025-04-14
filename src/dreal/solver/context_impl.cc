@@ -157,7 +157,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
     if (!myfile) throw DREAL_RUNTIME_ERROR("Failed to open log file");
   }
 
-  PatternMatchingHeuristic::statistics kunal_paper_data;
+  PatternMatchingHeuristic::statistics kunal_paper_data{0};
   ////////////////////////////////////////////////////////////////////////////////
 
   DREAL_LOG_DEBUG("ContextImpl::CheckSatCore()");
@@ -288,20 +288,17 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           kunal_paper_data.biggest_literal_stats = pn_.heuristic.collect_statistics(explanation_vec[0]);
           kunal_paper_data.middle_literal_stats = pn_.heuristic.collect_statistics(explanation_vec[explanation_vec.size() / 2]);
           kunal_paper_data.smallest_literal_stats = pn_.heuristic.collect_statistics(explanation_vec[explanation_vec.size()-1]);
-          const double predicted_is_worth_it = PatternMatchingHeuristic::calculate(kunal_paper_data);
+          const float predicted_is_worth_it = PatternMatchingHeuristic::calculate(kunal_paper_data);
           const auto ranking_end2 = std::chrono::high_resolution_clock::now();
           const std::chrono::duration<double, std::milli> ranking_elapsed2 = ranking_end2 - ranking_start2;
 
-          DREAL_LOG_INFO("Total lemma info: Predicted P(is W.I.)={}, in {}ms",
-            predicted_is_worth_it, (ranking_elapsed1 + ranking_elapsed2).count()
-          );
-
           if (predicted_is_worth_it >= 0.5) {
+          // if (false) {
             const auto alcp_start = std::chrono::high_resolution_clock::now();
             const auto alcp_result = sat_solver->AddLearnedClausePattern(
               pn_, explanation_vec, box,
               // std::chrono::duration_cast<std::chrono::microseconds>(100 * tscs_elapsed)
-              std::chrono::seconds(30)
+              std::chrono::seconds(10) // based on information from WORTH_IT_regression_4.ipynb
             );
             const auto alcp_end = std::chrono::high_resolution_clock::now();
             const std::chrono::duration<double, std::milli> alcp_elapsed = alcp_end - alcp_start;
@@ -309,23 +306,29 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             kunal_paper_data.pattern_match_ms = alcp_elapsed.count();
             kunal_paper_data.pattern_matching_stats = alcp_result;
 
-            const double bb_lpms = 1 / tscs_elapsed.count();
-            const double pm_lpms = (alcp_result.matches - 0.999) / alcp_elapsed.count();
-            const double actual_worth_it = pm_lpms / bb_lpms;
-            const double actual_log2_worth_it = log2(actual_worth_it);
+            // const double bb_lpms = 1 / tscs_elapsed.count();
+            // const double pm_lpms = (alcp_result.matches - 0.999) / alcp_elapsed.count();
+            // const double actual_worth_it = pm_lpms / bb_lpms;
+            // const double actual_log2_worth_it = log2(actual_worth_it);
 
-            DREAL_LOG_INFO("Predicted P(is W.I.)={}, Measured log2 W.I. ratio = {}", predicted_is_worth_it, actual_log2_worth_it);
-            const bool overestimated = (actual_log2_worth_it < 1) && (predicted_is_worth_it > 0.5);
-            const bool valid_over = (actual_log2_worth_it > 1) && (predicted_is_worth_it > 0.5);
-            const bool valid_under = (actual_log2_worth_it < 1) && (predicted_is_worth_it < 0.5);
-            const bool underestimated = (actual_log2_worth_it > 1) && (predicted_is_worth_it < 0.5);
-            if (overestimated) DREAL_LOG_INFO("OVERESTIMATED. Had high hopes but were disappointed in the end.");
-            if (valid_over) DREAL_LOG_INFO("VALID_OVER. It was worth it like we thought.");
-            if (valid_under) DREAL_LOG_INFO("VALID_UNDER. We knew to avoid this one.");
-            if (underestimated) DREAL_LOG_INFO("UNDERESTIMATED. Sorry we didn't believe in you.");
+            std::cerr << "P(is W.I.)=" << predicted_is_worth_it;
+            std::cerr << ". Matched " << alcp_result.matches << " size " << explanation_vec.size() << " in " << alcp_elapsed.count();
+            std::cerr << " ms. TSCS " << tscs_elapsed.count() << " ms." << std::endl;
+
+            // DREAL_LOG_INFO("Predicted P(is W.I.)={}, Measured log2 W.I. ratio = {}", predicted_is_worth_it, actual_log2_worth_it);
+            // const bool overestimated = (actual_log2_worth_it < 1) && (predicted_is_worth_it > 0.5);
+            // const bool valid_over = (actual_log2_worth_it > 1) && (predicted_is_worth_it > 0.5);
+            // const bool valid_under = (actual_log2_worth_it < 1) && (predicted_is_worth_it < 0.5);
+            // const bool underestimated = (actual_log2_worth_it > 1) && (predicted_is_worth_it < 0.5);
+            // if (overestimated) DREAL_LOG_INFO("OVERESTIMATED. Had high hopes but were disappointed in the end.");
+            // if (valid_over) DREAL_LOG_INFO("VALID_OVER. It was worth it like we thought.");
+            // if (valid_under) DREAL_LOG_INFO("VALID_UNDER. We knew to avoid this one.");
+            // if (underestimated) DREAL_LOG_INFO("UNDERESTIMATED. Sorry we didn't believe in you.");
 
           } else {
-            DREAL_LOG_INFO("Skipped pattern matching. Adding learned clause conventionally.");
+            std::cerr << "P(is W.I.)=" << predicted_is_worth_it;
+            std::cerr << ". Adding 1 size " << explanation_vec.size() << " directly. ";
+            std::cerr << "TSCS " << tscs_elapsed.count() << " ms." << std::endl;
             sat_solver->AddLearnedClause(explanation_vec, box);
           }
           ////////////////////////////////////////////////////////////////////////////////
