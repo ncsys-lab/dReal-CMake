@@ -135,7 +135,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
                                           Box box,
                                           SatSolver* const sat_solver) {
   ////////////////////////////////////////////////////////////////////////////////
-  static constexpr bool GENERATE_CSV = true;
+  static constexpr bool GENERATE_CSV = false;
   std::ofstream myfile;
   if (GENERATE_CSV) {
     std::ostringstream s;
@@ -296,8 +296,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             predicted_is_worth_it, (ranking_elapsed1 + ranking_elapsed2).count()
           );
 
-          // if (/* true */ predicted_log2_worth_it > 1) {
-          if (true) {
+          if (predicted_is_worth_it >= 0.5) {
             const auto alcp_start = std::chrono::high_resolution_clock::now();
             const auto alcp_result = sat_solver->AddLearnedClausePattern(
               pn_, explanation_vec, box,
