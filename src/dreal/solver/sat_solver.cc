@@ -32,26 +32,21 @@ using std::cout;
 using std::set;
 using std::vector;
 
-SatSolver::SatSolver(const Config& config) : cadical(new CaDiCaL::Solver) {
+SatSolver::SatSolver(const Config& config) : sat_{picosat_init()} {
+  // Enable partial checks via picosat_deref_partial. See the call-site in
   // SatSolver::CheckSat().
+  picosat_save_original_clauses(sat_);
   if (config.random_seed() != 0) {
-    cadical->set("seed", config.random_seed());
+    picosat_set_seed(sat_, config.random_seed());
     DREAL_LOG_DEBUG("SatSolver::Set Random Seed {}", config.random_seed());
   }
-  // this actually doesn't work lol.
-  // cadical->set("phase", static_cast<int>(config.sat_default_phase()));
-  // DREAL_LOG_DEBUG("SatSolver::Set Default Phase {}",
-                  // config.sat_default_phase());
-
-  // todo: look into this? want to absolutely minimize calls to theory solver.
-  // eliminate as many variables as possible. ?
-  cadical->optimize(9);
-  cadical->set("condition", 1); // "globally blocked clause elim"
-  cadical->set("cover", 1); // "covered clause elimination"
-  cadical->set("block", 1); // "blocked clause elimination"
+  picosat_set_global_default_phase(
+      sat_, static_cast<int>(config.sat_default_phase()));
+  DREAL_LOG_DEBUG("SatSolver::Set Default Phase {}",
+                  config.sat_default_phase());
 }
 
-SatSolver::~SatSolver() { delete cadical; }
+SatSolver::~SatSolver() { picosat_reset(sat_); }
 
 void SatSolver::AddFormula(const Formula& f) {
   DREAL_LOG_DEBUG("SatSolver::AddFormula({})", f);
@@ -70,7 +65,7 @@ void SatSolver::AddLearnedClause(const vector<Formula>& conflicting_conjunction,
   for (const Formula& f : conflicting_conjunction) {
     AddLiteral(!predicate_abstractor_.Convert(f));
   }
-  cadical->add(0);
+  picosat_add(sat_, 0);
 }
 
 void SatSolver::AddBox(PredicateNormalizer& pn, const Box& base_box) {
@@ -84,7 +79,7 @@ void SatSolver::AddBox(PredicateNormalizer& pn, const Box& base_box) {
     ) {
       // todo: audit? currently can't because it is already predicate_abstractor-ed
       AddLiteral(lit);
-      cadical->add(0);
+      picosat_add(sat_, 0);
     }
   }
 }
@@ -129,7 +124,7 @@ PatternMatchingTrie::matching_stats_t SatSolver::AddLearnedClausePattern(
     // ==>
     for (const Formula& f : conflict_clause) AddLiteral(!predicate_abstractor_.Convert(f));
 
-    cadical->add(0);
+    picosat_add(sat_, 0);
   }
   return match_statistics;
 }
@@ -150,7 +145,7 @@ void SatSolver::AddClause(const Formula& f) {
     // f = b or f = ¬b.
     AddLiteral(f);
   }
-  cadical->add(0);
+  picosat_add(sat_, 0);
 }
 
 namespace {
@@ -180,27 +175,22 @@ class SatSolverStat : public Stat {
 optional<SatSolver::Model> SatSolver::CheckSat() {
   static SatSolverStat stat{DREAL_LOG_INFO_ENABLED};
   DREAL_LOG_DEBUG("SatSolver::CheckSat(#vars = {}, #clauses = {})",
-                  cadical->vars(),
-                  cadical->irredundant());
+                  picosat_variables(sat_),
+                  picosat_added_original_clauses(sat_));
   stat.num_check_sat_++;
   // Call SAT solver.
   TimerGuard check_sat_timer_guard(&stat.timer_check_sat_,
                                    DREAL_LOG_INFO_ENABLED);
-  const int ret{cadical->solve()};
-  // check_sat_timer_guard.pause();
+  const int ret{picosat_sat(sat_, -1 /* decision_limit == no limit */)};
+  check_sat_timer_guard.pause();
 
   Model model;
-  if (ret == CaDiCaL::SATISFIABLE) {
+  if (ret == PICOSAT_SATISFIABLE) {
     // SAT Case.
     const auto& var_to_formula_map = predicate_abstractor_.var_to_formula_map();
-    // from CaDiCaL documentation:
-    //    try to avoid mixing 'flip' and 'val' (for efficiency only).
-    std::vector<int> model_is(cadical->vars()+1);
-    for (int i = 1; i <= cadical->vars(); ++i) model_is[i] = cadical->val(i) > 0 ? +1 : -1;
-    for (int i = 1; i <= cadical->vars(); ++i) if(cadical->flip(i)) model_is[i] = 0; // todo: use IPASIR-UP, see cvc5 paper.
-    // for (int i = 1; i <= cadical->vars(); ++i) if(model_is[i] == 0) cadical->flip(i); // restore default state.
-    for (int i = 1; i <= cadical->vars(); ++i) {
-      const auto model_i = model_is[i];
+    for (int i = 1; i <= picosat_variables(sat_); ++i) {
+      const int model_i{has_picosat_pop_used_ ? picosat_deref(sat_, i)
+                                              : picosat_deref_partial(sat_, i)};
       if (model_i == 0) {
         continue;
       }
@@ -232,14 +222,14 @@ optional<SatSolver::Model> SatSolver::CheckSat() {
     }
     DREAL_LOG_DEBUG("SatSolver::CheckSat() Found a model.");
     return model;
-  } else if (ret == CaDiCaL::UNSATISFIABLE) {
+  } else if (ret == PICOSAT_UNSATISFIABLE) {
     DREAL_LOG_DEBUG("SatSolver::CheckSat() No solution.");
     // UNSAT Case.
     return {};
   } else {
-    DREAL_ASSERT(ret == CaDiCaL::UNKNOWN);
-    DREAL_LOG_CRITICAL("CaDiCaL returns CaDiCaL::UNKNOWN.");
-    throw DREAL_RUNTIME_ERROR("CaDiCaL returns CaDiCaL::UNKNOWN.");
+    DREAL_ASSERT(ret == PICOSAT_UNKNOWN);
+    DREAL_LOG_CRITICAL("PICOSAT returns PICOSAT_UNKNOWN.");
+    throw DREAL_RUNTIME_ERROR("PICOSAT returns PICOSAT_UNKNOWN.");
   }
 }
 
@@ -248,15 +238,13 @@ void SatSolver::Pop() {
   tseitin_variables_.pop();
   to_sym_var_.pop();
   to_sat_var_.pop();
-  // picosat_pop(sat_);
-  throw DREAL_RUNTIME_ERROR("NOT YET IMPLEMENTED SatSolver::Pop()");
+  picosat_pop(sat_);
   has_picosat_pop_used_ = true;
 }
 
 void SatSolver::Push() {
   DREAL_LOG_DEBUG("SatSolver::Push()");
-  // picosat_push(sat_);
-  throw DREAL_RUNTIME_ERROR("NOT YET IMPLEMENTED SatSolver::Push()");
+  picosat_push(sat_);
   to_sat_var_.push();
   to_sym_var_.push();
   tseitin_variables_.push();
@@ -270,14 +258,14 @@ void SatSolver::AddLiteral(const Formula& f) {
     const Variable& var{get_variable(f)};
     DREAL_ASSERT(var.get_type() == Variable::Type::BOOLEAN);
     // Add l = b
-    cadical->add(to_sat_var_[var.get_id()]);
+    picosat_add(sat_, to_sat_var_[var.get_id()]);
   } else {
     // f = ¬b
     DREAL_ASSERT(is_negation(f) && is_variable(get_operand(f)));
     const Variable& var{get_variable(get_operand(f))};
     DREAL_ASSERT(var.get_type() == Variable::Type::BOOLEAN);
     // Add l = ¬b
-    cadical->add(-to_sat_var_[var.get_id()]);
+    picosat_add(sat_, -to_sat_var_[var.get_id()]);
   }
 }
 
@@ -288,8 +276,7 @@ void SatSolver::MakeSatVar(const Variable& var) {
     return;
   }
   // It's not in the maps, let's make one and add it.
-  const int sat_var{cadical_next_var++};
-  // std::cout << "Assigning `" << var << "` (id #"<< var.get_id() <<") to " << sat_var << std::endl;
+  const int sat_var{picosat_inc_max_var(sat_)};
   to_sat_var_.insert(var.get_id(), sat_var);
   to_sym_var_.insert(sat_var, var);
   DREAL_LOG_DEBUG("SatSolver::MakeSatVar({} ↦ {})", fmt::streamed(var), sat_var);
