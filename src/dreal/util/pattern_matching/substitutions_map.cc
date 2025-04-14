@@ -70,8 +70,11 @@ namespace dreal
         }
 
         DREAL_LOG_TRACE(
-            "Substitution failed. New 'a' {} is already {}, while new 'aP' {} is already {}.",
-            a.get_name(), it_aP->second.get_name(), aP.get_name(), it_a->second.get_name()
+            "Substitution failed. New 'a' {} is {}, while new 'aP' {} is {}.",
+            a.get_name(),
+            has_aP ? it_aP->second.get_name() : "unmapped",
+            aP.get_name(),
+            has_a ? it_a->second.get_name() : "unmapped"
         );
         return false;
     }
