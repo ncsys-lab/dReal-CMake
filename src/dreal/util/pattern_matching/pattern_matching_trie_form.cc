@@ -320,16 +320,37 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     }
 
     ADD_DECL(VisitForall) {
-        throw DREAL_RUNTIME_ERROR("Pattern matching of quantifiers is currently unsupported {}", f);
+        // temporary implementation...
+        // I haven't put much thought into this.
+        return parent.c(FormulaKind::Forall).emplace_back(f, is_terminal);
     }
 
     EST_DECL(VisitForall) {
         branches += parent.c(FormulaKind::Forall).size();
-        throw DREAL_RUNTIME_ERROR("Pattern matching of quantifiers is currently unsupported {}", _f);
+        const auto f = to_forall(_f);
+        for (auto& node : parent.c(FormulaKind::Forall)) {
+            const auto& matched_f = to_forall(*node.leaf);
+            if (!f->EqualTo(*matched_f)) {} // recursive but whatever..
+            else if (!node.terminal_expression.has_value())
+                partial_matches(node);
+        }
     }
 
     VISIT_DECL(VisitForall) {
-        throw DREAL_RUNTIME_ERROR("Pattern matching of quantifiers is currently unsupported {}", _f);
+        // temporary implementation...
+        // I haven't put much thought into this.
+        const auto f = to_forall(_f);
+        for (auto& node : parent.c(FormulaKind::Forall)) {
+            const auto& matched_f = to_forall(*node.leaf);
+            if (!f->EqualTo(*matched_f))
+                misses(substitutions);
+            else if (!node.terminal_expression.has_value())
+                partial_matches(node, substitutions);
+            else if (substitutions_map::verify_substitutions(substitutions))
+                matches(*node.terminal_expression, substitutions);
+            else
+                misses(substitutions);
+        }
     }
 #undef VISIT_DECL
 #undef ADD_DECL

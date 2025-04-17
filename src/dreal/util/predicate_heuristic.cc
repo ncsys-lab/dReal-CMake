@@ -246,7 +246,9 @@ namespace dreal
 
     ADD_DECL(VisitForall) {
         stats.forall_cntr++;
-        throw DREAL_RUNTIME_ERROR("Heuristics for quantifiers are currently unsupported {}", f);
+        recHeurForm(get_quantified_formula(f), stats, inverted);
+        for (const auto & v : get_quantified_variables(f))
+            recHeurExpr({v}, stats);
     }
 
 #undef ADD_DECL
