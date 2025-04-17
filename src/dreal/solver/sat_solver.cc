@@ -49,6 +49,8 @@ SatSolver::SatSolver(const Config& config) : cadical(new CaDiCaL::Solver) {
   cadical->set("condition", 1); // "globally blocked clause elim"
   cadical->set("cover", 1); // "covered clause elimination"
   cadical->set("block", 1); // "blocked clause elimination"
+
+  cadical->connect_learner(this);
 }
 
 SatSolver::~SatSolver() { delete cadical; }
@@ -376,4 +378,41 @@ Formula SatSolver::MakeSatIntervalVar(PredicateNormalizer &pn, const Variable& v
 Formula SatSolver::theory_literal(const Variable& var) const {
   return predicate_abstractor_[var];
 }
+
+bool SatSolver::learning(const int size) {
+  buffer_i = 0;
+  expected_clause_size = size;
+  return size < BUFFER_SIZE;
+}
+
+void SatSolver::learn(const int new_lit) {
+  if (new_lit != 0) {
+    DREAL_ASSERT(buffer_i < expected_clause_size);
+    buffer[buffer_i] = new_lit;
+    buffer_i++;
+    return;
+  } // else {
+
+  DREAL_ASSERT(buffer_i == expected_clause_size);
+
+  set<Formula> neg_conjunction;
+  for (int i = 0; i < expected_clause_size; i++) {
+    const int lit = buffer[i];
+    const bool lit_is_neg = lit < 0;
+
+    const auto sym_var_it = to_sym_var_.find(lit_is_neg ? -lit : +lit);
+    DREAL_ASSERT(sym_var_it != to_sym_var_.end());
+    const auto theory_lit_it = predicate_abstractor_.var_to_formula_map().find(sym_var_it->second);
+    const Formula theory_lit =
+      theory_lit_it == predicate_abstractor_.var_to_formula_map().end()
+        ? Formula{sym_var_it->second}
+        : theory_lit_it->second;
+    neg_conjunction.emplace(
+      !(lit_is_neg ? !theory_lit : theory_lit)
+    );
+  }
+  const Formula sat_clause = !make_conjunction(neg_conjunction);
+  std::cout << "LEARNED: " << sat_clause << std::endl;
+}
+
 }  // namespace dreal

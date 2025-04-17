@@ -35,7 +35,7 @@
 
 namespace dreal {
 
-class SatSolver {
+class SatSolver : public CaDiCaL::Learner {
  public:
   using Literal = std::pair<Variable, bool>;
 
@@ -129,12 +129,16 @@ class SatSolver {
   std::unordered_map<Variable, std::map<double, Formula>> all_lb_predicates;
   std::unordered_map<Variable, std::map<double, Formula>> all_ub_predicates;
 
-  /// @note We found an issue when picosat_deref_partial is used with
-  /// picosat_pop. When this variable is true, we use `picosat_deref`
-  /// instead.
-  ///
-  /// TODO(soonho): Remove this hack when it's not needed.
-  bool has_picosat_pop_used_{false};
+  // learner stuff.
+private:
+  static constexpr size_t BUFFER_SIZE = 3;
+  int buffer[BUFFER_SIZE] = {0};
+  int buffer_i = 0;
+  int expected_clause_size = 0;
+
+public:
+  bool learning(int size) override;
+  void learn(int new_lit) override;
 };
 
 }  // namespace dreal
