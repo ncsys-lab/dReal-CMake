@@ -175,7 +175,7 @@ optional<Contractor> TheorySolver::BuildContractor(
     auto it = contractor_cache_.find(f);
     if (it == contractor_cache_.end()) {
       // There is no contractor for `f`, build one.
-      DREAL_LOG_DEBUG(
+      DREAL_LOG_TRACE(
           "TheorySolver::BuildContractor: Turn {} into a contractor", f);
       if (is_forall(f)) {
         // We should have `inner_delta < epsilon < delta`.

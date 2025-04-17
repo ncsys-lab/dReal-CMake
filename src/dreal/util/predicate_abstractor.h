@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "assert.h"
 #include "dreal/symbolic/symbolic.h"
 
 namespace dreal {
@@ -43,10 +44,12 @@ class PredicateAbstractor {
   }
 
   const Variable& operator[](const Formula& f) const {
+    DREAL_ASSERT(formula_to_var_map_.count(f)); // creates debuggable stack trace
     return formula_to_var_map_.at(f);
   }
 
   const Formula& operator[](const Variable& var) const {
+    DREAL_ASSERT(var_to_formula_map_.count(var)); // creates debuggable stack trace
     return var_to_formula_map_.at(var);
   }
 

@@ -46,6 +46,8 @@ namespace dreal
             result.emplace_back(matches_vec, s);
         };
 
+        bool did_time_out = false;
+
         const auto ibegin = literals.begin();
         const auto iend = literals.end();
         std::unordered_set<Formula> seen_truncateds; // lexo-compare for nary goes one by one...
@@ -54,8 +56,8 @@ namespace dreal
             std::function<void(const Formula& f, substitutions_map& s)>(typeof(ibegin))
         > match_next_literal = [&](const auto& it1) {
             return [&, /*copy*/ it1](const auto& f, auto& s2) {
-                if (std::chrono::steady_clock::now() - start_time > timeout) {
-                    DREAL_LOG_ERROR("Pattern matching timed out after {} usec.", timeout.count());
+                if (did_time_out || std::chrono::steady_clock::now() - start_time > timeout) {
+                    did_time_out = true;
                     return;
                 }
 
@@ -91,6 +93,8 @@ namespace dreal
 
         recMatchForm(*ibegin, f_root, substitutions, match_next_literal(ibegin), partial_matches, misses);
         DREAL_ASSERT(result.size() == stats.matches);
+        if (did_time_out)
+            DREAL_LOG_WARN("Pattern matching timed out after {} usec.", timeout.count());
         DREAL_LOG_INFO(
             "Found {} matches of size {} ({} effective literals) with {} misses.",
             stats.matches, literals.size(), stats.matches / ::pow(2, literals.size()), stats.misses

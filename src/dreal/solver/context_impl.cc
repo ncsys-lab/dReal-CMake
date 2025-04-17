@@ -207,6 +207,10 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
   ////////////////////////////////////////////////////////////////////////////////
 
   DREAL_LOG_INFO("Initialized. Beginning SAT <=> Theory cycles.");
+  DREAL_LOG_INFO(
+    "{} continuous variables. {} integer variables. {} boolean variables.",
+    kunal_paper_data.box_continuous_count, kunal_paper_data.box_integer_count, kunal_paper_data.box_boolean_count
+  );
   while (true) {
     // Note that 'DREAL_CHECK_INTERRUPT' is only defined in setup.py,
     // when we build dReal python package.
@@ -396,7 +400,7 @@ optional<Box> Context::Impl::CheckSat() {
 }
 
 void Context::Impl::AddToBox(const Variable& v) {
-  DREAL_LOG_DEBUG("ContextImpl::AddToBox({})", fmt::streamed(v));
+  DREAL_LOG_TRACE("ContextImpl::AddToBox({})", fmt::streamed(v));
   const auto& variables = box().variables();
   if (find_if(variables.begin(), variables.end(), [&v](const Variable& v_) {
         return v.equal_to(v_);
@@ -408,7 +412,7 @@ void Context::Impl::AddToBox(const Variable& v) {
 
 void Context::Impl::DeclareVariable(const Variable& v,
                                     const bool is_model_variable) {
-  DREAL_LOG_DEBUG("ContextImpl::DeclareVariable({})", fmt::streamed(v));
+  DREAL_LOG_TRACE("ContextImpl::DeclareVariable({})", fmt::streamed(v));
   AddToBox(v);
   if (is_model_variable) {
     mark_model_variable(v);

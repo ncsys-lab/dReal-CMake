@@ -74,7 +74,7 @@ IbexConverter::IbexConverter(const vector<Variable>& variables)
   symbolic_var_to_ibex_var_.reserve(variables.size());
   for (const Variable& var : vars_) {
     // The variable is new, we need to make one.
-    DREAL_LOG_DEBUG("IbexConverter::IbexConverter: Create variable {}", fmt::streamed(var));
+    DREAL_LOG_TRACE("IbexConverter::IbexConverter: Create variable {}", fmt::streamed(var));
     const ibex::ExprSymbol* v{
         &ibex::ExprSymbol::new_(var.get_name().c_str(), ibex::Dim::scalar())};
     // Update Variable → ibex::ExprSymbol*
@@ -98,7 +98,7 @@ IbexConverter::~IbexConverter() {
 }
 
 const ExprCtr* IbexConverter::Convert(const Formula& f) {
-  DREAL_LOG_DEBUG("IbexConverter::Convert({})", f);
+  DREAL_LOG_TRACE("IbexConverter::Convert({})", f);
   thread_local IbexConverterStat stat{DREAL_LOG_INFO_ENABLED};
   TimerGuard timer_guard(&stat.timer_convert_, stat.enabled());
   stat.increase_convert();
@@ -111,7 +111,7 @@ const ExprCtr* IbexConverter::Convert(const Formula& f) {
 }
 
 const ExprNode* IbexConverter::Convert(const Expression& e) {
-  DREAL_LOG_DEBUG("IbexConverter::Convert({})", fmt::streamed(e));
+  DREAL_LOG_TRACE("IbexConverter::Convert({})", fmt::streamed(e));
   const ExprNode* expr_node{Visit(e)};
   if (expr_node) {
     need_to_delete_variables_ = false;
