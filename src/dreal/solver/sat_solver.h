@@ -68,7 +68,7 @@ class SatSolver : public CaDiCaL::Learner {
 
   /// Given a @p formulas = {f₁, ..., fₙ}, adds a clause (¬f₁ ∨ ... ∨ ¬ fₙ) to
   /// the solver.
-  void AddLearnedClause(const std::vector<Formula>& conflicting_conjunction, const Box& box);
+  void AddLearnedClause(PredicateNormalizer& pn, const std::vector<Formula>& conflicting_conjunction, const Box& box);
   PatternMatchingTrie::matching_stats_t AddLearnedClausePattern(
       PredicateNormalizer& pn,
       const std::vector<Formula>& base_conflict,
@@ -116,10 +116,10 @@ class SatSolver : public CaDiCaL::Learner {
   TseitinCnfizer cnfizer_;
   PredicateAbstractor predicate_abstractor_;
 
-  // Map symbolic::Variable → int (Variable type in PicoSat).
+  // Map symbolic::Variable → int (Variable type in CaDiCaL).
   ScopedUnorderedMap<Variable::Id, int> to_sat_var_;
 
-  // Map int (Variable type in PicoSat) → symbolic::Variable.
+  // Map int (Variable type in CaDiCaL) → symbolic::Variable.
   ScopedUnorderedMap<int, Variable> to_sym_var_;
 
   /// Set of temporary Boolean variables introduced by Tseitin
@@ -140,5 +140,4 @@ public:
   bool learning(int size) override;
   void learn(int new_lit) override;
 };
-
-}  // namespace dreal
+} // namespace dreal
