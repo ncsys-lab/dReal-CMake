@@ -77,7 +77,6 @@ void SatSolver::AddLearnedClause(const vector<Formula>& conflicting_conjunction,
 
 void SatSolver::AddBox(PredicateNormalizer& pn, const Box& base_box) {
   for (const auto& v : base_box.variables()) {
-    if (v.get_type() == Variable::Type::BOOLEAN) continue;
     const auto condition = MakeSatIntervalVar(pn, v, base_box[v]);
     if (is_true(condition)) continue;
     for (
@@ -298,7 +297,14 @@ void SatSolver::MakeSatVar(const Variable& var) {
 }
 
 Formula SatSolver::MakeSatIntervalVar(PredicateNormalizer &pn, const Variable& var, const Box::Interval& intv) {
-  DREAL_ASSERT(var.get_type() != Variable::Type::BOOLEAN);
+  // DREAL_ASSERT(var.get_type() != Variable::Type::BOOLEAN);
+  if (var.get_type() == Variable::Type::BOOLEAN) {
+    if (intv.lb() == 1) return Formula{var};
+    if (intv.ub() == 0) return !Formula{var};
+    DREAL_ASSERT(intv.lb() == 0 && intv.ub() == 1);
+    return Formula::True();
+  } // else {
+
   DREAL_LOG_DEBUG("SatSolver::MakeSatIntervalVar({} ∈ {})", fmt::streamed(var), fmt::streamed(intv));
   auto ub_pred = Formula::True();
   if (isfinite(intv.ub())) {
