@@ -20,8 +20,10 @@
 #include <utility>
 #include <vector>
 
-#include "./picosat.h"
+// #include "./picosat.h"
 #include <dreal/util/predicate_normalizer.h>
+
+#include "cadical.hpp"
 
 #include "dreal/solver/config.h"
 #include "dreal/symbolic/symbolic.h"
@@ -108,8 +110,9 @@ class SatSolver {
 
   // Member variables
   // ----------------
-  // Pointer to the PicoSat solver.
-  PicoSAT* const sat_{};
+  CaDiCaL::Solver* const cadical;
+  int cadical_next_var = 1;
+
   TseitinCnfizer cnfizer_;
   PredicateAbstractor predicate_abstractor_;
 
