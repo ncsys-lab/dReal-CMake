@@ -24,6 +24,8 @@ namespace dreal
         substitutions_map();
         explicit substitutions_map(size_t reserve);
 
+        // "forward" takes the matched and maps it to original
+        // "backward" takes original and maps it to matched
         template <typename T>
         [[nodiscard]] static T apply_substitution(
             const T& f, const substitutions_map& subs, bool backward

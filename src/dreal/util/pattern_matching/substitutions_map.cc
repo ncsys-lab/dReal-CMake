@@ -19,6 +19,8 @@ namespace dreal
         reserve(reserved_size);
     }
 
+    // "forward" takes the matched and maps it to original
+    // "backward" takes original and maps it to matched
     Box substitutions_map::apply_substitution(
         const Box& b, const substitutions_map& subs, bool backward
     ) {
