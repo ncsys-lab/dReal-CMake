@@ -287,7 +287,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           kunal_paper_data.lemma_size = explanation_vec.size();
 
           const auto ranking_start2 = std::chrono::high_resolution_clock::now();
-          kunal_paper_data.lemma_stats = pn_.heuristic.collect_statistics(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(explanation));
+          // kunal_paper_data.lemma_stats = pn_.heuristic.collect_statistics(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(explanation.first));
           // doing individual literals doesn't cost extra because they cache hit after running the entire conjunction
           kunal_paper_data.biggest_literal_stats = pn_.heuristic.collect_statistics(explanation_vec[0]);
           kunal_paper_data.middle_literal_stats = pn_.heuristic.collect_statistics(explanation_vec[explanation_vec.size() / 2]);
