@@ -73,9 +73,11 @@ class SatSolver : public CaDiCaL::Learner {
       PredicateNormalizer& pn,
       const std::vector<Formula>& base_conflict,
       const Box& base_box, std::chrono::duration<uint64_t, std::micro> timeout);
+  std::pair<Formula, bool> MakeSatUbVar(PredicateNormalizer& pn, const Variable& var, double ub, bool inclusive);
+  std::pair<Formula, bool> MakeSatLbVar(PredicateNormalizer& pn, const Variable& var, double lb, bool inclusive);
   void AddBox(PredicateNormalizer& pn, const Box& base_box);
 
-  Formula MakeSatIntervalVar(PredicateNormalizer& pn, const Variable& var, const Box::Interval& intv);
+  Formula MakeSatIntervalVarWithClauses(PredicateNormalizer& pn, const Variable& var, const Box::Interval& intv);
 
   /// Checks the satisfiability of the current configuration.
   ///
@@ -126,8 +128,10 @@ class SatSolver : public CaDiCaL::Learner {
   /// transformations.
   ScopedUnorderedSet<Variable::Id> tseitin_variables_;
 
-  std::unordered_map<Variable, std::map<double, Formula>> all_lb_predicates;
-  std::unordered_map<Variable, std::map<double, Formula>> all_ub_predicates;
+  std::unordered_map<Variable, std::map<double, Formula>> all_excl_lb_predicates;
+  std::unordered_map<Variable, std::map<double, Formula>> all_incl_lb_predicates;
+  std::unordered_map<Variable, std::map<double, Formula>> all_excl_ub_predicates;
+  std::unordered_map<Variable, std::map<double, Formula>> all_incl_ub_predicates;
 
   // learner stuff.
 private:

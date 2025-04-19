@@ -2,204 +2,389 @@
 // Created by Kunal Sheth on 4/17/25.
 //
 
+#include <float.h>
 #include <dreal/util/logging.h>
 
 #include "auditor.h"
+#include "filter_assertion.h"
 #include "sat_solver.h"
 
-namespace dreal {
+namespace dreal
+{
+    void audit_literals(const PredicateAbstractor& pa, /*copy*/ std::vector<Formula> lits,
+                        const std::optional<Box>& box) {
+        for (auto& l : lits) {
+            if (is_variable(l)) {
+                // f = b
+                const auto& var = get_variable(l);
+                const auto iter = pa.var_to_formula_map().find(get_variable(l));
+                if (iter != pa.var_to_formula_map().end()) l = iter->second;
+                // else ...  the variable is probably, actually, a BOOL such as `DigitalPDController_0__omega_sensor_bit0__t0ad`
+            }
+            else {
+                // f = ¬b
+                DREAL_ASSERT(is_negation(l) && is_variable(get_operand(l)));
+                const auto iter = pa.var_to_formula_map().find(get_variable(get_operand(l)));
+                if (iter != pa.var_to_formula_map().end()) l = !iter->second;
+                // else ...  the variable is probably, actually, a BOOL such as `DigitalPDController_0__omega_sensor_bit0__t0ad`
+            }
+        }
+        audit(make_disjunction(lits), box);
+    }
 
-using std::cout;
-using std::set;
-using std::vector;
-
-void SatSolver::AddLearnedClause(
-  PredicateNormalizer& pn,
-  const vector<Formula>& conflicting_conjunction, const Box& box
-) {
-  if (DREAL_LOG_DEBUG_ENABLED) audit(!make_conjunction(conflicting_conjunction), box);
-
-  // a & b & c & ... ==> ~(x & y & z & ...)
-  // ~(a & b & c & ...) | ~(x & y & z & ...)
-  // ~a | ~b | ~c | ... | ~x | ~y | ~z | ...
-
-  for (const auto& v : box.variables()) {
-    const auto condition = MakeSatIntervalVar(pn, v, box[v]);
-    if (is_true(condition)) continue;
-    else if (!is_conjunction(condition)) AddLiteral(!condition); // already predicate-converted.
-    else for (const auto& lit : get_operands(condition)) AddLiteral(!lit);
-  }
-  // ==>
-  for (const Formula& f : conflicting_conjunction) AddLiteral(!predicate_abstractor_.Convert(f));
-
-  cadical->add(0);
-}
-
-void SatSolver::AddBox(PredicateNormalizer& pn, const Box& base_box) {
-  for (const auto& v : base_box.variables()) {
-    const auto condition = MakeSatIntervalVar(pn, v, base_box[v]);
-    if (is_true(condition)) continue;
-    for (
-      const auto& lit :
-      is_conjunction(condition) ? get_operands(condition) : set{condition}
+    void SatSolver::AddLearnedClauseUnboxed(
+        const std::vector<Formula>& conflicting_conjunction
     ) {
-      // todo: audit? currently can't because it is already predicate_abstractor-ed
-      AddLiteral(lit);
-      cadical->add(0);
-    }
-  }
-}
+        label_literal_log("AddLearnedClauseUnboxed");
+        for (const Formula& f : conflicting_conjunction) {
+            AddLiteral(!predicate_abstractor_.Convert(f));
+        }
+        cadical->add(0);
+        flush_clause();
 
-PatternMatchingTrie::matching_stats_t SatSolver::AddLearnedClausePattern(
-  PredicateNormalizer& pn,
-  const vector<Formula>& base_conflict, const Box& base_box,
-  const std::chrono::duration<uint64_t, std::micro> timeout
-) {
-  // the pattern matching is kinda best-effort now.
-  // it breaks down when one clause pattern matches into 1000s of permutations of itself
-  // just make the best effort, and at the very minimum make sure the original at least gets inserted
-  AddLearnedClause(pn, base_conflict, base_box);
-  const auto [
-    all_related_conflicts,
-    match_statistics
-    ] = pn.FindSimilar(base_conflict, timeout);
-  if (all_related_conflicts.empty()) {
-    DREAL_LOG_ERROR("Clause did not match with itself... Adding regularly.");
-    return match_statistics;
-  }
-
-  for (const auto& [conflict_clause, subs] : all_related_conflicts) {
-    const auto conflict_box = substitutions_map::apply_substitution(base_box, subs, true);
-
-    if (DREAL_LOG_INFO_ENABLED) { // todo: better gate.
-      std::set conflict_clause_set(conflict_clause.begin(), conflict_clause.end());
-      audit(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(conflict_clause_set)), conflict_box);
+        if (DREAL_LOG_INFO_ENABLED) {
+            std::vector<Formula> a;
+            for (const Formula& f : conflicting_conjunction) {
+                a.emplace_back(!predicate_abstractor_.Convert(f));
+            }
+            audit_literals(predicate_abstractor_, a, {});
+        }
     }
 
-    AddLearnedClause(pn, conflict_clause, conflict_box);
-  }
-  return match_statistics;
-}
-
-Formula SatSolver::MakeSatIntervalVar(PredicateNormalizer &pn, const Variable& var, const Box::Interval& intv) {
-  // DREAL_ASSERT(var.get_type() != Variable::Type::BOOLEAN);
-  if (var.get_type() == Variable::Type::BOOLEAN) {
-    if (intv.lb() == 1) return Formula{var};
-    if (intv.ub() == 0) return !Formula{var};
-    DREAL_ASSERT(intv.lb() == 0 && intv.ub() == 1);
-    return Formula::True();
-  } // else {
-
-  DREAL_LOG_DEBUG("SatSolver::MakeSatIntervalVar({} ∈ {})", fmt::streamed(var), fmt::streamed(intv));
-  auto ub_pred = Formula::True();
-  if (isfinite(intv.ub())) {
-    ub_pred = var <= intv.ub(); // TODO: figure out if this is inclusive or exclusive.
-    // an iterator pointing to the first element that is greater or equal to intv.ub()
-    auto& var_ub_preds = all_ub_predicates[var];
-    auto ub_gte_it = var_ub_preds.lower_bound(intv.ub());
-    if (!var_ub_preds.empty() && ub_gte_it->first == intv.ub()) ub_pred = ub_gte_it->second;
-    else {
-      ub_pred = predicate_abstractor_.Convert(pn.Convert(ub_pred));
-      MakeSatVar(get_variable(ub_pred));
-
-      if (ub_gte_it != var_ub_preds.end()) {
-        const auto& gt = *ub_gte_it;
-        DREAL_ASSERT(intv.ub() < gt.first);
-        DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", ub_pred, gt.second);
-        // std::cout << ub_pred << " => " << gt.second << std::endl;
-        // (x < Ub) => (x < Ub+ε)
-        // = ~(x < Ub) \/ (x < Ub+ε)
-        // = ~((x < Ub) /\ ~(x < Ub+ε))
-        AddLearnedClause(pn, {ub_pred, !gt.second}, {/* empty— will overflow stack otherwise. */});
-      }
-      if (ub_gte_it != var_ub_preds.begin()) {
-        --ub_gte_it;
-        const auto& lt = *ub_gte_it;
-        DREAL_ASSERT(lt.first < intv.ub());
-        DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", lt.second, ub_pred);
-        // std::cout << lt.second << " => " << ub_pred << std::endl;
-        // (x < Ub-ε) => (x < Ub)
-        // = ~(x < Ub-ε) \/ (x < Ub)
-        // = ~((x < Ub-ε) /\ ~(x < Ub))
-        AddLearnedClause(pn, {lt.second, !ub_pred}, {/* empty— will overflow stack otherwise. */});
-      }
-      var_ub_preds[intv.ub()] = ub_pred;
+    void FlattenIntervalClause(const Formula& intv, const std::function<void(const Formula&)>& f) {
+        if (is_true(intv)) { /* no-op */ }
+        else if (is_conjunction(intv)) {
+            const auto ops = get_operands(intv);
+            DREAL_ASSERT(ops.size() == 2);
+            for (const auto& op : ops) f(op);
+        }
+        else f(intv);
     }
-  }
 
-  auto lb_pred = Formula::True();
-  if (isfinite(intv.lb())) {
-    lb_pred = intv.lb() <= var; // TODO: figure out if this is inclusive or exclusive.
-    // an iterator pointing to the first element that is greater or equal to intv.lb()
-    auto& var_lb_preds = all_lb_predicates[var];
-    auto lb_gte_it = var_lb_preds.lower_bound(intv.lb());
-    if (!var_lb_preds.empty() && lb_gte_it->first == intv.lb()) lb_pred = lb_gte_it->second;
-    else {
-      lb_pred = predicate_abstractor_.Convert(pn.Convert(lb_pred));
-      MakeSatVar(get_variable(lb_pred));
+    void SatSolver::AddLearnedClause(
+        PredicateNormalizer& pn,
+        const std::vector<Formula>& conflicting_conjunction, const Box& unfitted_box
+    ) {
+        label_literal_log("AddLearnedClause");
+        for (const auto& lit : conflicting_conjunction) {
+            if (lit.GetFreeVariables().size() != 1 || !is_relational(lit)) continue;
+            const Variable& var = *lit.GetFreeVariables().begin();
 
-      if (lb_gte_it != var_lb_preds.end()) {
-        const auto& gt = *lb_gte_it;
-        DREAL_ASSERT(intv.lb() < gt.first);
-        DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", gt.second, lb_pred);
-        // std::cout << gt.second << " => " << lb_pred << std::endl;
-        // (Lb+ε < x) => (Lb < x)
-        // = ~(Lb+ε < x) \/ (Lb < x)
-        // = ~((Lb+ε < x) /\ ~(Lb < x))
-        AddLearnedClause(pn, {gt.second, !lb_pred}, {/* empty— will overflow stack otherwise. */});
-      }
-      if (lb_gte_it != var_lb_preds.begin()) {
-        --lb_gte_it;
-        const auto& lt = *lb_gte_it;
-        DREAL_ASSERT(lt.first < intv.lb());
-        DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", lb_pred, lt.second);
-        // std::cout << lb_pred << " => " << lt.second << std::endl;
-        // (Lb < x) => (Lb-ε < x)
-        // = ~(Lb < x) \/ (Lb-ε < x)
-        // = ~((Lb < x) /\ ~(Lb-ε < x))
-        AddLearnedClause(pn, {lb_pred, !lt.second}, {/* empty— will overflow stack otherwise. */});
-      }
-      var_lb_preds[intv.lb()] = lb_pred;
+            const Box infinite_box{{var}};
+            Box fitted_box{{var}};
+            fitted_box[var] = unfitted_box[var];
+            const auto r = FilterAssertion(lit, &fitted_box);
+
+            if (r.filtered) {
+                // automatically builds implications
+                // if !r.change:
+                //      unfitted => lit
+                // if  r.change:
+                //      lit /\ unfitted => fitted
+
+                MakeSatIntervalVarWithClauses(pn, var, infinite_box[var]);
+                // MakeSatIntervalVarWithClauses(pn, var, unfitted_box[var]); // redundant, made later.
+                MakeSatIntervalVarWithClauses(pn, var, fitted_box[var]);
+            }
+
+            /*else if (r.filtered && r.changed) {
+                const auto unfitted = MakeSatIntervalVarWithClauses(pn, var, unfitted_box[var]);
+                const auto fitted = MakeSatIntervalVarWithClauses(pn, var, fitted_box[var]);
+
+                // lit /\ unfitted => fitted
+                // ~(lit /\ unfitted) \/ fitted
+                // ~lit \/ ~unfitted \/ fitted
+
+                AddLiteral(!predicate_abstractor_.Convert(lit));
+                FlattenIntervalClause(unfitted, [&](const auto& il) { AddLiteral(!il); });
+                FlattenIntervalClause(fitted, [&](const auto& il) { AddLiteral(il); });
+                cadical->add(0);
+                flush_clause();
+
+                if (DREAL_LOG_INFO_ENABLED) {
+                    std::vector<Formula> a;
+                    a.emplace_back(!predicate_abstractor_.Convert(lit));
+                    FlattenIntervalClause(unfitted, [&](const auto& il) { a.emplace_back(!il); });
+                    FlattenIntervalClause(fitted, [&](const auto& il) { a.emplace_back(il); });
+                    audit_literals(predicate_abstractor_, a, {});
+                }
+            }
+            else if (!r.filtered && !r.changed) {
+                // no-op, was mistaken for something else...
+                // e.g. `((5 + 6 * x + 2 * pow(x, 2)) < 0)` could end up here
+            }
+            else
+                DREAL_UNREACHABLE();*/
+        }
+
+        // a & b & c & ... ==> ~(x & y & z & ...)
+        // ~(a & b & c & ...) | ~(x & y & z & ...)
+        // ~a | ~b | ~c | ... | ~x | ~y | ~z | ...
+        std::vector<Formula> lhs_implies;
+        lhs_implies.reserve(unfitted_box.size() * 2);
+        for (const auto& v : unfitted_box.variables()) {
+            const auto condition = MakeSatIntervalVarWithClauses(pn, v, unfitted_box[v]);
+            // need to use lhs_implies since MakeSatIntervalVarWithClauses adds its own sequence of clauses
+            // terminating with `cadical->add(0)`
+            FlattenIntervalClause(condition, [&](const auto& l) { lhs_implies.emplace_back(!l); });
+        }
+
+        for (const auto& lit : lhs_implies) AddLiteral(lit);
+        // ==>
+        for (const Formula& f : conflicting_conjunction) AddLiteral(!predicate_abstractor_.Convert(f));
+        cadical->add(0);
+        flush_clause();
+
+        if (DREAL_LOG_INFO_ENABLED) {
+            audit(!make_conjunction(conflicting_conjunction), unfitted_box);
+
+            std::vector<Formula> a;
+            for (const auto& lit : lhs_implies) a.emplace_back(lit);
+            // ==>
+            for (const Formula& f : conflicting_conjunction) a.emplace_back(!predicate_abstractor_.Convert(f));
+            audit_literals(predicate_abstractor_, a, {});
+        }
     }
-  }
 
-  return lb_pred && ub_pred;
-}
+    void SatSolver::AddBox(PredicateNormalizer& pn, const Box& base_box) {
+        label_literal_log("AddBox");
+        for (const auto& v : base_box.variables()) {
+            const auto condition = MakeSatIntervalVarWithClauses(pn, v, base_box[v]);
+            if (is_true(condition)) continue;
+            for (
+                const auto& lit :
+                is_conjunction(condition) ? get_operands(condition) : set{condition}
+            ) {
+                // todo: audit? currently can't because it is already predicate_abstractor-ed
+                AddLiteral(lit);
+                cadical->add(0);
+                flush_clause();
+            }
+        }
+    }
 
-bool SatSolver::learning(const int size) {
-  buffer_i = 0;
-  expected_clause_size = size;
-  return size < BUFFER_SIZE;
-}
+    PatternMatchingTrie::matching_stats_t SatSolver::AddLearnedClausePattern(
+        PredicateNormalizer& pn,
+        const std::vector<Formula>& base_conflict, const Box& base_box,
+        const std::chrono::duration<uint64_t, std::micro> timeout
+    ) {
+        label_literal_log("AddLearnedClausePattern");
+        // the pattern matching is kinda best-effort now.
+        // it breaks down when one clause pattern matches into 1000s of permutations of itself
+        // just make the best effort, and at the very minimum make sure the original at least gets inserted
 
-void SatSolver::learn(const int new_lit) {
-  if (new_lit != 0) {
-    DREAL_ASSERT(buffer_i < expected_clause_size);
-    buffer[buffer_i] = new_lit;
-    buffer_i++;
-    return;
-  } // else {
+        const auto [
+            all_related_conflicts,
+            match_statistics
+        ] = pn.FindSimilar(base_conflict, timeout);
+        if (all_related_conflicts.empty()) {
+            DREAL_LOG_ERROR("Clause did not match with itself... Adding regularly.");
+            return match_statistics;
+        }
 
-  DREAL_ASSERT(buffer_i == expected_clause_size);
+        for (const auto& [conflict_clause, subs] : all_related_conflicts) {
+            const auto conflict_box = substitutions_map::apply_substitution(base_box, subs, true);
 
-  set<Formula> neg_conjunction;
-  for (int i = 0; i < expected_clause_size; i++) {
-    const int lit = buffer[i];
-    const bool lit_is_neg = lit < 0;
+            if (DREAL_LOG_INFO_ENABLED) { // todo: better gate.
+                std::set conflict_clause_set(conflict_clause.begin(), conflict_clause.end());
+                audit(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(conflict_clause_set)), conflict_box);
+            }
 
-    const auto sym_var_it = to_sym_var_.find(lit_is_neg ? -lit : +lit);
-    DREAL_ASSERT(sym_var_it != to_sym_var_.end());
-    const auto theory_lit_it = predicate_abstractor_.var_to_formula_map().find(sym_var_it->second);
-    const Formula theory_lit =
-      theory_lit_it == predicate_abstractor_.var_to_formula_map().end()
-        ? Formula{sym_var_it->second}
-        : theory_lit_it->second;
-    neg_conjunction.emplace(
-      !(lit_is_neg ? !theory_lit : theory_lit)
-    );
-  }
-  const Formula sat_clause = !make_conjunction(neg_conjunction);
-  std::cout << "LEARNED: " << sat_clause << std::endl;
-}
+            AddLearnedClause(pn, conflict_clause, conflict_box);
+        }
+        return match_statistics;
+    }
 
-}  // namespace dreal
+
+    std::pair<Formula, bool> SatSolver::MakeSatUbVar(PredicateNormalizer& pn, const Variable& var, const double ub,
+                                                     const bool inclusive) {
+        if (!isfinite(ub)) return {Formula::True(), true};
+        // else {
+
+        // an iterator pointing to the first element that is greater or equal to ub
+        auto& var_ub_preds = (inclusive ? all_incl_ub_predicates : all_excl_ub_predicates)[var];
+        auto ub_gte_it = var_ub_preds.lower_bound(ub);
+        if (ub_gte_it != var_ub_preds.end() && ub_gte_it->first == ub) {
+            return {ub_gte_it->second, true};
+        } // else {
+
+        Formula ub_pred = inclusive ? var <= ub : var < ub;
+        ub_pred = predicate_abstractor_.Convert(pn.Convert(ub_pred));
+        MakeSatVar(get_variable(ub_pred));
+
+        if (ub_gte_it != var_ub_preds.end()) {
+            const auto& gt = *ub_gte_it;
+            DREAL_ASSERT(ub < gt.first);
+            DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", ub_pred, gt.second);
+            // std::cout << ub_pred << " => " << gt.second << std::endl;
+            // (x < Ub) => (x < Ub+ε)
+            // = ~(x < Ub) \/ (x < Ub+ε)
+            // = ~((x < Ub) /\ ~(x < Ub+ε))
+            AddLearnedClauseUnboxed({ub_pred, !gt.second});
+        }
+        if (ub_gte_it != var_ub_preds.begin()) {
+            --ub_gte_it;
+            const auto& lt = *ub_gte_it;
+            DREAL_ASSERT(lt.first < ub);
+            DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", lt.second, ub_pred);
+            // std::cout << lt.second << " => " << ub_pred << std::endl;
+            // (x < Ub-ε) => (x < Ub)
+            // = ~(x < Ub-ε) \/ (x < Ub)
+            // = ~((x < Ub-ε) /\ ~(x < Ub))
+            AddLearnedClauseUnboxed({lt.second, !ub_pred});
+        }
+        var_ub_preds[ub] = ub_pred;
+        return {ub_pred, false};
+    }
+
+
+    std::pair<Formula, bool> SatSolver::MakeSatLbVar(PredicateNormalizer& pn, const Variable& var, const double lb,
+                                                     const bool inclusive) {
+        if (!isfinite(lb)) return {Formula::True(), true};
+        // else {
+
+        // an iterator pointing to the first element that is greater or equal to lb
+        auto& var_lb_preds = (inclusive ? all_incl_lb_predicates : all_excl_lb_predicates)[var];
+        auto lb_gte_it = var_lb_preds.lower_bound(lb);
+        if (lb_gte_it != var_lb_preds.end() && lb_gte_it->first == lb) {
+            return {lb_gte_it->second, true};
+        } // else {
+
+        Formula lb_pred = inclusive ? lb <= var : lb < var;
+        lb_pred = predicate_abstractor_.Convert(pn.Convert(lb_pred));
+        MakeSatVar(get_variable(lb_pred));
+
+        if (lb_gte_it != var_lb_preds.end()) {
+            const auto& gt = *lb_gte_it;
+            DREAL_ASSERT(lb < gt.first);
+            DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", gt.second, lb_pred);
+            // std::cout << gt.second << " => " << lb_pred << std::endl;
+            // (Lb+ε < x) => (Lb < x)
+            // = ~(Lb+ε < x) \/ (Lb < x)
+            // = ~((Lb+ε < x) /\ ~(Lb < x))
+            AddLearnedClauseUnboxed({gt.second, !lb_pred});
+        }
+        if (lb_gte_it != var_lb_preds.begin()) {
+            --lb_gte_it;
+            const auto& lt = *lb_gte_it;
+            DREAL_ASSERT(lt.first < lb);
+            DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", lb_pred, lt.second);
+            // std::cout << lb_pred << " => " << lt.second << std::endl;
+            // (Lb < x) => (Lb-ε < x)
+            // = ~(Lb < x) \/ (Lb-ε < x)
+            // = ~((Lb < x) /\ ~(Lb-ε < x))
+            AddLearnedClauseUnboxed({lb_pred, !lt.second});
+        }
+        var_lb_preds[lb] = lb_pred;
+        return {lb_pred, false};
+    }
+
+    Formula SatSolver::MakeSatIntervalVarWithClauses(PredicateNormalizer& pn, const Variable& var,
+                                                     const Box::Interval& intv) {
+        DREAL_LOG_DEBUG("SatSolver::MakeSatIntervalVarWithClauses({} ∈ {})",
+                        fmt::streamed(var), fmt::streamed(intv));
+
+        // DREAL_ASSERT(var.get_type() != Variable::Type::BOOLEAN);
+        if (var.get_type() == Variable::Type::BOOLEAN) {
+            if (intv.lb() == 1) return Formula{var};
+            if (intv.ub() == 0) return !Formula{var};
+            DREAL_ASSERT(intv.lb() == 0 && intv.ub() == 1);
+            return Formula::True();
+        } // else {
+
+        const auto [lb, lb_cache_hit] = MakeSatLbVar(pn, var, intv.lb(), true);
+        if (!lb_cache_hit) {
+            DREAL_ASSERT(is_finite(intv.lb()));
+            label_literal_log("MakeSatIntervalVarWithClauses - LB");
+
+            const auto [inv_lb, _] = MakeSatUbVar(
+                pn, var, intv.lb(), false
+            );
+            // ~(lb & inv_lb)  &  ~(~lb & ~inv_lb)
+            // ~lb \/ ~inv_lb  &  lb \/ inv_lb
+            AddLiteral(!lb);
+            AddLiteral(!inv_lb);
+            cadical->add(0);
+            flush_clause();
+            AddLiteral(lb);
+            AddLiteral(inv_lb);
+            cadical->add(0);
+            flush_clause();
+
+            if (DREAL_LOG_INFO_ENABLED) {
+                audit_literals(predicate_abstractor_, {!lb, !inv_lb}, {});
+                audit_literals(predicate_abstractor_, {lb, inv_lb}, {});
+            }
+        }
+
+        const auto [ub, ub_cache_hit] = MakeSatUbVar(pn, var, intv.ub(), true);
+        if (!ub_cache_hit) {
+            DREAL_ASSERT(is_finite(intv.ub()));
+            label_literal_log("MakeSatIntervalVarWithClauses - UB");
+
+            const auto [inv_ub, _] = MakeSatLbVar(
+                pn, var, intv.ub(), false
+            );
+            // ~(ub & inv_ub)  &  ~(~ub & ~inv_ub)
+            // ~ub \/ ~inv_ub  &  ub \/ inv_ub
+            AddLiteral(!ub);
+            AddLiteral(!inv_ub);
+            cadical->add(0);
+            flush_clause();
+            AddLiteral(ub);
+            AddLiteral(inv_ub);
+            cadical->add(0);
+            flush_clause();
+
+            if (DREAL_LOG_INFO_ENABLED) {
+                audit_literals(predicate_abstractor_, {!ub, !inv_ub}, {});
+                audit_literals(predicate_abstractor_, {ub, inv_ub}, {});
+            }
+        }
+
+        return lb && ub;
+    }
+
+    bool SatSolver::learning(const int size) {
+        buffer_i = 0;
+        expected_clause_size = size;
+        if (size < BUFFER_SIZE) return true;
+        else {
+            label_literal_log("Learning clause which is too big to show. size=" + size);
+            return false;
+        }
+    }
+
+    void SatSolver::learn(const int new_lit) {
+        if (new_lit != 0) {
+            DREAL_ASSERT(buffer_i < expected_clause_size);
+            buffer[buffer_i] = new_lit;
+            buffer_i++;
+            return;
+        } // else {
+
+        DREAL_ASSERT(buffer_i == expected_clause_size);
+
+        label_literal_log("Learned: ");
+        std::set<Formula> neg_conjunction;
+        for (int i = 0; i < expected_clause_size; i++) {
+            const int lit = buffer[i];
+            log_clause(lit);
+            const bool lit_is_neg = lit < 0;
+
+            const auto sym_var_it = to_sym_var_.find(lit_is_neg ? -lit : +lit);
+            DREAL_ASSERT(sym_var_it != to_sym_var_.end());
+            const auto theory_lit_it = predicate_abstractor_.var_to_formula_map().find(sym_var_it->second);
+            const Formula theory_lit =
+                theory_lit_it == predicate_abstractor_.var_to_formula_map().end()
+                    ? Formula{sym_var_it->second}
+                    : theory_lit_it->second;
+            neg_conjunction.emplace(
+                !(lit_is_neg ? !theory_lit : theory_lit)
+            );
+        }
+        flush_clause();
+        const Formula sat_clause = !make_conjunction(neg_conjunction);
+        label_literal_log("i.e. " + sat_clause.to_string());
+    }
+} // namespace dreal
