@@ -820,6 +820,10 @@ TEST_F(SymbolicExpressionTest, NumericLimits) {
   ASSERT_TRUE(is_constant(num_min));
   EXPECT_EQ(get_constant_value(num_min), numeric_limits<double>::min());
 
+  const Expression num_low = Limits::lowest();
+  ASSERT_TRUE(is_constant(num_low));
+  EXPECT_EQ(get_constant_value(num_low), numeric_limits<double>::lowest());
+
   const Expression num_infinity = Limits::infinity();
   EXPECT_EQ(num_infinity.to_string(), "inf");
 }
