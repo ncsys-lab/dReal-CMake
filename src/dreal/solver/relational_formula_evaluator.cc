@@ -83,7 +83,7 @@ RelationalFormulaEvaluator::RelationalFormulaEvaluator(Formula f)
       expression_evaluator_{ExtractExpression(formula())} {}
 
 RelationalFormulaEvaluator::~RelationalFormulaEvaluator() {
-  DREAL_LOG_DEBUG("RelationalFormulaEvaluator::~RelationalFormulaEvaluator()");
+  DREAL_LOG_TRACE("RelationalFormulaEvaluator::~RelationalFormulaEvaluator()");
 }
 
 FormulaEvaluationResult RelationalFormulaEvaluator::operator()(

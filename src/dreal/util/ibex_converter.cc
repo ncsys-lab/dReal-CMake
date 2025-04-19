@@ -88,7 +88,7 @@ IbexConverter::IbexConverter(const vector<Variable>& variables)
 IbexConverter::IbexConverter(const Box& box) : IbexConverter{box.variables()} {}
 
 IbexConverter::~IbexConverter() {
-  DREAL_LOG_DEBUG("IbexConverter::~IbexConverter()");
+  DREAL_LOG_TRACE("IbexConverter::~IbexConverter()");
   if (need_to_delete_variables_) {
     for (const auto& p : symbolic_var_to_ibex_var_) {
       delete p.second;
