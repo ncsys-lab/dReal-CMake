@@ -68,7 +68,10 @@ class SatSolver : public CaDiCaL::Learner {
 
   /// Given a @p formulas = {f₁, ..., fₙ}, adds a clause (¬f₁ ∨ ... ∨ ¬ fₙ) to
   /// the solver.
+  void AddLearnedClauseUnboxed(const std::vector<Formula>& conflicting_conjunction);
+
   void AddLearnedClause(PredicateNormalizer& pn, const std::vector<Formula>& conflicting_conjunction, const Box& box);
+
   PatternMatchingTrie::matching_stats_t AddLearnedClausePattern(
       PredicateNormalizer& pn,
       const std::vector<Formula>& base_conflict,
@@ -83,7 +86,10 @@ class SatSolver : public CaDiCaL::Learner {
   ///
   /// @returns a witness, satisfying model if the problem is satisfiable.
   /// @returns nullopt if UNSAT.
-  optional<Model> CheckSat();
+  optional<std::pair<Model, bool>> CheckSat(
+    // false because I guess that used to be the default.
+    bool request_fully_constrained = false
+  );
 
   // TODO(soonho): Push/Pop cnfizer and predicate_abstractor?
   void Pop();
@@ -135,8 +141,9 @@ class SatSolver : public CaDiCaL::Learner {
 
   // learner stuff.
 private:
-  static constexpr size_t BUFFER_SIZE = 3;
-  int buffer[BUFFER_SIZE] = {0};
+  static constexpr size_t LOG_INFO_SIZE = 2;
+  static constexpr size_t MAX_BUFFER_SIZE = 8;
+  int buffer[MAX_BUFFER_SIZE] = {0};
   int buffer_i = 0;
   int expected_clause_size = 0;
 

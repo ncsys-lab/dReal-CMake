@@ -98,6 +98,8 @@ class Context::Impl {
   std::unordered_set<Variable::Id> model_variables_;
   TheorySolver theory_solver_;
 
+  int recent_under_constrained_deltasat = 0;
+
   // Stores the result of the latest checksat.
   // Note that if the checksat result was UNSAT, this box holds an empty box.
   Box model_;

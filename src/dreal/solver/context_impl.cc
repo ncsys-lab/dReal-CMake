@@ -135,7 +135,6 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
                                           Box box,
                                           SatSolver* const sat_solver) {
   ////////////////////////////////////////////////////////////////////////////////
-  static constexpr bool GENERATE_CSV = false;
   std::ofstream myfile;
   if (GENERATE_CSV) {
     std::ostringstream s;
@@ -195,7 +194,8 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
   }
   ////////////////////////////////////////////////////////////////////////////////
 
-  sat_solver->AddBox(pn_, box); // SKIPS Boolean Variables ✔
+  sat_solver->AddBox(pn_, box);
+
   ////////////////////////////////////////////////////////////////////////////////
   for (const auto & variable : box.variables()) {
     if (variable.get_type() == Variable::Type::CONTINUOUS) kunal_paper_data.box_continuous_count++;
@@ -208,8 +208,9 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 
   DREAL_LOG_INFO("Initialized. Beginning SAT <=> Theory cycles.");
   DREAL_LOG_INFO(
-    "{} continuous variables. {} integer variables. {} boolean variables.",
-    kunal_paper_data.box_continuous_count, kunal_paper_data.box_integer_count, kunal_paper_data.box_boolean_count
+    "{} continuous variables. {} integer variables. {} boolean variables. Fully Constrained: {}",
+    kunal_paper_data.box_continuous_count, kunal_paper_data.box_integer_count, kunal_paper_data.box_boolean_count,
+    recent_under_constrained_deltasat > 0
   );
   while (true) {
     // Note that 'DREAL_CHECK_INTERRUPT' is only defined in setup.py,
@@ -220,11 +221,14 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
       throw std::runtime_error("KeyboardInterrupt(SIGINT) Detected.");
     }
 #endif
+    const bool request_fully_constrained = recent_under_constrained_deltasat > 0;
+    const auto optional_model_and_fully_constrained = sat_solver->CheckSat(request_fully_constrained);
+    if (optional_model_and_fully_constrained) {
+      const auto &[optional_model, is_full_constrained] = *optional_model_and_fully_constrained;
+      if (request_fully_constrained) DREAL_ASSERT(is_full_constrained);
 
-    const auto optional_model = sat_solver->CheckSat();
-    if (optional_model) {
-      const vector<pair<Variable, bool>>& boolean_model{optional_model->first};
-      const vector<pair<Variable, bool>>& theory_model{optional_model->second};
+      const vector<pair<Variable, bool>>& boolean_model{optional_model.first};
+      const vector<pair<Variable, bool>>& theory_model{optional_model.second};
 
       for (const auto& [sat_var, assignment] : boolean_model)
         box[sat_var] = assignment ? 1.0 : 0.0;  // true -> 1.0 and false -> 0.0
@@ -263,35 +267,44 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
         kunal_paper_data.theory_checksat_ms = tscs_elapsed.count();
         ////////////////////////////////////////////////////////////////////////////////
 
-        if (tscs_result) {
+        if (tscs_result && !is_full_constrained) {
           // SAT from TheorySolver.
-          DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Theory Check = delta-SAT");
-          Box model{theory_solver_.GetModel()};
-          return model;
+          // the next 3 unsats should be fully constrained before we can try under constrained stuff again.
+          // or, we get a fully constrained deltasat, in which case we are done :)
+          recent_under_constrained_deltasat = 3;
+          DREAL_LOG_WARN("ContextImpl::CheckSatCore() - Underconstrained Theory Check = delta-SAT.");
+          return CheckSatCore(stack, std::move(box), sat_solver);
+        } else if (tscs_result && is_full_constrained) {
+          DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Fully Constrained Theory Check = delta-SAT");
+          return theory_solver_.GetModel();
         } else {
           // UNSAT from TheorySolver.
+          if (recent_under_constrained_deltasat > 0) recent_under_constrained_deltasat--;
+
           DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Theory Check = UNSAT");
-          const set<Formula>& explanation{theory_solver_.GetExplanation()};
+          std::vector explanation(
+            theory_solver_.GetExplanation().begin(),
+            theory_solver_.GetExplanation().end()
+          );
           DREAL_LOG_DEBUG(
               "ContextImpl::CheckSatCore() - size of explanation = {} - stack size = {}",
               explanation.size(), stack.get_vector().size());
 
           // ordering the literals like this makes pattern matching fast.
           // todo: abstract this away better. should not happen at the top-level like it is now.
-          std::vector explanation_vec(explanation.begin(), explanation.end());
-          std::sort(explanation_vec.begin(), explanation_vec.end(), [](const Formula &a, const Formula &b) {
+          std::sort(explanation.begin(), explanation.end(), [](const Formula &a, const Formula &b) {
               return a.GetFreeVariables().size() > b.GetFreeVariables().size(); // descending
           });
 
           ////////////////////////////////////////////////////////////////////////////////
-          kunal_paper_data.lemma_size = explanation_vec.size();
+          kunal_paper_data.lemma_size = explanation.size();
 
           const auto ranking_start2 = std::chrono::high_resolution_clock::now();
           // kunal_paper_data.lemma_stats = pn_.heuristic.collect_statistics(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(explanation.first));
           // doing individual literals doesn't cost extra because they cache hit after running the entire conjunction
-          kunal_paper_data.biggest_literal_stats = pn_.heuristic.collect_statistics(explanation_vec[0]);
-          kunal_paper_data.middle_literal_stats = pn_.heuristic.collect_statistics(explanation_vec[explanation_vec.size() / 2]);
-          kunal_paper_data.smallest_literal_stats = pn_.heuristic.collect_statistics(explanation_vec[explanation_vec.size()-1]);
+          kunal_paper_data.biggest_literal_stats = pn_.heuristic.collect_statistics(explanation[0]);
+          kunal_paper_data.middle_literal_stats = pn_.heuristic.collect_statistics(explanation[explanation.size() / 2]);
+          kunal_paper_data.smallest_literal_stats = pn_.heuristic.collect_statistics(explanation[explanation.size()-1]);
           const float predicted_is_worth_it = PatternMatchingHeuristic::calculate(kunal_paper_data);
           const auto ranking_end2 = std::chrono::high_resolution_clock::now();
           const std::chrono::duration<double, std::milli> ranking_elapsed2 = ranking_end2 - ranking_start2;
@@ -300,10 +313,13 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           // if (false) {
             const auto alcp_start = std::chrono::high_resolution_clock::now();
             const auto alcp_result = sat_solver->AddLearnedClausePattern(
-              pn_, explanation_vec, box,
-              // std::chrono::duration_cast<std::chrono::microseconds>(100 * tscs_elapsed)
-              std::chrono::seconds(10) // based on information from WORTH_IT_regression_4.ipynb
+              pn_, explanation, box,
+              std::min( // based on information from WORTH_IT_regression_4.ipynb
+                std::chrono::duration_cast<std::chrono::microseconds>(100 * tscs_elapsed),
+                std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::milliseconds(200))
+              )
             );
+            sat_solver->AddLearnedClauseUnboxed(explanation); // just to be sure, sound because this is unmatched, straight from theory solver.
             const auto alcp_end = std::chrono::high_resolution_clock::now();
             const std::chrono::duration<double, std::milli> alcp_elapsed = alcp_end - alcp_start;
 
