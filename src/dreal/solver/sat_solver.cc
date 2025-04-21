@@ -35,23 +35,31 @@ using std::vector;
 
 SatSolver::SatSolver(const Config& config) : cadical(new CaDiCaL::Solver) {
   // SatSolver::CheckSat().
+  bool success = false;
   if (config.random_seed() != 0) {
-    cadical->set("seed", config.random_seed());
+    success = cadical->set("seed", config.random_seed()); DREAL_ASSERT(success);
     DREAL_LOG_DEBUG("SatSolver::Set Random Seed {}", config.random_seed());
   }
-  // this actually doesn't work lol.
-  // cadical->set("phase", static_cast<int>(config.sat_default_phase()));
-  // DREAL_LOG_DEBUG("SatSolver::Set Default Phase {}",
-                  // config.sat_default_phase());
 
-  // todo: look into this? want to absolutely minimize calls to theory solver.
-  // eliminate as many variables as possible. ?
-  cadical->optimize(9);
-  cadical->set("condition", 1); // "globally blocked clause elim"
-  cadical->set("cover", 1); // "covered clause elimination"
-  cadical->set("block", 1); // "blocked clause elimination"
+  // todo: remove dReal phase flag...
 
-  cadical->connect_learner(this);
+  success = cadical->set("vivify", 1); DREAL_ASSERT(success);
+  success = cadical->set("vivifyonce", 2); DREAL_ASSERT(success);
+  success = cadical->set("vivifymineff", 1e3); DREAL_ASSERT(success);
+  success = cadical->set("vivifymaxeff", 2e9); DREAL_ASSERT(success);
+  success = cadical->set("vivifyreleff", 20); DREAL_ASSERT(success);
+  success = cadical->set("eagersubsume", 1); DREAL_ASSERT(success);
+  success = cadical->set("subsume", 1); DREAL_ASSERT(success);
+  success = cadical->set("subsumeclslim", 1e3); DREAL_ASSERT(success);
+  success = cadical->set("subsumeint", 1e3); DREAL_ASSERT(success);
+  cadical->options();
+
+  if (DREAL_LOG_INFO_ENABLED || SAT_AUDIT_ENABLED) cadical->connect_learner(this);
+
+  all_incl_lb_predicates.max_load_factor(0.25);
+  all_excl_lb_predicates.max_load_factor(0.25);
+  all_incl_ub_predicates.max_load_factor(0.25);
+  all_excl_ub_predicates.max_load_factor(0.25);
 }
 
 SatSolver::~SatSolver() { delete cadical; }
