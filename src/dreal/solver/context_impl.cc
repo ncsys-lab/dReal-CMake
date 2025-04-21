@@ -112,6 +112,10 @@ void Context::Impl::Assert(const Formula& f) {
     box().set_empty();
     return;
   }
+  if (is_conjunction(f)) {  // because otherwise FilterAssertion may miss some box updates!
+    for (const auto& operand : get_operands(f)) Assert(operand);
+    return;
+  }
   if (!FilterAssertion(f, &box()).filtered) {
     DREAL_LOG_DEBUG("ContextImpl::Assert: {} is added.", f);
     IfThenElseEliminator ite_eliminator;
