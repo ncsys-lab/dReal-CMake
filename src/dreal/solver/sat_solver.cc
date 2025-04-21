@@ -85,6 +85,7 @@ void SatSolver::AddClause(const Formula& f) {
     AddLiteral(f);
   }
   cadical->add(0);
+  sat_log_literal0();
 }
 
 namespace {
@@ -113,7 +114,7 @@ class SatSolverStat : public Stat {
 
 optional<SatSolver::Model> SatSolver::CheckSat() {
   static SatSolverStat stat{DREAL_LOG_INFO_ENABLED};
-  DREAL_LOG_DEBUG("SatSolver::CheckSat(#vars = {}, #clauses = {})",
+  DREAL_LOG_TRACE("SatSolver::CheckSat(#vars = {}, #clauses = {})",
                   cadical->vars(),
                   cadical->irredundant());
   stat.num_check_sat_++;
@@ -204,6 +205,7 @@ void SatSolver::AddLiteral(const Formula& f) {
     DREAL_ASSERT(var.get_type() == Variable::Type::BOOLEAN);
     // Add l = b
     cadical->add(to_sat_var_[var.get_id()]);
+    sat_log_literal(to_sat_var_[var.get_id()], var);
   } else {
     // f = ¬b
     DREAL_ASSERT(is_negation(f) && is_variable(get_operand(f)));
@@ -211,6 +213,7 @@ void SatSolver::AddLiteral(const Formula& f) {
     DREAL_ASSERT(var.get_type() == Variable::Type::BOOLEAN);
     // Add l = ¬b
     cadical->add(-to_sat_var_[var.get_id()]);
+    sat_log_literal(-to_sat_var_[var.get_id()], var);
   }
 }
 

@@ -11,43 +11,20 @@
 
 namespace dreal
 {
-    void audit_literals(const PredicateAbstractor& pa, /*copy*/ std::vector<Formula> lits,
-                        const std::optional<Box>& box) {
-        for (auto& l : lits) {
-            if (is_variable(l)) {
-                // f = b
-                const auto& var = get_variable(l);
-                const auto iter = pa.var_to_formula_map().find(get_variable(l));
-                if (iter != pa.var_to_formula_map().end()) l = iter->second;
-                // else ...  the variable is probably, actually, a BOOL such as `DigitalPDController_0__omega_sensor_bit0__t0ad`
-            }
-            else {
-                // f = ¬b
-                DREAL_ASSERT(is_negation(l) && is_variable(get_operand(l)));
-                const auto iter = pa.var_to_formula_map().find(get_variable(get_operand(l)));
-                if (iter != pa.var_to_formula_map().end()) l = !iter->second;
-                // else ...  the variable is probably, actually, a BOOL such as `DigitalPDController_0__omega_sensor_bit0__t0ad`
-            }
-        }
-        audit(make_disjunction(lits), box);
-    }
-
     void SatSolver::AddLearnedClauseUnboxed(
         const std::vector<Formula>& conflicting_conjunction
     ) {
-        label_literal_log("AddLearnedClauseUnboxed");
+        sat_log_label_clause("SatSolver::AddLearnedClauseUnboxed");
         for (const Formula& f : conflicting_conjunction) {
             AddLiteral(!predicate_abstractor_.Convert(f));
         }
         cadical->add(0);
-        flush_clause();
+        sat_log_literal0();
 
-        if (DREAL_LOG_INFO_ENABLED) {
+        if (THEORY_AUDIT_ENABLED) {
             std::vector<Formula> a;
-            for (const Formula& f : conflicting_conjunction) {
-                a.emplace_back(!predicate_abstractor_.Convert(f));
-            }
-            audit_literals(predicate_abstractor_, a, {});
+            for (const Formula& f : conflicting_conjunction) a.emplace_back(!predicate_abstractor_.Convert(f));
+            theory_audit_literals(predicate_abstractor_, a, {});
         }
     }
 
@@ -65,7 +42,7 @@ namespace dreal
         PredicateNormalizer& pn,
         const std::vector<Formula>& conflicting_conjunction, const Box& unfitted_box
     ) {
-        label_literal_log("AddLearnedClause");
+        sat_log_label_clause("SatSolver::AddLearnedClause - Boxes");
         for (const auto& lit : conflicting_conjunction) {
             if (lit.GetFreeVariables().size() != 1 || !is_relational(lit)) continue;
             const Variable& var = *lit.GetFreeVariables().begin();
@@ -76,7 +53,7 @@ namespace dreal
             const auto r = FilterAssertion(lit, &fitted_box);
 
             if (r.filtered) {
-                // automatically builds implications
+                // MakeSatIntervalVarWithClauses automatically builds implications
                 // if !r.change:
                 //      unfitted => lit
                 // if  r.change:
@@ -99,9 +76,9 @@ namespace dreal
                 FlattenIntervalClause(unfitted, [&](const auto& il) { AddLiteral(!il); });
                 FlattenIntervalClause(fitted, [&](const auto& il) { AddLiteral(il); });
                 cadical->add(0);
-                flush_clause();
+                sat_log_literal0();
 
-                if (DREAL_LOG_INFO_ENABLED) {
+                if (THEORY_AUDIT_ENABLED) {
                     std::vector<Formula> a;
                     a.emplace_back(!predicate_abstractor_.Convert(lit));
                     FlattenIntervalClause(unfitted, [&](const auto& il) { a.emplace_back(!il); });
@@ -129,37 +106,32 @@ namespace dreal
             FlattenIntervalClause(condition, [&](const auto& l) { lhs_implies.emplace_back(!l); });
         }
 
+        sat_log_label_clause("SatSolver::AddLearnedClause - Predicated Clause");
         for (const auto& lit : lhs_implies) AddLiteral(lit);
         // ==>
         for (const Formula& f : conflicting_conjunction) AddLiteral(!predicate_abstractor_.Convert(f));
         cadical->add(0);
-        flush_clause();
+        sat_log_literal0();
 
-        if (DREAL_LOG_INFO_ENABLED) {
-            audit(!make_conjunction(conflicting_conjunction), unfitted_box);
-
+        if (THEORY_AUDIT_ENABLED) {
+            theory_audit_formula(!make_conjunction(conflicting_conjunction), unfitted_box);
             std::vector<Formula> a;
             for (const auto& lit : lhs_implies) a.emplace_back(lit);
             // ==>
             for (const Formula& f : conflicting_conjunction) a.emplace_back(!predicate_abstractor_.Convert(f));
-            audit_literals(predicate_abstractor_, a, {});
+            theory_audit_literals(predicate_abstractor_, a, {});
         }
     }
 
     void SatSolver::AddBox(PredicateNormalizer& pn, const Box& base_box) {
-        label_literal_log("AddBox");
+        sat_log_label_clause("SatSolver::AddBox");
         for (const auto& v : base_box.variables()) {
             const auto condition = MakeSatIntervalVarWithClauses(pn, v, base_box[v]);
-            if (is_true(condition)) continue;
-            for (
-                const auto& lit :
-                is_conjunction(condition) ? get_operands(condition) : set{condition}
-            ) {
-                // todo: audit? currently can't because it is already predicate_abstractor-ed
-                AddLiteral(lit);
+            FlattenIntervalClause(condition, [&](const auto& f) {
+                AddLiteral(f);
                 cadical->add(0);
-                flush_clause();
-            }
+                sat_log_literal0();
+            });
         }
     }
 
@@ -168,7 +140,7 @@ namespace dreal
         const std::vector<Formula>& base_conflict, const Box& base_box,
         const std::chrono::duration<uint64_t, std::micro> timeout
     ) {
-        label_literal_log("AddLearnedClausePattern");
+        sat_log_label_clause("SatSolver::AddLearnedClausePattern");
         // the pattern matching is kinda best-effort now.
         // it breaks down when one clause pattern matches into 1000s of permutations of itself
         // just make the best effort, and at the very minimum make sure the original at least gets inserted
@@ -185,9 +157,12 @@ namespace dreal
         for (const auto& [conflict_clause, subs] : all_related_conflicts) {
             const auto conflict_box = substitutions_map::apply_substitution(base_box, subs, true);
 
-            if (DREAL_LOG_INFO_ENABLED) { // todo: better gate.
+            if (THEORY_AUDIT_ENABLED) {
                 std::set conflict_clause_set(conflict_clause.begin(), conflict_clause.end());
-                audit(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(conflict_clause_set)), conflict_box);
+                theory_audit_formula(
+                    !make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(conflict_clause_set)),
+                    conflict_box
+                );
             }
 
             AddLearnedClause(pn, conflict_clause, conflict_box);
@@ -295,7 +270,7 @@ namespace dreal
         const auto [lb, lb_cache_hit] = MakeSatLbVar(pn, var, intv.lb(), true);
         if (!lb_cache_hit) {
             DREAL_ASSERT(is_finite(intv.lb()));
-            label_literal_log("MakeSatIntervalVarWithClauses - LB");
+            sat_log_label_clause("SatSolver::MakeSatIntervalVarWithClauses - LB");
 
             const auto [inv_lb, _] = MakeSatUbVar(
                 pn, var, intv.lb(), false
@@ -305,22 +280,22 @@ namespace dreal
             AddLiteral(!lb);
             AddLiteral(!inv_lb);
             cadical->add(0);
-            flush_clause();
+            sat_log_literal0();
             AddLiteral(lb);
             AddLiteral(inv_lb);
             cadical->add(0);
-            flush_clause();
+            sat_log_literal0();
 
-            if (DREAL_LOG_INFO_ENABLED) {
-                audit_literals(predicate_abstractor_, {!lb, !inv_lb}, {});
-                audit_literals(predicate_abstractor_, {lb, inv_lb}, {});
+            if (THEORY_AUDIT_ENABLED) {
+                theory_audit_literals(predicate_abstractor_, {!lb, !inv_lb}, {});
+                theory_audit_literals(predicate_abstractor_, {lb, inv_lb}, {});
             }
         }
 
         const auto [ub, ub_cache_hit] = MakeSatUbVar(pn, var, intv.ub(), true);
         if (!ub_cache_hit) {
             DREAL_ASSERT(is_finite(intv.ub()));
-            label_literal_log("MakeSatIntervalVarWithClauses - UB");
+            sat_log_label_clause("SatSolver::MakeSatIntervalVarWithClauses - UB");
 
             const auto [inv_ub, _] = MakeSatLbVar(
                 pn, var, intv.ub(), false
@@ -330,15 +305,15 @@ namespace dreal
             AddLiteral(!ub);
             AddLiteral(!inv_ub);
             cadical->add(0);
-            flush_clause();
+            sat_log_literal0();
             AddLiteral(ub);
             AddLiteral(inv_ub);
             cadical->add(0);
-            flush_clause();
+            sat_log_literal0();
 
-            if (DREAL_LOG_INFO_ENABLED) {
-                audit_literals(predicate_abstractor_, {!ub, !inv_ub}, {});
-                audit_literals(predicate_abstractor_, {ub, inv_ub}, {});
+            if (THEORY_AUDIT_ENABLED) {
+                theory_audit_literals(predicate_abstractor_, {!ub, !inv_ub}, {});
+                theory_audit_literals(predicate_abstractor_, {ub, inv_ub}, {});
             }
         }
 
@@ -348,11 +323,9 @@ namespace dreal
     bool SatSolver::learning(const int size) {
         buffer_i = 0;
         expected_clause_size = size;
-        if (size < BUFFER_SIZE) return true;
-        else {
-            label_literal_log("Learning clause which is too big to show. size=" + size);
-            return false;
-        }
+        if (size <= LOG_INFO_SIZE) return true;
+        if (SAT_AUDIT_ENABLED && size < MAX_BUFFER_SIZE) return true;
+        return false;
     }
 
     void SatSolver::learn(const int new_lit) {
@@ -365,11 +338,11 @@ namespace dreal
 
         DREAL_ASSERT(buffer_i == expected_clause_size);
 
-        label_literal_log("Learned: ");
+        sat_log_label_clause("SatSolver::learn");
         std::set<Formula> neg_conjunction;
         for (int i = 0; i < expected_clause_size; i++) {
             const int lit = buffer[i];
-            log_clause(lit);
+            sat_log_literal(lit);
             const bool lit_is_neg = lit < 0;
 
             const auto sym_var_it = to_sym_var_.find(lit_is_neg ? -lit : +lit);
@@ -383,8 +356,14 @@ namespace dreal
                 !(lit_is_neg ? !theory_lit : theory_lit)
             );
         }
-        flush_clause();
-        const Formula sat_clause = !make_conjunction(neg_conjunction);
-        label_literal_log("i.e. " + sat_clause.to_string());
+        sat_log_literal0();
+        if (SAT_AUDIT_ENABLED) {
+            const Formula sat_clause = !make_conjunction(neg_conjunction);
+            sat_log_label_clause("i.e. " + sat_clause.to_string());
+        }
+        if (expected_clause_size <= LOG_INFO_SIZE) {
+            const Formula sat_clause = !make_conjunction(neg_conjunction);
+            DREAL_LOG_INFO("SAT Solver Learned: {}", sat_clause);
+        }
     }
 } // namespace dreal
