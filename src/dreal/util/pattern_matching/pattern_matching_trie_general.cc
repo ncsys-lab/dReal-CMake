@@ -94,10 +94,10 @@ namespace dreal
         recMatchForm(*ibegin, f_root, substitutions, match_next_literal(ibegin), partial_matches, misses);
         DREAL_ASSERT(result.size() == stats.matches);
         if (did_time_out)
-            DREAL_LOG_WARN("Pattern matching timed out after {} usec.", timeout.count());
-        DREAL_LOG_INFO(
-            "Found {} matches of size {} ({} effective literals) with {} misses.",
-            stats.matches, literals.size(), stats.matches / ::pow(2, literals.size()), stats.misses
+            DREAL_LOG_INFO("Pattern matching timed out after {} usec.", timeout.count());
+        DREAL_LOG_DEBUG(
+            "Found {} matches of size {} with {} misses.",
+            stats.matches, literals.size(), stats.misses
         );
         // if (DREAL_LOG_INFO_ENABLED) {
         //     for (const auto& [matched_clause, _] : result) {

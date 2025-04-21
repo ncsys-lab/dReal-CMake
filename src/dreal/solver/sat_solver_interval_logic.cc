@@ -141,9 +141,6 @@ namespace dreal
         const std::chrono::duration<uint64_t, std::micro> timeout
     ) {
         sat_log_label_clause("SatSolver::AddLearnedClausePattern");
-        // the pattern matching is kinda best-effort now.
-        // it breaks down when one clause pattern matches into 1000s of permutations of itself
-        // just make the best effort, and at the very minimum make sure the original at least gets inserted
 
         const auto [
             all_related_conflicts,

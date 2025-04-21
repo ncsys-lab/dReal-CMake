@@ -29,6 +29,12 @@
 
 namespace dreal {
 
+// #define FMCAD25_MODE_MATCH_ALL
+// #define FMCAD25_MODE_MATCH_SOME
+#define FMCAD25_MODE_CONTROL
+
+#define GENERATE_CSV false
+
 // The actual implementation.
 class Context::Impl {
  public:

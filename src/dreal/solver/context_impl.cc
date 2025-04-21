@@ -138,6 +138,16 @@ void Context::Impl::Assert(const Formula& f) {
 optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
                                           Box box,
                                           SatSolver* const sat_solver) {
+#ifdef FMCAD25_MODE_MATCH_ALL
+  std::cout << "FMCAD25_MODE_MATCH_ALL" << std::endl;
+#endif
+#ifdef FMCAD25_MODE_MATCH_SOME
+  std::cout << "FMCAD25_MODE_MATCH_SOME" << std::endl;
+#endif
+#ifdef FMCAD25_MODE_CONTROL
+  std::cout << "FMCAD25_MODE_CONTROL" << std::endl;
+#endif
+
   ////////////////////////////////////////////////////////////////////////////////
   std::ofstream myfile;
   if (GENERATE_CSV) {
@@ -313,8 +323,15 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           const auto ranking_end2 = std::chrono::high_resolution_clock::now();
           const std::chrono::duration<double, std::milli> ranking_elapsed2 = ranking_end2 - ranking_start2;
 
-          if (predicted_is_worth_it >= 0.5) {
-          // if (false) {
+#ifdef FMCAD25_MODE_MATCH_ALL
+          if (true) {
+#endif
+#ifdef FMCAD25_MODE_MATCH_SOME
+          if (predicted_is_worth_it >= 0.5 && explanation.size() < 96) {
+#endif
+#ifdef FMCAD25_MODE_CONTROL
+              if (false) {
+#endif
             const auto alcp_start = std::chrono::high_resolution_clock::now();
             const auto alcp_result = sat_solver->AddLearnedClausePattern(
               pn_, explanation, box,
@@ -323,37 +340,39 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
                 std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::milliseconds(200))
               )
             );
+
+            // the pattern matching is kinda best-effort now.
+            // it breaks down when one clause pattern matches into 1000s of permutations of itself
+            // just make the best effort, and at the very minimum make sure the original at least gets inserted
             sat_solver->AddLearnedClauseUnboxed(explanation); // just to be sure, sound because this is unmatched, straight from theory solver.
+
             const auto alcp_end = std::chrono::high_resolution_clock::now();
             const std::chrono::duration<double, std::milli> alcp_elapsed = alcp_end - alcp_start;
 
             kunal_paper_data.pattern_match_ms = alcp_elapsed.count();
             kunal_paper_data.pattern_matching_stats = alcp_result;
 
-            // const double bb_lpms = 1 / tscs_elapsed.count();
-            // const double pm_lpms = (alcp_result.matches - 0.999) / alcp_elapsed.count();
-            // const double actual_worth_it = pm_lpms / bb_lpms;
-            // const double actual_log2_worth_it = log2(actual_worth_it);
-
-            std::cerr << "P(is W.I.)=" << predicted_is_worth_it;
-            std::cerr << ". Matched " << alcp_result.matches << " size " << explanation_vec.size() << " in " << alcp_elapsed.count();
+            std::cerr << "P(is W.I.)=" << std::setprecision(3) << predicted_is_worth_it;
+            std::cerr << ". Matched " << alcp_result.matches << " size " << explanation.size() << " in " << alcp_elapsed.count();
             std::cerr << " ms. TSCS " << tscs_elapsed.count() << " ms." << std::endl;
 
-            // DREAL_LOG_INFO("Predicted P(is W.I.)={}, Measured log2 W.I. ratio = {}", predicted_is_worth_it, actual_log2_worth_it);
+            // const double bb_lpms = 1 / tscs_elapsed.count();
+            // const double pm_lpms = (std::max(alcp_result.matches, 1u) - 0.999) / alcp_elapsed.count();
+            // const double actual_worth_it = pm_lpms / bb_lpms;
+            // const double actual_log2_worth_it = log2(actual_worth_it);
             // const bool overestimated = (actual_log2_worth_it < 1) && (predicted_is_worth_it > 0.5);
             // const bool valid_over = (actual_log2_worth_it > 1) && (predicted_is_worth_it > 0.5);
             // const bool valid_under = (actual_log2_worth_it < 1) && (predicted_is_worth_it < 0.5);
             // const bool underestimated = (actual_log2_worth_it > 1) && (predicted_is_worth_it < 0.5);
-            // if (overestimated) DREAL_LOG_INFO("OVERESTIMATED. Had high hopes but were disappointed in the end.");
-            // if (valid_over) DREAL_LOG_INFO("VALID_OVER. It was worth it like we thought.");
-            // if (valid_under) DREAL_LOG_INFO("VALID_UNDER. We knew to avoid this one.");
-            // if (underestimated) DREAL_LOG_INFO("UNDERESTIMATED. Sorry we didn't believe in you.");
-
           } else {
-            std::cerr << "P(is W.I.)=" << predicted_is_worth_it;
-            std::cerr << ". Adding 1 size " << explanation_vec.size() << " directly. ";
+            std::cerr << "P(is W.I.)=" << std::setprecision(3) << predicted_is_worth_it;
+            std::cerr << ". Adding 1 size " << explanation.size() << " directly. ";
             std::cerr << "TSCS " << tscs_elapsed.count() << " ms." << std::endl;
-            sat_solver->AddLearnedClause(explanation_vec, box);
+#ifdef FMCAD25_MODE_CONTROL
+            sat_solver->AddLearnedClauseUnboxed(explanation);
+#else
+            sat_solver->AddLearnedClause(pn_, explanation, box);
+#endif
           }
           ////////////////////////////////////////////////////////////////////////////////
 
