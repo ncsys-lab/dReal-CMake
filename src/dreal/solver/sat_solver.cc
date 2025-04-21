@@ -197,13 +197,15 @@ optional<std::pair<SatSolver::Model, bool>> SatSolver::CheckSat(const bool reque
       // }
     }
 
-    if (model_is_fully_constrained) {
-      sat_log_label_clause("SatSolver::CheckSat - Fully Constrained");
-    } else {
-      sat_log_label_clause("SatSolver::CheckSat - Partially Constrained");
+    if (SAT_AUDIT_ENABLED) {
+      if (model_is_fully_constrained) {
+        sat_log_label_clause("SatSolver::CheckSat - Fully Constrained");
+      } else {
+        sat_log_label_clause("SatSolver::CheckSat - Partially Constrained");
+      }
+      for (int i = 1; i <= cadical->vars(); ++i) if (model_is[i] != 0) sat_log_literal(i * model_is[i]);
+      sat_log_literal0();
     }
-    for (int i = 1; i <= cadical->vars(); ++i) if (model_is[i] != 0) sat_log_literal(i * model_is[i]);
-    sat_log_literal0();
 
     const auto& var_to_formula_map = predicate_abstractor_.var_to_formula_map();
     for (int i = 1; i <= cadical->vars(); ++i) {

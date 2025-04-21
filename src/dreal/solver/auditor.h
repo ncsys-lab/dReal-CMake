@@ -10,8 +10,10 @@
 
 namespace dreal
 {
-#define THEORY_AUDIT_ENABLED  DREAL_LOG_DEBUG_ENABLED
-#define SAT_AUDIT_ENABLED     DREAL_LOG_DEBUG_ENABLED
+// #define THEORY_AUDIT_ENABLED  DREAL_LOG_DEBUG_ENABLED
+// #define SAT_AUDIT_ENABLED     DREAL_LOG_DEBUG_ENABLED
+    #define THEORY_AUDIT_ENABLED  false
+    #define SAT_AUDIT_ENABLED     false
 
     void sat_log_label_clause(const std::string& label);
     void sat_log_literal(int lit, const std::optional<Variable>& def = {});
