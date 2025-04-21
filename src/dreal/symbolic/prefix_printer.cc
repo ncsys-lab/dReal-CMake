@@ -18,6 +18,7 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <dreal/util/rounding_mode_guard.h>
 
 using std::ostream;
 using std::ostringstream;
@@ -28,6 +29,7 @@ namespace dreal {
 
 namespace {
 ostream& print_constant(ostream& os, double c) {
+  RoundingModeGuard g(FE_TONEAREST);
   if (c >= 0) {
     return os << c;
   } else {
@@ -63,6 +65,7 @@ ostream& PrefixPrinter::VisitConstant(const Expression& e) {
 }
 
 ostream& PrefixPrinter::VisitRealConstant(const Expression& e) {
+  RoundingModeGuard g(FE_TONEAREST);
   const double mid{get_lb_of_real_constant(e) / 2.0 +
                    get_ub_of_real_constant(e) / 2.0};
   return print_constant(os_, mid);
