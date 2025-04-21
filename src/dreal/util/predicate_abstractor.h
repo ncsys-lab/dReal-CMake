@@ -26,6 +26,12 @@ namespace dreal {
 
 class PredicateAbstractor {
  public:
+
+  PredicateAbstractor() {
+    formula_to_var_map_.max_load_factor(0.25);
+    var_to_formula_map_.max_load_factor(0.25);
+  }
+
   /// Converts a first-order logic formula @p f into a Boolean formula
   /// by predicate abstraction. For example, a formula `(x > 0) ∧ (y <
   /// 0)` will be converted into `b₁ ∧ b₂` while `b₁` corresponds with

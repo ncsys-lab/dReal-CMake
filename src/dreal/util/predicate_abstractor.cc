@@ -82,6 +82,8 @@ Formula PredicateAbstractor::Convert(const vector<Formula>& formulas) {
 }
 
 Formula PredicateAbstractor::Visit(const Formula& f) {
+  DREAL_ASSERT(!(is_variable(f) && var_to_formula_map_.count(get_variable(f))));
+
   // First check if we processed this formula before.
   const auto it = formula_to_var_map_.find(f);
   if (it == formula_to_var_map_.cend()) {
