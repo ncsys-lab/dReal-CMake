@@ -353,8 +353,9 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             kunal_paper_data.pattern_matching_stats = alcp_result;
 
             std::cerr << "P(is W.I.)=" << std::setprecision(3) << predicted_is_worth_it;
-            std::cerr << ". Matched " << alcp_result.matches << " size " << explanation.size() << " in " << alcp_elapsed.count();
-            std::cerr << " ms. TSCS " << tscs_elapsed.count() << " ms." << std::endl;
+            std::cerr << ".\tMatched " << alcp_result.matches << " size " << explanation.size() << " in " << alcp_elapsed.count();
+            std::cerr << " ms.\tTSCS " << tscs_elapsed.count() << " ms.\t";
+            std::cerr << "Fully constrained = " << is_full_constrained << std::endl;
 
             // const double bb_lpms = 1 / tscs_elapsed.count();
             // const double pm_lpms = (std::max(alcp_result.matches, 1u) - 0.999) / alcp_elapsed.count();
@@ -366,8 +367,9 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             // const bool underestimated = (actual_log2_worth_it > 1) && (predicted_is_worth_it < 0.5);
           } else {
             std::cerr << "P(is W.I.)=" << std::setprecision(3) << predicted_is_worth_it;
-            std::cerr << ". Adding 1 size " << explanation.size() << " directly. ";
-            std::cerr << "TSCS " << tscs_elapsed.count() << " ms." << std::endl;
+            std::cerr << ".\tAdding 1 size " << explanation.size() << " directly.\t";
+            std::cerr << "TSCS " << tscs_elapsed.count() << " ms.\t";
+            std::cerr << "Fully constrained = " << is_full_constrained << std::endl;
 #ifdef FMCAD25_MODE_CONTROL
             sat_solver->AddLearnedClauseUnboxed(explanation);
 #else
