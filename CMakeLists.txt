@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.30)
+cmake_minimum_required(VERSION 3.16)
 project(dreal4_cmake)
 include(CMakePrintHelpers)
 
@@ -108,7 +108,7 @@ include(FetchContent)
 FetchContent_Declare(
         ibex
         GIT_REPOSITORY https://github.com/ncsys-lab/ibex-lib
-        GIT_TAG 4d61b84139eaeab628506d9edaf5fd8879a3302e)  # Kunal's M1 + namespace fixes
+        GIT_TAG cd44b915bbe300b8ba021f6a2437bf662679d093)  # Kunal's M1 + namespace fixes
 FetchContent_MakeAvailable(ibex)
 
 FetchContent_Declare(
@@ -156,6 +156,10 @@ target_link_libraries(
         dreal4_cmake PUBLIC ibex nlopt spdlog::spdlog fmt::fmt
 )
 
+# On some platforms, linking is purely sequential, and the order you specify libraries in matters.
+# I am repeating these libraries from above so that everything gets resolved on Ubuntu
+target_link_libraries(dreal4_cmake PUBLIC "${GMP_C_LIB}" "${GMP_CXX_LIB}")
+target_link_libraries(dreal4_cmake PUBLIC "${FLEX_LIBRARIES}")
 
 # executable
 add_executable(dreal4 "${PROJECT_SOURCE_DIR}/src/dreal/dreal_main.cc")
