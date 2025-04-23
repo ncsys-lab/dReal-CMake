@@ -285,8 +285,9 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           // SAT from TheorySolver.
           // the next 3 unsats should be fully constrained before we can try under constrained stuff again.
           // or, we get a fully constrained deltasat, in which case we are done :)
-          recent_under_constrained_deltasat = 3;
-          DREAL_LOG_WARN("ContextImpl::CheckSatCore() - Underconstrained Theory Check = delta-SAT.");
+          recent_under_constrained_deltasat = recent_under_constrained_deltasat_limit;
+          DREAL_LOG_WARN("ContextImpl::CheckSatCore() - Underconstrained Theory Check = delta-SAT. Exponential Backoff = {}", recent_under_constrained_deltasat_limit);
+          recent_under_constrained_deltasat_limit *= 2; // exponential backoff
           return CheckSatCore(stack, std::move(box), sat_solver);
         } else if (tscs_result && is_full_constrained) {
           DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Fully Constrained Theory Check = delta-SAT");

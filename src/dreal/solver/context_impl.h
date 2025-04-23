@@ -105,6 +105,7 @@ class Context::Impl {
   TheorySolver theory_solver_;
 
   int recent_under_constrained_deltasat = 0;
+  int recent_under_constrained_deltasat_limit = 2; // exponential back off.
 
   // Stores the result of the latest checksat.
   // Note that if the checksat result was UNSAT, this box holds an empty box.
