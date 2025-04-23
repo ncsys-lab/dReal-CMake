@@ -360,7 +360,7 @@ namespace dreal
         }
         if (expected_clause_size <= LOG_INFO_SIZE) {
             const Formula sat_clause = !make_conjunction(neg_conjunction);
-            DREAL_LOG_INFO("SAT Solver Learned: {}", sat_clause);
+            std::cerr << "SAT Solver Learned: " << sat_clause << std::endl;
         }
     }
 } // namespace dreal
