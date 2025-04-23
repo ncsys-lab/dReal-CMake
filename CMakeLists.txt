@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.30)
+cmake_minimum_required(VERSION 3.16)
 project(dreal4_cmake)
 include(CMakePrintHelpers)
 
@@ -178,3 +178,46 @@ add_dependencies(dreal4_cmake GAOL_HACK)
 target_link_libraries(
         dreal4_cmake PRIVATE ibex nlopt spdlog::spdlog
 )
+<<<<<<< HEAD
+=======
+
+# On some platforms, linking is purely sequential, and the order you specify libraries in matters.
+# I am repeating these libraries from above so that everything gets resolved on Ubuntu
+target_link_libraries(dreal4_cmake PUBLIC "${GMP_C_LIB}" "${GMP_CXX_LIB}")
+target_link_libraries(dreal4_cmake PUBLIC "${FLEX_LIBRARIES}")
+
+# executable
+add_executable(dreal4 "${PROJECT_SOURCE_DIR}/src/dreal/dreal_main.cc")
+target_link_libraries(dreal4 PRIVATE dreal4_cmake)
+
+
+# tests
+FetchContent_Declare(
+        googletest
+        URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
+)
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE) # For Windows: Prevent overriding the parent project's compiler/linker settings
+FetchContent_MakeAvailable(googletest)
+enable_testing()
+
+set(DRAKE_TEST_HOME "${PROJECT_SOURCE_DIR}/test/third_party/com_github_robotlocomotion_drake/")
+file(GLOB_RECURSE DREAL_TESTS
+        "${PROJECT_SOURCE_DIR}/test/dreal/**.cc"
+        "${DRAKE_TEST_HOME}/**.cc"
+)
+list(REMOVE_ITEM DREAL_TESTS "${PROJECT_SOURCE_DIR}/test/dreal/api/test/cav19_benchmark.cc")  # main function interferes with gtest
+add_executable(dreal4_cmake_test ${DREAL_TESTS})
+target_include_directories(dreal4_cmake_test PRIVATE
+        "${PROJECT_SOURCE_DIR}/test/"
+        "${DRAKE_TEST_HOME}"
+)
+target_link_libraries(
+        dreal4_cmake_test
+        PRIVATE
+        dreal4_cmake
+        GTest::gtest_main
+)
+
+include(GoogleTest)
+gtest_discover_tests(dreal4_cmake_test)
+>>>>>>> 7e966762b (Make it build on ubuntu.)
