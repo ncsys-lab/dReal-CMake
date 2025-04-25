@@ -15,6 +15,8 @@
 */
 #pragma once
 
+#include <optional>
+
 namespace dreal {
 template <typename T>
 using optional = std::optional<T>;

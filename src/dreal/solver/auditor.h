@@ -7,6 +7,7 @@
 
 #include <dreal/util/box.h>
 #include <dreal/util/predicate_abstractor.h>
+#include <optional>
 
 namespace dreal
 {

@@ -81,8 +81,9 @@ target_include_directories(dreal4_cmake PUBLIC
 )
 
 # system dependencies
+find_library(   FLEX_LIB NAMES libfl.a    HINTS "${FLEX_ROOT}" PATH_SUFFIXES lib libs lib32 lib64 REQUIRED NO_CACHE)
 target_include_directories(dreal4_cmake PUBLIC "${FLEX_INCLUDE_DIRS}")
-target_link_libraries(dreal4_cmake PUBLIC "${FLEX_LIBRARIES}")
+target_link_libraries(dreal4_cmake PUBLIC "${FLEX_LIB}")
 
 find_path(       GMP_INC NAMES gmpxx.h    HINTS "${GMP_ROOT}" PATH_SUFFIXES include includes     REQUIRED NO_CACHE)
 find_library(  GMP_C_LIB NAMES libgmp.a   HINTS "${GMP_ROOT}" PATH_SUFFIXES lib libs lib32 lib64 REQUIRED NO_CACHE)
