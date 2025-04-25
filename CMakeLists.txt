@@ -108,7 +108,7 @@ include(FetchContent)
 FetchContent_Declare(
         ibex
         GIT_REPOSITORY https://github.com/ncsys-lab/ibex-lib
-        GIT_TAG cd44b915bbe300b8ba021f6a2437bf662679d093)  # Kunal's M1 + namespace fixes
+        GIT_TAG 33408ed0733da56979ddf797473609d4c39ea1ea)  # Kunal's M1 + namespace fixes
 FetchContent_MakeAvailable(ibex)
 
 FetchContent_Declare(
