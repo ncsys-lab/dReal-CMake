@@ -233,11 +233,23 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
       throw std::runtime_error("KeyboardInterrupt(SIGINT) Detected.");
     }
 #endif
+
+#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
+    static_assert(partial_model_mode == 0);
+    constexpr bool request_fully_constrained = true;
+#endif
+#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_PARTIAL_CONSTRAINTS
+    static_assert(partial_model_mode == 1);
     const bool request_fully_constrained = recent_under_constrained_deltasat > 0;
+#endif
+
     const auto optional_model_and_fully_constrained = sat_solver->CheckSat(request_fully_constrained);
     if (optional_model_and_fully_constrained) {
-      const auto &[optional_model, is_full_constrained] = *optional_model_and_fully_constrained;
+      const auto& [optional_model, is_full_constrained] = *optional_model_and_fully_constrained;
       if (request_fully_constrained) DREAL_ASSERT(is_full_constrained);
+#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
+      DREAL_ASSERT(request_fully_constrained && is_full_constrained);
+#endif
 
       const vector<pair<Variable, bool>>& boolean_model{optional_model.first};
       const vector<pair<Variable, bool>>& theory_model{optional_model.second};

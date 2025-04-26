@@ -50,7 +50,7 @@ namespace dreal
 
             cdcl.AddFormula(xor_of(b1, b2));
             cdcl.AddFormula(Formula{b1});
-            const auto model = cdcl.CheckSat();
+            const auto model = cdcl.CheckSat(false);
             EXPECT_TRUE(model);
 
             std::map<Variable, bool> assignments;
@@ -65,7 +65,7 @@ namespace dreal
         TEST_F(SatSolverModelMinimizerTest, Xor2) {
             SatSolver cdcl{Config()};
             cdcl.AddFormula(xor_of(b1, b2));
-            const auto model = cdcl.CheckSat();
+            const auto model = cdcl.CheckSat(false);
             EXPECT_TRUE(model);
 
             std::map<Variable, bool> assignments;
@@ -80,7 +80,7 @@ namespace dreal
         TEST_F(SatSolverModelMinimizerTest, Or1) {
             SatSolver cdcl{Config()};
             cdcl.AddFormula(b1 || b2);
-            const auto model = cdcl.CheckSat();
+            const auto model = cdcl.CheckSat(false);
             EXPECT_TRUE(model);
 
             std::map<Variable, bool> assignments;
@@ -96,7 +96,7 @@ namespace dreal
             SatSolver cdcl{Config()};
             cdcl.AddFormula(b1 || b2);
             cdcl.AddFormula(b1 || b2 || b3);
-            const auto model = cdcl.CheckSat();
+            const auto model = cdcl.CheckSat(false);
             EXPECT_TRUE(model);
 
             std::map<Variable, bool> assignments;
@@ -113,7 +113,7 @@ namespace dreal
             SatSolver cdcl{Config()};
             cdcl.AddFormula(b1 || b2);
             cdcl.AddFormula(b1 || !b2);
-            const auto model = cdcl.CheckSat();
+            const auto model = cdcl.CheckSat(false);
             EXPECT_TRUE(model);
 
             std::map<Variable, bool> assignments;
@@ -129,7 +129,7 @@ namespace dreal
             SatSolver cdcl{Config()};
             cdcl.AddFormula(b1 || b2 || b3 || b4);
             cdcl.AddFormula(b5 || b6 || b7 || b8);
-            const auto model = cdcl.CheckSat();
+            const auto model = cdcl.CheckSat(false);
             EXPECT_TRUE(model);
 
             std::map<Variable, bool> assignments;
@@ -142,7 +142,7 @@ namespace dreal
             SatSolver cdcl{Config()};
             cdcl.AddFormula(b1 || b2 || b3 || b4);
             cdcl.AddFormula(b1 || b6 || b7 || b8);
-            const auto model = cdcl.CheckSat();
+            const auto model = cdcl.CheckSat(false);
             EXPECT_TRUE(model);
 
             std::map<Variable, bool> assignments;
@@ -167,7 +167,7 @@ namespace dreal
         //     cdcl.cadical->assume(-cdcl.to_sat_var_[b1.get_id()]);
         //     cdcl.cadical->assume(+cdcl.to_sat_var_[b2.get_id()]);
         //
-        //     auto model = cdcl.CheckSat();
+        //     auto model = cdcl.CheckSat(false);
         //     EXPECT_TRUE(model);
         //     std::map<Variable, bool> assignments;
         //     for (const auto& kv : model->first.first) assignments.emplace(kv);
@@ -193,13 +193,12 @@ namespace dreal
         //     cdcl.cadical->assume(-cdcl.to_sat_var_[b2.get_id()]);
         //     cdcl.cadical->assume(+cdcl.to_sat_var_[b3.get_id()]);
         //
-        //     auto model = cdcl.CheckSat();
+        //     auto model = cdcl.CheckSat(false);
         //     EXPECT_TRUE(model);
         //     std::map<Variable, bool> assignments;
         //     for (const auto& kv : model->first.first) assignments.emplace(kv);
         //     EXPECT_EQ(assignments.size(), 1);
         //     EXPECT_TRUE(assignments[b2]);
         // }
-
     } // namespace
 } // namespace dreal

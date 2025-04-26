@@ -32,6 +32,7 @@
 #include "dreal/util/scoped_unordered_map.h"
 #include "dreal/util/scoped_unordered_set.h"
 #include "dreal/util/tseitin_cnfizer.h"
+#include "dreal/version.h"
 
 namespace dreal {
 
@@ -87,8 +88,12 @@ class SatSolver : public CaDiCaL::Learner {
   /// @returns a witness, satisfying model if the problem is satisfiable.
   /// @returns nullopt if UNSAT.
   optional<std::pair<Model, bool>> CheckSat(
-    // false because I guess that used to be the default.
+#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
+    bool request_fully_constrained = true
+#endif
+#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_PARTIAL_CONSTRAINTS
     bool request_fully_constrained = false
+#endif
   );
 
   // TODO(soonho): Push/Pop cnfizer and predicate_abstractor?
@@ -98,7 +103,7 @@ class SatSolver : public CaDiCaL::Learner {
 
   [[nodiscard]] Formula theory_literal(const Variable& var) const;
 
- private:
+private:
   // Adds a formula @p f to the solver.
   //
   // @pre @p f is a clause. That is, it is either a literal (b or ¬b)
@@ -115,6 +120,8 @@ class SatSolver : public CaDiCaL::Learner {
   // @pre @p f is either a Boolean variable or a negation of Boolean
   // variable.
   void AddLiteral(const Formula& f);
+
+  int get_partial_model(std::vector<int>& model_is);
 
   // Member variables
   // ----------------

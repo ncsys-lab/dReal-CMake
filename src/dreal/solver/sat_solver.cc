@@ -128,8 +128,7 @@ optional<std::pair<SatSolver::Model, bool>> SatSolver::CheckSat(const bool reque
                   cadical->irredundant());
   stat.num_check_sat_++;
   // Call SAT solver.
-  TimerGuard check_sat_timer_guard(&stat.timer_check_sat_,
-                                   DREAL_LOG_INFO_ENABLED);
+  TimerGuard check_sat_timer_guard(&stat.timer_check_sat_,DREAL_LOG_INFO_ENABLED);
   const int ret{cadical->solve()};
   // check_sat_timer_guard.pause();
 
@@ -137,75 +136,31 @@ optional<std::pair<SatSolver::Model, bool>> SatSolver::CheckSat(const bool reque
   if (ret == CaDiCaL::SATISFIABLE) {
     // SAT Case.
 
-    bool model_is_fully_constrained = true;
-    std::vector<int> model_is(cadical->vars()+1);
+    int num_literals_omitted = 0;
+    std::vector<int> model_is(cadical->vars() + 1);
     if (request_fully_constrained) {
-      for (int i = 1; i <= cadical->vars(); ++i) {
-        model_is[i] = cadical->val(i) > 0 ? +1 : -1;
-      }
-    } else /*(request_fully_constrained)*/ {
-      // MASK to prevent XOR issue...
-      // e.g. if we have 1 2 0, with model -1 2 0
-      // then flipping -1 to +1, subsequently makes 2 flippable to -2
-      // however, this DOES NOT MEAN they both can be set to 0 / don't care.
-      // need to mask away variables which were not flippable to begin with.
-      for (int i = 1; i <= cadical->vars(); ++i) {
-        model_is[i] = cadical->flippable(i); // mask
-      }
-      for (int i = 1; i <= cadical->vars(); ++i) {
-        // try to zero-out non-decision variables first,
-        // make the theory solver "focus" on decision variables to promote backtracking.
-        if (cadical->is_decision(i)) continue;
-        model_is[i] = model_is[i] && cadical->flip(i);
-      }
-      for (int i = 1; i <= cadical->vars(); ++i) {
-        if (!cadical->is_decision(i)) continue;
-        model_is[i] = model_is[i] && cadical->flip(i);
-      }
-
-      // UPDATE - don't bother, this folds into the "combinatorial" issue below...
-      // I cannot trigger this in a unit test but it happens
-      // sporadically on large problems...
-      // a future flip "locks" a previous assignment, making it no longer flippable.
-      // for (int i = 1; i <= cadical->vars(); ++i) {
-      //   model_is[i] = model_is[i] && cadical->flippable(i);
-      // }
-
-      for (int i = 1; i <= cadical->vars(); ++i) {
-        if (model_is[i] /* was flippable and then flipped */) {
-          model_is_fully_constrained = false;
-          model_is[i] = 0;
-        } else {
-          const int val = cadical->val(i) > 0 ? +1 : -1;
-          model_is[i] = val;
-        }
-      }
-
-      // todo:
-      //    so it turns out we can basically never actually calculate what is flippable and what is not.
-      //    unless we were to go through the full O(2^N) combinatorial set of flips-and-not-flips
-      //    the best we can do is give an underconstrained model...
-      //    and then scrutinize any SAT results with the full model.
-      // for (int i = 1; i <= cadical->vars(); ++i) {
-      //   if (partial_model[i] == 0) {
-      //     cadical->assume(+i);
-      //     for (int j = 1; j <= cadical->vars(); ++j) if (partial_model[j] != 0) cadical->assume(j * partial_model[j]);
-      //     DREAL_ASSERT (cadical->solve() == CaDiCaL::SATISFIABLE);
-      //     cadical->assume(-i);
-      //     for (int j = 1; j <= cadical->vars(); ++j) if (partial_model[j] != 0) cadical->assume(j * partial_model[j]);
-      //     DREAL_ASSERT (cadical->solve() == CaDiCaL::SATISFIABLE);
-      //   }
-      // }
+      num_literals_omitted = 0;
+      for (int i = 1; i <= cadical->vars(); ++i) model_is[i] = cadical->val(i) > 0 ? +1 : -1;
     }
+    else {
+      num_literals_omitted = get_partial_model(model_is);
+      // DREAL_LOG_INFO("SatSolver::CheckSat - Shrank model by {}%", num_literals_omitted * 100.0 / cadical->vars());
+    }
+    std::cerr << "Shrank model by " << std::setprecision(3) << num_literals_omitted * 100.0 / cadical->vars() << '%' << std::endl;
 
     if (DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) {
-      if (model_is_fully_constrained) {
+      if (/*model_is_fully_constrained*/ num_literals_omitted == 0) {
         sat_log_label_clause("SatSolver::CheckSat - Fully Constrained");
       } else {
         sat_log_label_clause("SatSolver::CheckSat - Partially Constrained");
       }
       for (int i = 1; i <= cadical->vars(); ++i) if (model_is[i] != 0) sat_log_literal(i * model_is[i]);
       sat_log_literal0();
+
+      // check that we haven't OVER constrained somehow.
+      for (int i = 1; i <= cadical->vars(); ++i) if (model_is[i] != 0) cadical->assume(i * model_is[i]);
+      int result = cadical->solve(); // must call OUTSIDE of DREAL_ASSERT since we added a bunch of `assumes`
+      DREAL_ASSERT(result == CaDiCaL::SATISFIABLE);
     }
 
     const auto& var_to_formula_map = predicate_abstractor_.var_to_formula_map();
@@ -241,7 +196,7 @@ optional<std::pair<SatSolver::Model, bool>> SatSolver::CheckSat(const bool reque
       }
     }
     DREAL_LOG_DEBUG("SatSolver::CheckSat() Found a model.");
-    return {{model, model_is_fully_constrained}};
+    return {{model, /*model_is_fully_constrained*/ num_literals_omitted == 0}};
   } else if (ret == CaDiCaL::UNSATISFIABLE) {
     DREAL_LOG_DEBUG("SatSolver::CheckSat() No solution.");
     // UNSAT Case.
