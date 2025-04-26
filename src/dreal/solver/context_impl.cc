@@ -354,7 +354,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 #else
               std::min( // based on information from WORTH_IT_regression_4.ipynb
                 std::chrono::duration_cast<std::chrono::microseconds>(100 * tscs_elapsed),
-                std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::milliseconds(200))
+                std::chrono::duration_cast<std::chrono::microseconds>(DREAL_EXPERIMENTAL_PATTERN_MATCH_TIMEOUT)
               )
 #endif
             );

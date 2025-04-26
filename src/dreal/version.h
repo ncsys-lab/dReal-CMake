@@ -20,6 +20,9 @@
 
 // #define DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
 
+// this is an *upper* limit for calculated timeout, 100 * TSCS
+// should be taken from data reflected in WORTH_IT_regression_*.ipynb
+#define DREAL_EXPERIMENTAL_PATTERN_MATCH_TIMEOUT (std::chrono::milliseconds(500))
 
 // check that options are required and mutually exclusive
 #ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_ALL
