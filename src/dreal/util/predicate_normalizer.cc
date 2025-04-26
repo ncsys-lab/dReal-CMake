@@ -25,12 +25,12 @@ namespace dreal
         const std::vector<Formula>& ordered_clause,
         const std::chrono::duration<uint64_t, std::micro> timeout
         ) const {
-        if (DREAL_LOG_INFO_ENABLED) {
+        if (DREAL_LOG_DEBUG_ENABLED) {
            std::ostringstream s;
            s << "!(";
            for (const auto& lit : ordered_clause) s << '(' << lit << ") and ";
            s << ")";
-           DREAL_LOG_INFO("Finding matches for: {}", s.str());
+           DREAL_LOG_DEBUG("Finding matches for: {}", s.str());
         }
         // todo `std::reverse()` and compare performance.
 
