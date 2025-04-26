@@ -63,7 +63,7 @@ file(GLOB_RECURSE DREAL_SOURCES
         "${LIBCDS_HOME}/src/**.cpp"
         "${PICOSAT_HOME}/src/**.c"
 )
-add_library(dreal4_cmake
+add_library(dreal4_cmake STATIC
         ${DREAL_SOURCES}
         ${BISON_smt2_parser_OUTPUTS} ${FLEX_smt2_scanner_OUTPUTS}
         ${BISON_dr_parser_OUTPUTS} ${FLEX_dr_scanner_OUTPUTS}
@@ -160,7 +160,6 @@ target_link_libraries(
 # On some platforms, linking is purely sequential, and the order you specify libraries in matters.
 # I am repeating these libraries from above so that everything gets resolved on Ubuntu
 target_link_libraries(dreal4_cmake PUBLIC "${GMP_C_LIB}" "${GMP_CXX_LIB}")
-target_link_libraries(dreal4_cmake PUBLIC "${FLEX_LIBRARIES}")
 
 # executable
 add_executable(dreal4 "${PROJECT_SOURCE_DIR}/src/dreal/dreal_main.cc")
