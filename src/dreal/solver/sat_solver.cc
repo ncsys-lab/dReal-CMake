@@ -17,6 +17,7 @@
 
 #include <ostream>
 #include <utility>
+#include <dreal/version.h>
 #include <dreal/symbolic/symbolic_formula_cell.h>
 #include <dreal/util/predicate_normalizer.h>
 
@@ -54,7 +55,7 @@ SatSolver::SatSolver(const Config& config) : cadical(new CaDiCaL::Solver) {
   success = cadical->set("subsumeint", 1e3); DREAL_ASSERT(success);
   cadical->options();
 
-  if (DREAL_LOG_INFO_ENABLED || SAT_AUDIT_ENABLED) cadical->connect_learner(this);
+  if (DREAL_LOG_INFO_ENABLED || DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) cadical->connect_learner(this);
 
   all_incl_lb_predicates.max_load_factor(0.25);
   all_excl_lb_predicates.max_load_factor(0.25);
@@ -197,7 +198,7 @@ optional<std::pair<SatSolver::Model, bool>> SatSolver::CheckSat(const bool reque
       // }
     }
 
-    if (SAT_AUDIT_ENABLED) {
+    if (DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) {
       if (model_is_fully_constrained) {
         sat_log_label_clause("SatSolver::CheckSat - Fully Constrained");
       } else {

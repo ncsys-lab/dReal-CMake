@@ -38,6 +38,7 @@
 #include "dreal/util/if_then_else_eliminator.h"
 #include "dreal/util/interrupt.h"
 #include "dreal/util/logging.h"
+#include "dreal/version.h"
 
 namespace dreal {
 
@@ -138,19 +139,10 @@ void Context::Impl::Assert(const Formula& f) {
 optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
                                           Box box,
                                           SatSolver* const sat_solver) {
-#ifdef FMCAD25_MODE_MATCH_ALL
-  std::cout << "FMCAD25_MODE_MATCH_ALL" << std::endl;
-#endif
-#ifdef FMCAD25_MODE_MATCH_SOME
-  std::cout << "FMCAD25_MODE_MATCH_SOME" << std::endl;
-#endif
-#ifdef FMCAD25_MODE_CONTROL
-  std::cout << "FMCAD25_MODE_CONTROL" << std::endl;
-#endif
-
   ////////////////////////////////////////////////////////////////////////////////
+#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
   std::ofstream myfile;
-  if (GENERATE_CSV) {
+  {
     std::ostringstream s;
     s << "./kunal_paper_data_epoch";
     s << std::chrono::system_clock::now().time_since_epoch().count();
@@ -169,6 +161,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
     myfile.open(file_name, std::ios::app);
     if (!myfile) throw DREAL_RUNTIME_ERROR("Failed to open log file");
   }
+#endif
 
   PatternMatchingHeuristic::statistics kunal_paper_data{0};
   ////////////////////////////////////////////////////////////////////////////////
@@ -185,7 +178,8 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
   }
 
   ////////////////////////////////////////////////////////////////////////////////
-  if (GENERATE_CSV) {
+#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
+  {
     std::ostringstream s;
     s << "box_continuous_count,";
     s << "box_integer_count,";
@@ -206,9 +200,11 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
     s << PatternMatchingTrie::matching_stats_csv_header("pattern_matching_stats_");
     myfile << s.str() << std::endl;
   }
+#endif
   ////////////////////////////////////////////////////////////////////////////////
 
-#ifndef FMCAD25_MODE_CONTROL
+#ifndef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
+  static_assert(pattern_matching_mode != 0);
   sat_solver->AddBox(pn_, box);
 #endif
 
@@ -326,22 +322,29 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           const auto ranking_end2 = std::chrono::high_resolution_clock::now();
           const std::chrono::duration<double, std::milli> ranking_elapsed2 = ranking_end2 - ranking_start2;
 
-#ifdef FMCAD25_MODE_MATCH_ALL
+#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_ALL
+          static_assert(pattern_matching_mode == 2);
           if (true) {
 #endif
-#ifdef FMCAD25_MODE_MATCH_SOME
+#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_SOME
+          static_assert(pattern_matching_mode == 1);
           if (predicted_is_worth_it >= 0.5 && explanation.size() < 96) {
 #endif
-#ifdef FMCAD25_MODE_CONTROL
-              if (false) {
+#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
+          static_assert(pattern_matching_mode == 0);
+          if (false) {
 #endif
             const auto alcp_start = std::chrono::high_resolution_clock::now();
             const auto alcp_result = sat_solver->AddLearnedClausePattern(
               pn_, explanation, box,
+#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
+              std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::seconds(20))
+#else
               std::min( // based on information from WORTH_IT_regression_4.ipynb
                 std::chrono::duration_cast<std::chrono::microseconds>(100 * tscs_elapsed),
                 std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::milliseconds(200))
               )
+#endif
             );
 
             // the pattern matching is kinda best-effort now.
@@ -373,16 +376,19 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             std::cerr << ".\tAdding 1 size " << explanation.size() << " directly.\t";
             std::cerr << "TSCS " << tscs_elapsed.count() << " ms.\t";
             std::cerr << "Fully constrained = " << is_full_constrained << std::endl;
-#ifdef FMCAD25_MODE_CONTROL
+#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
+            static_assert(pattern_matching_mode == 0);
             sat_solver->AddLearnedClauseUnboxed(explanation);
 #else
+            static_assert(pattern_matching_mode != 0);
             sat_solver->AddLearnedClause(pn_, explanation, box);
 #endif
           }
           ////////////////////////////////////////////////////////////////////////////////
 
           ///////////////////////////////////////////////////////////////////////////////////
-          if (GENERATE_CSV) {
+#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
+          {
             std::ostringstream s;
             s << kunal_paper_data.box_continuous_count << ',';
             s << kunal_paper_data.box_integer_count << ',';
@@ -403,6 +409,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             s << kunal_paper_data.pattern_matching_stats;
             myfile << s.str() << std::endl; // also flushes
           }
+#endif
 
           {
             typeof(kunal_paper_data) reset_data{0};

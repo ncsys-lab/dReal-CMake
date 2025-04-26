@@ -4,6 +4,7 @@
 
 #include <float.h>
 #include <dreal/util/logging.h>
+#include <dreal/version.h>
 
 #include "auditor.h"
 #include "filter_assertion.h"
@@ -21,7 +22,7 @@ namespace dreal
         cadical->add(0);
         sat_log_literal0();
 
-        if (THEORY_AUDIT_ENABLED) {
+        if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
             std::vector<Formula> a;
             for (const Formula& f : conflicting_conjunction) a.emplace_back(!predicate_abstractor_.Convert(f));
             theory_audit_literals(predicate_abstractor_, a, {});
@@ -78,7 +79,7 @@ namespace dreal
                 cadical->add(0);
                 sat_log_literal0();
 
-                if (THEORY_AUDIT_ENABLED) {
+                if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
                     std::vector<Formula> a;
                     a.emplace_back(!predicate_abstractor_.Convert(lit));
                     FlattenIntervalClause(unfitted, [&](const auto& il) { a.emplace_back(!il); });
@@ -113,7 +114,7 @@ namespace dreal
         cadical->add(0);
         sat_log_literal0();
 
-        if (THEORY_AUDIT_ENABLED) {
+        if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
             theory_audit_formula(!make_conjunction(conflicting_conjunction), unfitted_box);
             std::vector<Formula> a;
             for (const auto& lit : lhs_implies) a.emplace_back(lit);
@@ -154,7 +155,7 @@ namespace dreal
         for (const auto& [conflict_clause, subs] : all_related_conflicts) {
             const auto conflict_box = substitutions_map::apply_substitution(base_box, subs, true);
 
-            if (THEORY_AUDIT_ENABLED) {
+            if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
                 std::set conflict_clause_set(conflict_clause.begin(), conflict_clause.end());
                 theory_audit_formula(
                     !make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(conflict_clause_set)),
@@ -283,7 +284,7 @@ namespace dreal
             cadical->add(0);
             sat_log_literal0();
 
-            if (THEORY_AUDIT_ENABLED) {
+            if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
                 theory_audit_literals(predicate_abstractor_, {!lb, !inv_lb}, {});
                 theory_audit_literals(predicate_abstractor_, {lb, inv_lb}, {});
             }
@@ -308,7 +309,7 @@ namespace dreal
             cadical->add(0);
             sat_log_literal0();
 
-            if (THEORY_AUDIT_ENABLED) {
+            if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
                 theory_audit_literals(predicate_abstractor_, {!ub, !inv_ub}, {});
                 theory_audit_literals(predicate_abstractor_, {ub, inv_ub}, {});
             }
@@ -321,7 +322,7 @@ namespace dreal
         buffer_i = 0;
         expected_clause_size = size;
         if (size <= LOG_INFO_SIZE) return true;
-        if (SAT_AUDIT_ENABLED && size < MAX_BUFFER_SIZE) return true;
+        if (DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED && size < MAX_BUFFER_SIZE) return true;
         return false;
     }
 
@@ -354,7 +355,7 @@ namespace dreal
             );
         }
         sat_log_literal0();
-        if (SAT_AUDIT_ENABLED) {
+        if (DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) {
             const Formula sat_clause = !make_conjunction(neg_conjunction);
             sat_log_label_clause("i.e. " + sat_clause.to_string());
         }

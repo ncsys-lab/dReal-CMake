@@ -18,6 +18,7 @@
 #include "dreal/solver/filter_assertion.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
+#include "dreal/version.h"
 
 namespace dreal
 {
@@ -25,12 +26,12 @@ namespace dreal
     std::set<int> literal_log_clause;
 
     void sat_log_label_clause(const std::string& s) {
-        if (!SAT_AUDIT_ENABLED) return;
+        if (!DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) return;
         literal_log << s << std::endl;
     }
 
     void sat_log_literal(const int lit, const std::optional<Variable>& def) {
-        if (!SAT_AUDIT_ENABLED) return;
+        if (!DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) return;
         DREAL_ASSERT(lit != 0);
 
         static std::set<Variable> seen_literals;
@@ -43,7 +44,7 @@ namespace dreal
     }
 
     void sat_log_literal0() {
-        if (!SAT_AUDIT_ENABLED) return;
+        if (!DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) return;
         for (int v : literal_log_clause) literal_log << v << ' ';
         literal_log << '0' << std::endl;
         literal_log_clause.clear();
@@ -51,7 +52,7 @@ namespace dreal
 
     void theory_audit_literals(const PredicateAbstractor& pa, /*copy*/ std::vector<Formula> lits, const std::optional<Box>& box) {
         // the operands passed here are expensive to produce, so really shouldn't be called unnecessarily.
-        DREAL_ASSERT(THEORY_AUDIT_ENABLED);
+        DREAL_ASSERT(DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED);
 
         for (auto& l : lits) {
             if (is_variable(l)) {
@@ -73,7 +74,7 @@ namespace dreal
 
     void theory_audit_formula(const Formula& formula, const std::optional<Box>& box) {
         // the operands passed here are expensive to produce, so really shouldn't be called unnecessarily.
-        DREAL_ASSERT(THEORY_AUDIT_ENABLED);
+        DREAL_ASSERT(DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED);
 
         const auto& vs = formula.GetFreeVariables();
 
