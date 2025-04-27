@@ -26,6 +26,9 @@ Logic parse_logic(const string& s) {
   if (s == "ALL") {
     return Logic::ALL;
   }
+  if (s == "QF_IDL") {
+    return Logic::QF_IDL;
+  }
   if (s == "QF_LIA") {
     return Logic::QF_LIA;
   }
@@ -63,6 +66,8 @@ ostream& operator<<(ostream& os, const Logic& logic) {
   switch (logic) {
     case Logic::ALL:
       return os << "ALL";
+    case Logic::QF_IDL:
+      return os << "QF_IDL";
     case Logic::QF_LIA:
       return os << "QF_LIA";
     case Logic::QF_LIRA:
