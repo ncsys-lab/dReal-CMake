@@ -69,7 +69,7 @@ class SatSolver : public CaDiCaL::Learner {
 
   /// Given a @p formulas = {f₁, ..., fₙ}, adds a clause (¬f₁ ∨ ... ∨ ¬ fₙ) to
   /// the solver.
-  void AddLearnedClauseUnboxed(const std::vector<Formula>& conflicting_conjunction);
+  void AddLearnedClauseUnboxed(const std::set<Formula>& conflicting_conjunction);
 
   void AddLearnedClause(PredicateNormalizer& pn, const std::vector<Formula>& conflicting_conjunction, const Box& box);
 

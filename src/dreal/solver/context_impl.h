@@ -69,7 +69,7 @@ class Context::Impl {
   void AddToBox(const Variable& v);
 
   // Returns the current box in the stack.
-  optional<Box> CheckSatCore(const ScopedVector<Formula>& stack, Box box,
+  optional<Box> CheckSatCore(const ScopedVector<Formula>& stack, Box problem_box,
                              SatSolver* sat_solver);
 
   // Marks variable @p v as a model variable
