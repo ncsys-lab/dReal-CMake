@@ -137,7 +137,7 @@ void Context::Impl::Assert(const Formula& f) {
 }
 
 optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
-                                          Box problem_box,
+                                          Box box,
                                           SatSolver* const sat_solver) {
   ////////////////////////////////////////////////////////////////////////////////
 #ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
@@ -167,14 +167,14 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
   ////////////////////////////////////////////////////////////////////////////////
 
   DREAL_LOG_DEBUG("ContextImpl::CheckSatCore()");
-  DREAL_LOG_TRACE("ContextImpl::CheckSat: Box =\n{}", problem_box);
-  if (problem_box.empty()) return {};
+  DREAL_LOG_TRACE("ContextImpl::CheckSat: Box =\n{}", box);
+  if (box.empty()) return {};
   // If false ∈ stack, it's UNSAT.
   for (const auto& f : stack.get_vector()) if (is_false(f)) return {};
   // If stack = ∅ or stack = {true}, it's trivially SAT.
   if (stack.empty() || (stack.size() == 1 && is_true(stack.first()))) {
-    DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Found Model\n{}", problem_box);
-    return problem_box;
+    DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Found Model\n{}", box);
+    return box;
   }
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -205,11 +205,11 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 
 #ifndef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
   static_assert(pattern_matching_mode != 0);
-  sat_solver->AddBox(pn_, problem_box);
+  sat_solver->AddBox(pn_, box);
 #endif
 
   ////////////////////////////////////////////////////////////////////////////////
-  for (const auto & variable : problem_box.variables()) {
+  for (const auto & variable : box.variables()) {
     if (variable.get_type() == Variable::Type::CONTINUOUS) kunal_paper_data.box_continuous_count++;
     else if (variable.get_type() == Variable::Type::INTEGER) kunal_paper_data.box_integer_count++;
     else if (variable.get_type() == Variable::Type::BOOLEAN) kunal_paper_data.box_boolean_count++;
@@ -255,7 +255,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
       const vector<pair<Variable, bool>>& theory_model{optional_model.second};
 
       for (const auto& [sat_var, assignment] : boolean_model)
-        problem_box[sat_var] = assignment ? 1.0 : 0.0;  // true -> 1.0 and false -> 0.0
+        box[sat_var] = assignment ? 1.0 : 0.0;  // true -> 1.0 and false -> 0.0
 
       if (!theory_model.empty()) {
         // SAT from SATSolver.
@@ -285,7 +285,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
         const std::chrono::duration<double, std::milli> ranking_elapsed1 = ranking_end1 - ranking_start1;
 
         const auto tscs_start = std::chrono::high_resolution_clock::now();
-        const auto tscs_result = theory_solver_.CheckSat(problem_box, assertions);
+        const auto tscs_result = theory_solver_.CheckSat(box, assertions);
         const auto tscs_end = std::chrono::high_resolution_clock::now();
         const std::chrono::duration<double, std::milli> tscs_elapsed = tscs_end - tscs_start;
         kunal_paper_data.theory_checksat_ms = tscs_elapsed.count();
@@ -298,7 +298,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           recent_under_constrained_deltasat = recent_under_constrained_deltasat_limit;
           DREAL_LOG_WARN("ContextImpl::CheckSatCore() - Underconstrained Theory Check = delta-SAT. Exponential Backoff = {}", recent_under_constrained_deltasat_limit);
           recent_under_constrained_deltasat_limit *= 2; // exponential backoff
-          return CheckSatCore(stack, std::move(problem_box), sat_solver);
+          return CheckSatCore(stack, std::move(box), sat_solver);
         } else if (tscs_result && is_full_constrained) {
           DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Fully Constrained Theory Check = delta-SAT");
           return theory_solver_.GetModel();
@@ -307,46 +307,19 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           if (recent_under_constrained_deltasat > 0) recent_under_constrained_deltasat--;
 
           DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Theory Check = UNSAT");
+          std::vector explanation(
+            theory_solver_.GetExplanation().begin(),
+            theory_solver_.GetExplanation().end()
+          );
           DREAL_LOG_DEBUG(
               "ContextImpl::CheckSatCore() - size of explanation = {} - stack size = {}",
-              theory_solver_.GetExplanation().size(), stack.get_vector().size());
-
-          // todo: abstract this away better. should not happen at the top-level like it is now.
-          /*copy*/ Box explanation_box = problem_box;
-          std::vector<Formula> explanation;
-          explanation.reserve(theory_solver_.GetExplanation().size());
-#ifndef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
-          static_assert(pattern_matching_mode != 0);
-          for (const auto & lit : theory_solver_.GetExplanation()) {
-            const auto result = FilterAssertion(lit, &explanation_box);
-            if(!result.filtered) explanation.emplace_back(lit);
-          }
-
-          if (explanation.empty()) {
-            // accidentally filtered all...
-            // these lemmas come from trivial bounds e.g. (x < NUMBER)
-            // which exist in the original problem but aren't at the top-level.
-            // so they become "exposed" on particular models, and need to be dealt with.
-            DREAL_LOG_WARN("Learned trivial lemma of size {}", theory_solver_.GetExplanation().size());
-            DREAL_ASSERT(explanation_box.interval_vector().is_flat()); // shrunk to 0
-            explanation_box = problem_box;
-            explanation.insert(
-              explanation.begin(),
-              theory_solver_.GetExplanation().begin(), theory_solver_.GetExplanation().end()
-            );
-          }
+              explanation.size(), stack.get_vector().size());
 
           // ordering the literals like this makes pattern matching fast.
+          // todo: abstract this away better. should not happen at the top-level like it is now.
           std::sort(explanation.begin(), explanation.end(), [](const Formula &a, const Formula &b) {
               return a.GetFreeVariables().size() > b.GetFreeVariables().size(); // descending
           });
-#else
-          static_assert(pattern_matching_mode == 0);
-          explanation.insert(
-              explanation.begin(),
-              theory_solver_.GetExplanation().begin(), theory_solver_.GetExplanation().end()
-          );
-#endif
 
           ////////////////////////////////////////////////////////////////////////////////
           kunal_paper_data.lemma_size = explanation.size();
@@ -375,7 +348,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 #endif
             const auto alcp_start = std::chrono::high_resolution_clock::now();
             const auto alcp_result = sat_solver->AddLearnedClausePattern(
-              pn_, explanation, explanation_box,
+              pn_, explanation, box,
 #ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
               std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::seconds(20))
 #else
@@ -385,6 +358,11 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
               )
 #endif
             );
+
+            // the pattern matching is kinda best-effort now.
+            // it breaks down when one clause pattern matches into 1000s of permutations of itself
+            // just make the best effort, and at the very minimum make sure the original at least gets inserted
+            sat_solver->AddLearnedClauseUnboxed(explanation); // just to be sure, sound because this is unmatched, straight from theory solver.
 
             const auto alcp_end = std::chrono::high_resolution_clock::now();
             const std::chrono::duration<double, std::milli> alcp_elapsed = alcp_end - alcp_start;
@@ -410,17 +388,14 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             std::cerr << ".\tAdding 1 size " << explanation.size() << " directly.\t";
             std::cerr << "TSCS " << tscs_elapsed.count() << " ms.\t";
             std::cerr << "Fully constrained = " << is_full_constrained << std::endl;
-#ifndef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
+#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
+            static_assert(pattern_matching_mode == 0);
+            sat_solver->AddLearnedClauseUnboxed(explanation);
+#else
             static_assert(pattern_matching_mode != 0);
-            sat_solver->AddLearnedClause(pn_, explanation, explanation_box);
+            sat_solver->AddLearnedClause(pn_, explanation, box);
 #endif
           }
-          // the pattern matching is kinda best-effort now.
-          // it breaks down when one clause pattern matches into 1000s of permutations of itself
-          // just make the best effort, and at the very minimum make sure the original at least gets inserted
-          // just to be sure, sound because this is unmatched, straight from theory solver.
-          // also, this should just happen in all modes no matter what.
-          sat_solver->AddLearnedClauseUnboxed(theory_solver_.GetExplanation());
           ////////////////////////////////////////////////////////////////////////////////
 
           ///////////////////////////////////////////////////////////////////////////////////
@@ -464,7 +439,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
               DREAL_LOG_TRACE("ContextImpl::CheckSatCore: Explanation {}", f_i);
           }
         }
-      } else /* theory_model.empty() */ return problem_box;
+      } else /* theory_model.empty() */ return box;
     } else /* !optional_model */ {
       // UNSAT from SATSolver. Escape the loop.
       DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Sat Check = UNSAT");

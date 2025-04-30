@@ -13,7 +13,7 @@
 namespace dreal
 {
     void SatSolver::AddLearnedClauseUnboxed(
-        const std::set<Formula>& conflicting_conjunction
+        const std::vector<Formula>& conflicting_conjunction
     ) {
         sat_log_label_clause("SatSolver::AddLearnedClauseUnboxed");
         for (const Formula& f : conflicting_conjunction) {
