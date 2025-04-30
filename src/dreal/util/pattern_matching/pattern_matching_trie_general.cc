@@ -19,8 +19,6 @@ namespace dreal
         const std::vector<Formula>& literals,
         const std::chrono::duration<uint64_t, std::micro> timeout
     ) const {
-        // todo: somehow prioritize decision literals?
-
         matching_stats_t stats = {0};
         std::vector<Formula> matches_vec;
         std::vector<std::pair<std::vector<Formula>, substitutions_map>> result;
@@ -52,8 +50,8 @@ namespace dreal
 
         const auto ibegin = literals.begin();
         const auto iend = literals.end();
-        // std::unordered_set<Formula> seen_truncateds; // lexo-compare for nary goes one by one...
-        // seen_truncateds.reserve(1024 * literals.size());
+        std::unordered_set<Formula> seen_truncateds; // lexo-compare for nary goes one by one...
+        seen_truncateds.reserve(1024 * literals.size());
         std::function<
             std::function<void(const Formula& f, substitutions_map& s)>(typeof(ibegin))
         > match_next_literal = [&](const auto& it1) {
@@ -67,14 +65,14 @@ namespace dreal
 
                 // avoid re-finding 1000s of permutations of the same clause on fedor_13.smt2, etc.
                 // copy required. do NOT modify matches_vec... that needs to be a pure stack
-                // std::set matches_vec_set(matches_vec.begin(), matches_vec.end());
-                // const auto [_, successful_emplace] = seen_truncateds.emplace(
-                    // make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(matches_vec_set))
-                // );
-                // if (!successful_emplace) {
-                    // matches_vec.pop_back();
-                    // return;
-                // }
+                std::set matches_vec_set(matches_vec.begin(), matches_vec.end());
+                const auto [_, successful_emplace] = seen_truncateds.emplace(
+                    make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(matches_vec_set))
+                );
+                if (!successful_emplace) {
+                    matches_vec.pop_back();
+                    return;
+                }
 
                 if (it1 == iend) {
                     DREAL_ASSERT(literals.size() == 1);
