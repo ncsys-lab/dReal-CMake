@@ -95,7 +95,15 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
 
     VISIT_DECL(VisitVariable) {
         const auto& f = get_variable(_f);
-        for (auto& node : parent.c(FormulaKind::Var)) {
+
+        static unsigned variable_indexer_offset = 0;
+        const unsigned offset = variable_indexer_offset++;
+
+        // for (auto& node : parent.c(FormulaKind::Var)) {
+        const auto& pcekv = parent.c(FormulaKind::Var); // its a vector
+        for (size_t i = 0; i < pcekv.size(); i++) {
+            auto& node = pcekv[(i + offset) % pcekv.size()];
+
             substitutions.push();
 
             const auto& matched_f = get_variable(*node.leaf);

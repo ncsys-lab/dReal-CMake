@@ -44,7 +44,15 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
 
     VISIT_DECL(VisitVariable) {
         const auto& e = get_variable(_e);
-        for (auto& node : parent.c(ExpressionKind::Var)) {
+
+        static unsigned variable_indexer_offset = 0;
+        const unsigned offset = variable_indexer_offset++;
+
+        // for (auto& node : parent.c(ExpressionKind::Var)) {
+        const auto& pcekv = parent.c(ExpressionKind::Var); // its a vector
+        for (size_t i = 0; i < pcekv.size(); i++) {
+            auto& node = pcekv[(i + offset) % pcekv.size()];
+
             substitutions.push();
 
             const auto& matched_e = get_variable(*node.leaf);
