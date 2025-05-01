@@ -336,7 +336,10 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 
 #ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_ALL
           static_assert(pattern_matching_mode == 2);
-          if (true) {
+          if (true
+            && explanation.size() < 384 /* stack overflows around size=960 on x86 */
+            && tscs_elapsed > std::chrono::milliseconds(3)
+            ) {
 #endif
 #ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_SOME
           static_assert(pattern_matching_mode == 1);
