@@ -476,6 +476,24 @@ void HandleSigInt(const int) {
 }  // namespace
 
 int main(int argc, const char* argv[]) {
+  // default stack size is 8MB
+  // CPS-pattern matching algo goes DEEP...
+  // doing 63MB because that's approximately the max on macOS
+  constexpr rlim_t desired_stack_size = 63 * 1024 * 1024;
+  rlimit rl{0};
+  getrlimit(RLIMIT_STACK, &rl);
+  rl.rlim_cur = std::max(rl.rlim_cur, desired_stack_size);
+  setrlimit(RLIMIT_STACK, &rl);
+  rl.rlim_cur = 0;
+  getrlimit(RLIMIT_STACK, &rl);
+  if (rl.rlim_cur < desired_stack_size) {
+    std::cerr << "Failed to configure desired stack size limit. Exiting." << std::endl;
+    std::cerr << "\tCurrent Size = " << rl.rlim_cur << std::endl;
+    std::cerr << "\tMaximum Size = " << rl.rlim_max << std::endl;
+    std::cerr << "\tDesired Size = " << desired_stack_size << std::endl;
+    exit(-1);
+  }
+
   std::signal(SIGINT, HandleSigInt);
   dreal::MainProgram main_program{argc, argv};
   return main_program.Run();
