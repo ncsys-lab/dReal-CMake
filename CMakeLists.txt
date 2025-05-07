@@ -46,13 +46,14 @@ ADD_FLEX_BISON_DEPENDENCY(dr_scanner dr_parser)
 # manually imported dependencies
 set(DRAKE_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_robotlocomotion_drake/")
 set(DYNBITSET_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_pinam45_dynamic_bitset/")
-set(OPTIONAL_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_tartanllama_optional/")
 set(THREADPOOL_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_progschj_threadpool/")
 set(EZPARSER_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_dreal-deps_ezoptionparser/")
 set(LIBCDS_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_khizmax_libcds/")
 set(JSON_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_nlohmann_json/")
 set(PICOSAT_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_dreal-deps_picosat/")
 
+unset(DREAL_SOURCES)
+unset(DREAL_SOURCES CACHE)
 file(GLOB_RECURSE DREAL_SOURCES
         "${PROJECT_SOURCE_DIR}/src/dreal/*/**.cc"
         "${PROJECT_SOURCE_DIR}/src/dreal/*/**.yy"
@@ -62,7 +63,7 @@ file(GLOB_RECURSE DREAL_SOURCES
         "${LIBCDS_HOME}/src/**.cpp"
         "${PICOSAT_HOME}/src/**.c"
 )
-add_library(dreal4_cmake
+add_library(dreal4_cmake STATIC
         ${DREAL_SOURCES}
         ${BISON_smt2_parser_OUTPUTS} ${FLEX_smt2_scanner_OUTPUTS}
         ${BISON_dr_parser_OUTPUTS} ${FLEX_dr_scanner_OUTPUTS}
@@ -72,7 +73,6 @@ target_include_directories(dreal4_cmake PUBLIC
         "${PROJECT_SOURCE_DIR}/src/"
         "${DRAKE_HOME}"
         "${DYNBITSET_HOME}"
-        "${OPTIONAL_HOME}"
         "${THREADPOOL_HOME}"
         "${EZPARSER_HOME}"
         "${LIBCDS_HOME}"
@@ -109,7 +109,7 @@ include(FetchContent)
 FetchContent_Declare(
         ibex
         GIT_REPOSITORY https://github.com/ncsys-lab/ibex-lib
-        GIT_TAG cd44b915bbe300b8ba021f6a2437bf662679d093)  # Kunal's M1 + namespace fixes
+        GIT_TAG 33408ed0733da56979ddf797473609d4c39ea1ea)  # Kunal's M1 + namespace fixes
 FetchContent_MakeAvailable(ibex)
 
 FetchContent_Declare(
