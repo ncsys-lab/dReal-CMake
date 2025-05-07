@@ -225,7 +225,7 @@ void SatSolver::MakeSatVar(const Variable& var) {
   // It's not in the maps, let's make one and add it.
   static int cadical_next_var = 1;
   const int sat_var{cadical_next_var++};
-  std::cout << "Assigning `" << var << "` to " << sat_var << std::endl;
+  // std::cout << "Assigning `" << var << "` to " << sat_var << std::endl;
   to_sat_var_.insert(var.get_id(), sat_var);
   to_sym_var_.insert(sat_var, var);
   DREAL_LOG_DEBUG("SatSolver::MakeSatVar({} ↦ {})", fmt::streamed(var), sat_var);
