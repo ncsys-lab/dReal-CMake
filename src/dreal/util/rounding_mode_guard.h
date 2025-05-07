@@ -16,7 +16,7 @@
 #pragma once
 
 #include <cfenv>
-#pragma STDC FENV_ACCESS ON
+// #pragma STDC FENV_ACCESS ON
 
 #include "dreal/util/assert.h"
 
@@ -27,8 +27,8 @@ namespace dreal {
 class RoundingModeGuard {
  public:
   /// Saves the current rounding-mode and switch to @p new_round.
-  explicit RoundingModeGuard(int new_round) : round_mode_{fegetround()} {
-    fesetround(new_round);
+  explicit RoundingModeGuard(int new_round) : round_mode_{/*fegetround()*/} {
+    // fesetround(new_round);
   }
 
   /// Deleted Copy-constructor.
@@ -44,7 +44,7 @@ class RoundingModeGuard {
   RoundingModeGuard& operator=(RoundingModeGuard&&) = delete;
 
   /// Destructor. Restore the saved rounding-mode.
-  ~RoundingModeGuard() { fesetround(round_mode_); }
+  ~RoundingModeGuard() { /*fesetround(round_mode_);*/ }
 
  private:
   /// Saved rounding-mode at the construction.
