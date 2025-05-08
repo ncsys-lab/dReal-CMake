@@ -74,10 +74,6 @@ namespace dreal
                     return;
                 }
 
-                if (it1 == iend) {
-                    DREAL_ASSERT(literals.size() == 1);
-                    return all_literals_match(s2);
-                }
                 auto it2 = it1;
                 ++it2;
                 stats.partial_matches++;
