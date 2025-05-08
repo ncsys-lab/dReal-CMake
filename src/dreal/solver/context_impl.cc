@@ -399,6 +399,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 #else
             static_assert(pattern_matching_mode != 0);
             sat_solver->AddLearnedClause(pn_, explanation, box);
+            sat_solver->AddLearnedClauseUnboxed(explanation);
 #endif
           }
           ////////////////////////////////////////////////////////////////////////////////
