@@ -25,7 +25,7 @@ namespace dreal
         if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
             std::vector<Formula> a;
             for (const Formula& f : conflicting_conjunction) a.emplace_back(!predicate_abstractor_.Convert(f));
-            theory_audit_literals(predicate_abstractor_, a, {});
+            theory_audit_literals("AddLearnedClauseUnboxed", predicate_abstractor_, a, {});
         }
     }
 
@@ -115,12 +115,12 @@ namespace dreal
         sat_log_literal0();
 
         if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
-            theory_audit_formula(!make_conjunction(conflicting_conjunction), unfitted_box);
+            theory_audit_formula("AddLearnedClause - Formula", !make_conjunction(conflicting_conjunction), unfitted_box);
             std::vector<Formula> a;
             for (const auto& lit : lhs_implies) a.emplace_back(lit);
             // ==>
             for (const Formula& f : conflicting_conjunction) a.emplace_back(!predicate_abstractor_.Convert(f));
-            theory_audit_literals(predicate_abstractor_, a, {});
+            theory_audit_literals("AddLearnedClause - Literals", predicate_abstractor_, a, {});
         }
     }
 
@@ -155,13 +155,14 @@ namespace dreal
         for (const auto& [conflict_clause, subs] : all_related_conflicts) {
             const auto conflict_box = substitutions_map::apply_substitution(base_box, subs, true);
 
-            if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
-                std::set conflict_clause_set(conflict_clause.begin(), conflict_clause.end());
-                theory_audit_formula(
-                    !make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(conflict_clause_set)),
-                    conflict_box
-                );
-            }
+        if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
+            std::set s(base_conflict.begin(), base_conflict.end());
+            theory_audit_formula(
+                "AddLearnedClausePattern",
+                !make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(s)),
+                base_box // conflict_box
+            );
+        }
 
             AddLearnedClause(pn, conflict_clause, conflict_box);
         }
@@ -285,8 +286,8 @@ namespace dreal
             sat_log_literal0();
 
             if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
-                theory_audit_literals(predicate_abstractor_, {!lb, !inv_lb}, {});
-                theory_audit_literals(predicate_abstractor_, {lb, inv_lb}, {});
+                theory_audit_literals("MakeSatIntervalVarWithClauses - lb neg", predicate_abstractor_, {!lb, !inv_lb}, {});
+                theory_audit_literals("MakeSatIntervalVarWithClauses - lb pos",predicate_abstractor_, {lb, inv_lb}, {});
             }
         }
 
@@ -310,8 +311,8 @@ namespace dreal
             sat_log_literal0();
 
             if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
-                theory_audit_literals(predicate_abstractor_, {!ub, !inv_ub}, {});
-                theory_audit_literals(predicate_abstractor_, {ub, inv_ub}, {});
+                theory_audit_literals("MakeSatIntervalVarWithClauses - ub neg", predicate_abstractor_, {!ub, !inv_ub}, {});
+                theory_audit_literals("MakeSatIntervalVarWithClauses - ub pos", predicate_abstractor_, {ub, inv_ub}, {});
             }
         }
 

@@ -17,10 +17,11 @@ namespace dreal
     void sat_log_literal0();
 
     void theory_audit_literals(
+        const std::string& label,
         const PredicateAbstractor& pa, /*copy*/ std::vector<Formula> lits,
         const std::optional<Box>& box
     );
-    void theory_audit_formula(const Formula& formula, const std::optional<Box>& box);
+    void theory_audit_formula(const std::string& label, const Formula& formula, const std::optional<Box>& box);
 }
 
 #endif //AUDITOR_H

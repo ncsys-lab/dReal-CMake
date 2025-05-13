@@ -50,7 +50,10 @@ namespace dreal
         literal_log_clause.clear();
     }
 
-    void theory_audit_literals(const PredicateAbstractor& pa, /*copy*/ std::vector<Formula> lits, const std::optional<Box>& box) {
+    void theory_audit_literals(
+        const std::string& label,
+        const PredicateAbstractor& pa, /*copy*/ std::vector<Formula> lits, const std::optional<Box>& box
+    ) {
         // the operands passed here are expensive to produce, so really shouldn't be called unnecessarily.
         DREAL_ASSERT(DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED);
 
@@ -69,10 +72,10 @@ namespace dreal
                 // else ...  the variable is probably, actually, a BOOL such as `DigitalPDController_0__omega_sensor_bit0__t0ad`
             }
         }
-        theory_audit_formula(make_disjunction(lits), box);
+        theory_audit_formula(label, make_disjunction(lits), box);
     }
 
-    void theory_audit_formula(const Formula& formula, const std::optional<Box>& box) {
+    void theory_audit_formula(const std::string& label, const Formula& formula, const std::optional<Box>& box) {
         // the operands passed here are expensive to produce, so really shouldn't be called unnecessarily.
         DREAL_ASSERT(DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED);
 
@@ -81,7 +84,7 @@ namespace dreal
         std::string lemma_comment;
         {
             std::ostringstream s;
-            s << ";\t∀ ";
+            s << ";\t" << label << "\t∀ ";
             for (const auto& v : vs) {
                 s << v;
                 if (box) s << "∈" << (*box)[v];
