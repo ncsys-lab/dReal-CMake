@@ -19,7 +19,13 @@ namespace dreal
     public:
         typedef struct
         {
-            unsigned misses;
+            struct
+            {
+                unsigned bc_type;
+                unsigned bc_box;
+                unsigned bc_bij;
+                unsigned bc_const;
+            } misses;
             unsigned partial_matches;
             unsigned matches;
         } matching_stats_t;
@@ -38,7 +44,7 @@ namespace dreal
         [[nodiscard]] std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, matching_stats_t>
         find_matches(
             const std::vector<Formula>& literals,
-            std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
+            const Box& b, std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
         ) const;
 
         [[nodiscard]] std::pair<std::vector<std::pair<Formula, substitutions_map>>, matching_stats_t> find_matches(
@@ -47,9 +53,9 @@ namespace dreal
         ) const;
 
         [[nodiscard]] std::pair<std::vector<std::pair<Formula, substitutions_map>>, matching_stats_t> find_matches(
-            const Formula& f
+            const Formula& f, const Box &box
         ) const {
-            substitutions_map s(f.GetFreeVariables().size());
+            substitutions_map s(box, f.GetFreeVariables().size());
             return find_matches(f, s);
         }
 
@@ -59,9 +65,9 @@ namespace dreal
         ) const;
 
         [[nodiscard]] std::pair<std::vector<std::pair<Expression, substitutions_map>>, matching_stats_t> find_matches(
-            const Expression& e
+            const Expression& e, const Box &b
         ) const {
-            substitutions_map s(e.GetVariables().size());
+            substitutions_map s(b, e.GetVariables().size());
             return find_matches(e, s);
         }
 
@@ -182,8 +188,8 @@ namespace dreal
         using f_partial_matches_vec = std::function<void(const FormNode& n, substitutions_map& s)>;
         using f_est_continuation_vec = std::function<void(const FormNode& n)>;
 
-        using e_misses_vec = std::function<void(const substitutions_map& s)>;
-        using f_misses_vec = std::function<void(const substitutions_map& s)>;
+        using e_misses_vec = std::function<void(const substitutions_map::substitution_status& s)>;
+        using f_misses_vec = std::function<void(const substitutions_map::substitution_status& s)>;
 
 #define PM_CONT_LAMBDA(n,s) [&](const auto &n, auto &s)
 #define EST_CONT_LAMBDA(n) [&](const auto &n)
@@ -381,12 +387,19 @@ namespace dreal
         );
     };
 
-    inline std::ostream& operator<<(std::ostream& os, const PatternMatchingTrie::matching_stats_t& stats) {
-        os << stats.misses << ',';
-        os << stats.partial_matches << ',';
-        os << stats.matches;
-        return os;
-    }
+    // inline std::ostream& operator<<(std::ostream& os, const PatternMatchingTrie::matching_stats_t& stats) {
+    //     os << "matching_stats_t {\n"
+    //        << "  misses {\n"
+    //        << "    bc_type: " << stats.misses.bc_type << ",\n"
+    //        << "    bc_box: " << stats.misses.bc_box << ",\n"
+    //        << "    bc_bij: " << stats.misses.bc_bij << ",\n"
+    //        << "    bc_const: " << stats.misses.bc_const << "\n"
+    //        << "  },\n"
+    //        << "  partial_matches: " << stats.partial_matches << ",\n"
+    //        << "  matches: " << stats.matches << "\n"
+    //        << "}";
+    //     return os;
+    // }
 } // namespace dreal
 
 

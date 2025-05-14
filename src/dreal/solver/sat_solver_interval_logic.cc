@@ -29,17 +29,17 @@ namespace dreal
         }
     }
 
-    void FlattenIntervalClause(const Formula& intv, const std::function<void(const Formula&)>& f) {
-        if (is_true(intv)) { /* no-op */ }
+    /*void FlattenIntervalClause(const Formula& intv, const std::function<void(const Formula&)>& f) {
+        if (is_true(intv)) { /* no-op #1# }
         else if (is_conjunction(intv)) {
             const auto ops = get_operands(intv);
             DREAL_ASSERT(ops.size() == 2);
             for (const auto& op : ops) f(op);
         }
         else f(intv);
-    }
+    }*/
 
-    void SatSolver::AddLearnedClause(
+    /*void SatSolver::AddLearnedClause(
         PredicateNormalizer& pn,
         const std::vector<Formula>& conflicting_conjunction, const Box& unfitted_box
     ) {
@@ -92,7 +92,7 @@ namespace dreal
                 // e.g. `((5 + 6 * x + 2 * pow(x, 2)) < 0)` could end up here
             }
             else
-                DREAL_UNREACHABLE();*/
+                DREAL_UNREACHABLE();#1#
         }
 
         // a & b & c & ... ==> ~(x & y & z & ...)
@@ -122,9 +122,9 @@ namespace dreal
             for (const Formula& f : conflicting_conjunction) a.emplace_back(!predicate_abstractor_.Convert(f));
             theory_audit_literals("AddLearnedClause - Literals", predicate_abstractor_, a, {});
         }
-    }
+    }*/
 
-    void SatSolver::AddBox(PredicateNormalizer& pn, const Box& base_box) {
+    /*void SatSolver::AddBox(PredicateNormalizer& pn, const Box& base_box) {
         sat_log_label_clause("SatSolver::AddBox");
         for (const auto& v : base_box.variables()) {
             const auto condition = MakeSatIntervalVarWithClauses(pn, v, base_box[v]);
@@ -134,7 +134,7 @@ namespace dreal
                 sat_log_literal0();
             });
         }
-    }
+    }*/
 
     PatternMatchingTrie::matching_stats_t SatSolver::AddLearnedClausePattern(
         PredicateNormalizer& pn,
@@ -146,14 +146,13 @@ namespace dreal
         const auto [
             all_related_conflicts,
             match_statistics
-        ] = pn.FindSimilar(base_conflict, timeout);
+        ] = pn.FindSimilar(base_conflict, base_box, timeout);
         if (all_related_conflicts.empty()) {
             DREAL_LOG_ERROR("Clause did not match with itself... Adding regularly.");
             return match_statistics;
         }
-
-        for (const auto& [conflict_clause, subs] : all_related_conflicts) {
-            const auto conflict_box = substitutions_map::apply_substitution(base_box, subs, true);
+        if (match_statistics.misses.bc_box)
+            DREAL_LOG_INFO("Rejected {} matches due to box-missmatch.", match_statistics.misses.bc_box);
 
         if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
             std::set s(base_conflict.begin(), base_conflict.end());
@@ -164,7 +163,10 @@ namespace dreal
             );
         }
 
-            AddLearnedClause(pn, conflict_clause, conflict_box);
+        for (const auto& [conflict_clause, subs] : all_related_conflicts) {
+            // const auto conflict_box = substitutions_map::apply_substitution(base_box, subs, true);
+            // AddLearnedClause(pn, conflict_clause, conflict_box);
+            AddLearnedClauseUnboxed(conflict_clause);
         }
         return match_statistics;
     }
@@ -253,7 +255,7 @@ namespace dreal
         return {lb_pred, false};
     }
 
-    Formula SatSolver::MakeSatIntervalVarWithClauses(PredicateNormalizer& pn, const Variable& var,
+    /*Formula SatSolver::MakeSatIntervalVarWithClauses(PredicateNormalizer& pn, const Variable& var,
                                                      const Box::Interval& intv) {
         DREAL_LOG_DEBUG("SatSolver::MakeSatIntervalVarWithClauses({} ∈ {})",
                         fmt::streamed(var), fmt::streamed(intv));
@@ -317,7 +319,7 @@ namespace dreal
         }
 
         return lb && ub;
-    }
+    }*/
 
     bool SatSolver::learning(const int size) {
         buffer_i = 0;

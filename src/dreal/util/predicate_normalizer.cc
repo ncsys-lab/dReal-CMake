@@ -22,7 +22,7 @@ namespace dreal
 {
     std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, PatternMatchingTrie::matching_stats_t>
     PredicateNormalizer::FindSimilar(
-        const std::vector<Formula>& ordered_clause,
+        const std::vector<Formula>& ordered_clause, const Box &box,
         const std::chrono::duration<uint64_t, std::micro> timeout
         ) const {
         if (DREAL_LOG_DEBUG_ENABLED) {
@@ -39,7 +39,7 @@ namespace dreal
             // Learned clauses MUST be a collection of normalized literals.
             DREAL_ASSERT(is_equal_to(atom) || is_less_than(atom) || is_less_than_or_equal_to(atom) || is_forall(atom));
         }
-        return trie.find_matches(ordered_clause, timeout);
+        return trie.find_matches(ordered_clause, box, timeout);
     }
 
     // ended up being completely friggen useless lol :(

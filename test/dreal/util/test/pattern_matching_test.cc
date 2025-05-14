@@ -67,7 +67,7 @@ namespace dreal
             for (const auto& miss : misses1) trie.insert(miss);
             for (const auto& miss : misses2) trie.insert(miss);
             std::set<T1> found;
-            for (const auto& [form, subs] : trie.find_matches(pattern).first) {
+            for (const auto& [form, subs] : trie.find_matches(pattern, Box{}).first) {
                 // check substitutions are correct and injective:
                 EXPECT_TRUE(substitutions_map::apply_substitution(form, subs, false).EqualTo(pattern));
                 EXPECT_TRUE(substitutions_map::apply_substitution(pattern, subs, true).EqualTo(form));
@@ -105,7 +105,7 @@ namespace dreal
             };
             for (const auto& lit : literals) trie.insert(lit);
             const auto [related_clauses, stats] = trie.find_matches(
-                {y1 == sin(x1), y1 == atan(x1)}
+                {y1 == sin(x1), y1 == atan(x1)}, Box{}
             );
             EXPECT_EQ(stats.misses, 4);
             EXPECT_EQ(stats.matches, 2);
@@ -545,12 +545,12 @@ namespace dreal
                     pattern.Substitute({{x1, p1}, {x2, p2}}),
                 };
                 for (const auto& match : matches) {
-                    const auto found = trie.find_matches(match).first;
+                    const auto found = trie.find_matches(match, Box{}).first;
                     EXPECT_EQ(found.size(), 1);
                     std::cout << pattern << " MATCHES " << match << std::endl;
                 }
                 for (const auto& miss : misses) {
-                    const auto found = trie.find_matches(miss).first;
+                    const auto found = trie.find_matches(miss, Box{}).first;
                     EXPECT_EQ(found.size(), 0);
                     std::cout << pattern << " MISSES " << miss << std::endl;
                 }

@@ -48,21 +48,22 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
             substitutions.push();
 
             const auto& matched_e = get_variable(*node.leaf);
-            if (!substitutions.attempt_substitution(matched_e, e))
+            if (
+                substitutions_map::substitution_status reason;
+                (reason = substitutions.attempt_substitution(matched_e, e))
+                != substitutions_map::SUCCESS
+            )
                 // type check failed
                 // or match already substituted for something else, stop.
-                misses(substitutions);
+                misses(reason);
 
             else if (!node.terminal_expression.has_value())
                 // partial match, keep going!
                 partial_matches(node, substitutions);
 
-            else if (substitutions_map::verify_substitutions(substitutions))
+            else
                 // terminal match! BINGO!
                 matches(*node.terminal_expression, substitutions);
-
-            else
-                misses(substitutions);
 
             substitutions.pop();
         }
@@ -88,13 +89,11 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
         for (auto& node : parent.c(ExpressionKind::Constant)) {
             const auto& matched_e = get_constant_value(*node.leaf);
             if (e != matched_e)
-                misses(substitutions);
+                misses(substitutions_map::CONST_MISS);
             else if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
-            else if (substitutions_map::verify_substitutions(substitutions))
-                matches(*node.terminal_expression, substitutions);
             else
-                misses(substitutions);
+                matches(*node.terminal_expression, substitutions);
         }
     }
 
@@ -118,13 +117,11 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
         for (auto& node : parent.c(ExpressionKind::RealConstant)) {
             const auto& matched_e = to_real_constant(*node.leaf);
             if (!e->EqualTo(*matched_e) /* confirmed non-recursive, simple one-liner */)
-                misses(substitutions);
+                misses(substitutions_map::CONST_MISS);
             else if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
-            else if (substitutions_map::verify_substitutions(substitutions))
-                matches(*node.terminal_expression, substitutions);
             else
-                misses(substitutions);
+                matches(*node.terminal_expression, substitutions);
         }
     }
 
@@ -558,13 +555,11 @@ PatternMatchingTrie::ExprNode& PatternMatchingTrie::name (const Expression &e, E
         for (auto& node : parent.c(ExpressionKind::UninterpretedFunction)) {
             const auto& matched_e = to_uninterpreted_function(*node.leaf);
             if (!e->EqualTo(*matched_e) /*confirmed non-recursive, simple one-liner*/)
-                misses(substitutions);
+                misses(substitutions_map::CONST_MISS);
             else if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
-            else if (substitutions_map::verify_substitutions(substitutions))
-                matches(*node.terminal_expression, substitutions);
             else
-                misses(substitutions);
+                matches(*node.terminal_expression, substitutions);
         }
     }
 #undef VISIT_DECL

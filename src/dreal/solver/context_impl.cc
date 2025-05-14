@@ -117,6 +117,7 @@ void Context::Impl::Assert(const Formula& f) {
     for (const auto& operand : get_operands(f)) Assert(operand);
     return;
   }
+  // if (true) {
   if (!FilterAssertion(f, &box()).filtered) {
     DREAL_LOG_DEBUG("ContextImpl::Assert: {} is added.", f);
     IfThenElseEliminator ite_eliminator;
@@ -203,10 +204,10 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 #endif
   ////////////////////////////////////////////////////////////////////////////////
 
-#ifndef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
-  static_assert(pattern_matching_mode != 0);
-  sat_solver->AddBox(pn_, box);
-#endif
+// #ifndef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
+//   static_assert(pattern_matching_mode != 0);
+//   sat_solver->AddBox(pn_, box);
+// #endif
 
   ////////////////////////////////////////////////////////////////////////////////
   for (const auto & variable : box.variables()) {
@@ -339,7 +340,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           if (true
             // && explanation.size() < 384 /* stack overflows around size=960 on x86 */
             // && tscs_elapsed > std::chrono::milliseconds(3)
-            && explanation.size() < 32 /* stack overflows around size=960 on x86 */
+            && explanation.size() < DREAL_EXPERIMENTAL_PATTERN_MATCH_SIZE_THRESH /* stack overflows around size=960 on x86 */
             // && tscs_elapsed > std::chrono::milliseconds(3)
             ) {
 #endif
@@ -393,14 +394,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             std::cerr << ".\tAdding 1 size " << explanation.size() << " directly.\t";
             std::cerr << "TSCS " << tscs_elapsed.count() << " ms.\t";
             std::cerr << "Fully constrained = " << is_full_constrained << std::endl;
-#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
-            static_assert(pattern_matching_mode == 0);
             sat_solver->AddLearnedClauseUnboxed(explanation);
-#else
-            static_assert(pattern_matching_mode != 0);
-            // sat_solver->AddLearnedClause(pn_, explanation, box);
-            sat_solver->AddLearnedClauseUnboxed(explanation);
-#endif
           }
           ////////////////////////////////////////////////////////////////////////////////
 

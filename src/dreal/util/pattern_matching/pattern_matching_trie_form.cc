@@ -43,10 +43,8 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         for (auto& node : parent.c(FormulaKind::False)) {
             if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
-            else if (substitutions_map::verify_substitutions(substitutions))
-                matches(*node.terminal_expression, substitutions);
             else
-                misses(substitutions);
+                matches(*node.terminal_expression, substitutions);
         }
     }
 
@@ -69,10 +67,8 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         for (auto& node : parent.c(FormulaKind::True)) {
             if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
-            else if (substitutions_map::verify_substitutions(substitutions))
-                matches(*node.terminal_expression, substitutions);
             else
-                misses(substitutions);
+                matches(*node.terminal_expression, substitutions);
         }
     }
 
@@ -99,21 +95,22 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
             substitutions.push();
 
             const auto& matched_f = get_variable(*node.leaf);
-            if (!substitutions.attempt_substitution(matched_f, f))
+            if (
+                substitutions_map::substitution_status reason;
+                (reason = substitutions.attempt_substitution(matched_f, f))
+                != substitutions_map::SUCCESS
+            )
                 // type check failed
                 // or match already substituted for something else, stop.
-                misses(substitutions);
+                misses(reason);
 
             else if (!node.terminal_expression.has_value())
                 // partial match, keep going!
                 partial_matches(node, substitutions);
 
-            else if (substitutions_map::verify_substitutions(substitutions))
+            else
                 // terminal match! BINGO!
                 matches(*node.terminal_expression, substitutions);
-
-            else
-                misses(substitutions);
 
             substitutions.pop();
         }
@@ -165,10 +162,8 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
                 recMatchExpr(get_rhs_expression(_f), n2, s2, e_matches, PM_CONT_LAMBDA(n3, s3) {
                     if (!n3.switch_kind->terminal_expression.has_value())
                         partial_matches(*n3.switch_kind, s3);
-                    else if (substitutions_map::verify_substitutions(s3))
-                        matches(*n3.switch_kind->terminal_expression, s3);
                     else
-                        misses(s3);
+                        matches(*n3.switch_kind->terminal_expression, s3);
                 }, misses);
             }, misses);
         }
@@ -343,13 +338,11 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         for (auto& node : parent.c(FormulaKind::Forall)) {
             const auto& matched_f = to_forall(*node.leaf);
             if (!f->EqualTo(*matched_f))
-                misses(substitutions);
+                misses(substitutions_map::CONST_MISS);
             else if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
-            else if (substitutions_map::verify_substitutions(substitutions))
-                matches(*node.terminal_expression, substitutions);
             else
-                misses(substitutions);
+                matches(*node.terminal_expression, substitutions);
         }
     }
 #undef VISIT_DECL

@@ -71,7 +71,7 @@ class SatSolver : public CaDiCaL::Learner {
   /// the solver.
   void AddLearnedClauseUnboxed(const std::vector<Formula>& conflicting_conjunction);
 
-  void AddLearnedClause(PredicateNormalizer& pn, const std::vector<Formula>& conflicting_conjunction, const Box& box);
+  // void AddLearnedClause(PredicateNormalizer& pn, const std::vector<Formula>& conflicting_conjunction, const Box& box);
 
   PatternMatchingTrie::matching_stats_t AddLearnedClausePattern(
       PredicateNormalizer& pn,
@@ -79,9 +79,9 @@ class SatSolver : public CaDiCaL::Learner {
       const Box& base_box, std::chrono::duration<uint64_t, std::micro> timeout);
   std::pair<Formula, bool> MakeSatUbVar(PredicateNormalizer& pn, const Variable& var, double ub, bool inclusive);
   std::pair<Formula, bool> MakeSatLbVar(PredicateNormalizer& pn, const Variable& var, double lb, bool inclusive);
-  void AddBox(PredicateNormalizer& pn, const Box& base_box);
+  // void AddBox(PredicateNormalizer& pn, const Box& base_box);
 
-  Formula MakeSatIntervalVarWithClauses(PredicateNormalizer& pn, const Variable& var, const Box::Interval& intv);
+  // Formula MakeSatIntervalVarWithClauses(PredicateNormalizer& pn, const Variable& var, const Box::Interval& intv);
 
   /// Checks the satisfiability of the current configuration.
   ///

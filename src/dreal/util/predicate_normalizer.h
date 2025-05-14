@@ -35,7 +35,7 @@ namespace dreal
         >
         FindSimilar(
             const std::vector<Formula>& ordered_clause,
-            std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
+            const Box& b, std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
         ) const;
 
         // useless heuristic

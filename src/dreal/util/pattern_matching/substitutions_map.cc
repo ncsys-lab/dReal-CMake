@@ -5,34 +5,36 @@
 #include "substitutions_map.h"
 
 #include <unordered_set>
+#include <utility>
 #include <dreal/util/assert.h>
 #include <dreal/util/logging.h>
 
 namespace dreal
 {
-    substitutions_map::substitutions_map() {
+    substitutions_map::substitutions_map(const Box& b, const size_t reserved_size): box(b) {
         fwd.max_load_factor(0.25);
         bwd.max_load_factor(0.25);
-    }
-
-    substitutions_map::substitutions_map(const size_t reserved_size) : substitutions_map() {
         reserve(reserved_size);
     }
 
+    // substitutions_map::substitutions_map(const size_t reserved_size) : substitutions_map() {
+    //     reserve(reserved_size);
+    // }
+
     // "forward" takes the matched and maps it to original
     // "backward" takes original and maps it to matched
-    Box substitutions_map::apply_substitution(
-        const Box& b, const substitutions_map& subs, bool backward
-    ) {
-        Box new_b;
-        const auto& map = backward ? subs.bwd : subs.fwd;
-        for (const auto& [a,aP] : map) {
-            // if (new_b.has_variable(aP)) continue;
-            const auto& ba = b[a];
-            new_b.Add(aP, ba.lb(), ba.ub());
-        }
-        return new_b;
-    }
+    // Box substitutions_map::apply_substitution(
+    //     const Box& b, const substitutions_map& subs, bool backward
+    // ) {
+    //     Box new_b;
+    //     const auto& map = backward ? subs.bwd : subs.fwd;
+    //     for (const auto& [a,aP] : map) {
+    //         // if (new_b.has_variable(aP)) continue;
+    //         const auto& ba = b[a];
+    //         new_b.Add(aP, ba.lb(), ba.ub());
+    //     }
+    //     return new_b;
+    // }
 
     void substitutions_map::push() {
         insertion_stack.emplace_back();
@@ -48,8 +50,14 @@ namespace dreal
         insertion_stack.pop_back();
     }
 
-    bool substitutions_map::attempt_substitution(const Variable& a, const Variable& aP) {
-        if (a.get_type() != aP.get_type()) return false;
+    substitutions_map::substitution_status substitutions_map::attempt_substitution(
+        const Variable& a, const Variable& aP
+    ) {
+        if (a.get_type() != aP.get_type()) return TYPE_MISS;
+        if (box[a] != box[aP]) {
+            // todo: subset / superset ?
+            return BOX_MISS;
+        }
 
         const auto it_a = fwd.find(a);
         const auto it_aP = bwd.find(aP);
@@ -60,7 +68,7 @@ namespace dreal
             fwd.try_emplace(a, aP);
             bwd.try_emplace(aP, a);
             insertion_stack.back().emplace_back(a, aP);
-            return true;
+            return SUCCESS;
         }
 
         if (
@@ -68,7 +76,7 @@ namespace dreal
             it_a->second.equal_to(aP) &&
             it_aP->second.equal_to(a)
         ) {
-            return true;
+            return SUCCESS;
         }
 
         DREAL_LOG_TRACE(
@@ -78,7 +86,7 @@ namespace dreal
             aP.get_name(),
             has_a ? it_a->second.get_name() : "unmapped"
         );
-        return false;
+        return BIJ_MISS;
     }
 
     // this is literally the hottest function in the entire code rn, when we pattern match aggressively. -KS
