@@ -26,6 +26,7 @@ namespace dreal
                 unsigned bc_bij;
                 unsigned bc_const;
             } misses;
+
             unsigned partial_matches;
             unsigned matches;
         } matching_stats_t;
@@ -53,7 +54,7 @@ namespace dreal
         ) const;
 
         [[nodiscard]] std::pair<std::vector<std::pair<Formula, substitutions_map>>, matching_stats_t> find_matches(
-            const Formula& f, const Box &box
+            const Formula& f, const Box& box
         ) const {
             substitutions_map s(box, f.GetFreeVariables().size());
             return find_matches(f, s);
@@ -65,7 +66,7 @@ namespace dreal
         ) const;
 
         [[nodiscard]] std::pair<std::vector<std::pair<Expression, substitutions_map>>, matching_stats_t> find_matches(
-            const Expression& e, const Box &b
+            const Expression& e, const Box& b
         ) const {
             substitutions_map s(b, e.GetVariables().size());
             return find_matches(e, s);
@@ -202,11 +203,9 @@ namespace dreal
     const e_misses_vec &misses \
 ) const
 #define ADD_DECL(name) ExprNode& name (const Expression &e, ExprNode &parent, const std::optional<Expression> &is_terminal)
-#define EST_DECL(name) void name (const Expression &e, const ExprNode &parent, uint64_t &branches, const e_est_continuation_vec& partial_matches) const;
 #define ALL_DECLS(name) \
         VISIT_DECL(name); \
-        ADD_DECL(name); \
-        EST_DECL(name);
+        ADD_DECL(name);
         ALL_DECLS(VisitVariable);
         ALL_DECLS(VisitConstant);
         ALL_DECLS(VisitRealConstant);
@@ -233,7 +232,6 @@ namespace dreal
         ALL_DECLS(VisitIfThenElse);
         ALL_DECLS(VisitUninterpretedFunction);
 #undef VISIT_DECL
-#undef EST_DECL
 #undef ADD_DECL
 #undef ALL_DECLS
 
@@ -245,11 +243,9 @@ namespace dreal
     const f_misses_vec& misses \
 ) const
 #define ADD_DECL(name) FormNode& name (const Formula &f, FormNode &parent, const std::optional<Formula> &is_terminal)
-#define EST_DECL(name) void name (const Formula &f, const FormNode &parent, uint64_t &branches, const f_est_continuation_vec& partial_matches) const;
 #define ALL_DECLS(name) \
         VISIT_DECL(name); \
-        ADD_DECL(name); \
-        EST_DECL(name);
+        ADD_DECL(name);
         ALL_DECLS(VisitFalse);
         ALL_DECLS(VisitTrue);
         ALL_DECLS(VisitVariable);
@@ -264,7 +260,6 @@ namespace dreal
         ALL_DECLS(VisitNegation);
         ALL_DECLS(VisitForall);
 #undef VISIT_DECL
-#undef EST_DECL
 #undef ADD_DECL
 #undef ALL_DECLS
 
@@ -303,16 +298,6 @@ namespace dreal
                                     const std::optional<Formula>& is_terminal);
         FormNode& NaryOpAddHelper(const Formula& f, const FormulaKind& k, FormNode& parent,
                                   const std::optional<Formula>& is_terminal);
-        void UnaryOpEstHelper(const Expression& f, const ExpressionKind& k, const ExprNode& parent,
-                              uint64_t& branches, const e_est_continuation_vec& partial_matches) const;
-        void UnaryOpEstHelper(const Formula& f, const FormulaKind& k, const FormNode& parent,
-                              uint64_t& branches, const f_est_continuation_vec& partial_matches) const;
-        void BinaryOpEstHelper(const Expression& f, const ExpressionKind& k, const ExprNode& parent,
-                               uint64_t& branches, const e_est_continuation_vec& partial_matches) const;
-        void BinaryOpEstHelper(const Formula& f, const FormulaKind& k, const FormNode& parent,
-                               uint64_t& branches, const f_est_continuation_vec& partial_matches) const;
-        void NaryOpEstHelper(const Formula& f, const FormulaKind& k, const FormNode& parent,
-                             uint64_t& branches, const f_est_continuation_vec& partial_matches) const;
 
         void recMatchExpr(
             const Expression& e, const ExprNode& parent, substitutions_map& substitutions,
@@ -327,14 +312,6 @@ namespace dreal
         ) {
             // std::cout << "recAddExpr: " << e << std::endl;
             return VisitExpression<ExprNode&>(this, e, parent, is_terminal);
-        }
-
-        void recEstExpr(
-            const Expression& e, const ExprNode& parent, uint64_t& branches,
-            const e_est_continuation_vec& partial_matches
-        ) const {
-            // std::cout << "recEstExpr: " << e << std::endl;
-            VisitExpression<void>(this, e, parent, branches, partial_matches);
         }
 
         void recMatchForm(
@@ -352,13 +329,6 @@ namespace dreal
             return VisitFormula<FormNode&>(this, f, parent, is_terminal);
         }
 
-        void recEstForm(
-            const Formula& f, const FormNode& parent, uint64_t& branches, const f_est_continuation_vec& partial_matches
-        ) const {
-            // std::cout << "recEstForm: " << f << std::endl;
-            VisitFormula<void>(this, f, parent, branches, partial_matches);
-        }
-
         friend void drake::symbolic::VisitExpression<void>(
             PatternMatchingTrie*, const Expression& e,
             const ExprNode& parent, substitutions_map& substitutions,
@@ -368,10 +338,6 @@ namespace dreal
             PatternMatchingTrie*, const Expression& e, ExprNode& parent,
             const std::optional<Expression>& is_terminal
         );
-        friend void drake::symbolic::VisitExpression<void>(
-            PatternMatchingTrie*, const Expression& e, const ExprNode& parent,
-            uint64_t& branches, const e_est_continuation_vec& partial_matches
-        );
         friend void drake::symbolic::VisitFormula<void>(
             PatternMatchingTrie*, const Formula& e,
             const FormNode& parent, substitutions_map& substitutions,
@@ -380,10 +346,6 @@ namespace dreal
         friend FormNode& drake::symbolic::VisitFormula<FormNode&>(
             PatternMatchingTrie*, const Formula& e, FormNode& parent,
             const std::optional<Expression>& is_terminal
-        );
-        friend void drake::symbolic::VisitFormula<void>(
-            PatternMatchingTrie*, const Formula& e, const FormNode& parent,
-            uint64_t& branches, const f_est_continuation_vec& partial_matches
         );
     };
 

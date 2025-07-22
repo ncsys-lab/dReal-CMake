@@ -107,7 +107,7 @@ namespace dreal
             const auto [related_clauses, stats] = trie.find_matches(
                 {y1 == sin(x1), y1 == atan(x1)}, Box{}
             );
-            EXPECT_EQ(stats.misses, 4);
+            EXPECT_EQ(stats.misses.bc_bij, 4);
             EXPECT_EQ(stats.matches, 2);
             EXPECT_EQ(related_clauses.size(), 2);
             // EXPECT_EQ(trie.estimate_branches(y1 == sin(x1)), 12);
