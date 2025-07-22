@@ -30,10 +30,11 @@ using std::runtime_error;
 using std::set;
 using std::string;
 
-FormulaCell::FormulaCell(const FormulaKind k, const size_t hash,
+FormulaCell::FormulaCell(const FormulaKind k, const size_t hash, const size_t alpha_hash,
                          const bool include_ite, Variables variables)
     : kind_{k},
       hash_{hash_combine(hash, static_cast<size_t>(kind_))},
+      alpha_hash_{hash_combine(alpha_hash, static_cast<size_t>(kind_))},
       include_ite_{include_ite},
       variables_{std::move(variables)} {}
 
@@ -47,6 +48,7 @@ RelationalFormulaCell::RelationalFormulaCell(const FormulaKind k,
                                              const Expression& lhs,
                                              const Expression& rhs)
     : FormulaCell{k, hash_combine(lhs.get_hash(), rhs),
+                  hash_combine(lhs.get_al_hash(), rhs.get_al_hash()),
                   lhs.include_ite() || rhs.include_ite(),
                   lhs.GetVariables() + rhs.GetVariables()},
       e_lhs_{lhs},
@@ -72,8 +74,15 @@ bool RelationalFormulaCell::Less(const FormulaCell& f) const {
   return e_rhs_.Less(rel_f.e_rhs_);
 }
 
+size_t alpha_hash_set(const set<Formula> &set) {
+  size_t seed{};
+  for (const auto& v : set)
+    seed = hash_combine(seed, v.get_al_hash());
+  return seed;
+}
+
 NaryFormulaCell::NaryFormulaCell(const FormulaKind k, set<Formula> formulas)
-    : FormulaCell{k, hash_value<set<Formula>>{}(formulas),
+    : FormulaCell{k, hash_value<set<Formula>>{}(formulas), alpha_hash_set(formulas),
                   any_of(formulas.begin(), formulas.end(),
                          [](const Formula& f) { return f.include_ite(); }),
                   ExtractFreeVariables(formulas)},
@@ -123,7 +132,7 @@ ostream& NaryFormulaCell::DisplayWithOp(ostream& os, const string& op) const {
 }
 
 FormulaTrue::FormulaTrue()
-    : FormulaCell{FormulaKind::True, hash<string>{}("True"), false,
+    : FormulaCell{FormulaKind::True, hash<string>{}("True"), hash<string>{}("True"), false,
                   Variables{}} {}
 
 bool FormulaTrue::EqualTo(const FormulaCell& f) const {
@@ -149,7 +158,7 @@ Formula FormulaTrue::Substitute(const ExpressionSubstitution&,
 ostream& FormulaTrue::Display(ostream& os) const { return os << "True"; }
 
 FormulaFalse::FormulaFalse()
-    : FormulaCell{FormulaKind::False, hash<string>{}("False"), false,
+    : FormulaCell{FormulaKind::False, hash<string>{}("False"), hash<string>{}("False"), false,
                   Variables{}} {}
 
 bool FormulaFalse::EqualTo(const FormulaCell& f) const {
@@ -175,7 +184,7 @@ Formula FormulaFalse::Substitute(const ExpressionSubstitution&,
 ostream& FormulaFalse::Display(ostream& os) const { return os << "False"; }
 
 FormulaVar::FormulaVar(const Variable& v)
-    : FormulaCell{FormulaKind::Var, hash_value<Variable>{}(v), false, {v}},
+    : FormulaCell{FormulaKind::Var, hash_value<Variable>{}(v), 41, false, {v}},
       var_{v} {
   // Dummy symbolic variable (ID = 0) should not be used in constructing
   // symbolic formulas.
@@ -500,7 +509,7 @@ ostream& FormulaOr::Display(ostream& os) const {
 }
 
 FormulaNot::FormulaNot(const Formula& f)
-    : FormulaCell{FormulaKind::Not, f.get_hash(), f.include_ite(),
+    : FormulaCell{FormulaKind::Not, f.get_hash(), f.get_al_hash(), f.include_ite(),
                   f.GetFreeVariables()},
       f_{f} {}
 
@@ -537,7 +546,7 @@ ostream& FormulaNot::Display(ostream& os) const {
 }
 
 FormulaForall::FormulaForall(const Variables& vars, Formula f)
-    : FormulaCell{FormulaKind::Forall, hash_combine(vars.get_hash(), f),
+    : FormulaCell{FormulaKind::Forall, hash_combine(vars.get_hash(), f), hash_combine(vars.get_hash(), f),
                   f.include_ite(), f.GetFreeVariables() - vars},
       vars_{vars},
       f_{std::move(f)} {}

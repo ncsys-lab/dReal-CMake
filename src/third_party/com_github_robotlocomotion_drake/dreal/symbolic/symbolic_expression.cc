@@ -160,6 +160,10 @@ size_t Expression::get_hash() const {
   assert(ptr_ != nullptr);
   return ptr_->get_hash();
 }
+size_t Expression::get_al_hash() const {
+  assert(ptr_ != nullptr);
+  return ptr_->get_al_hash();
+}
 
 Expression Expression::Zero() {
   static const Expression kZero{new ExpressionConstant{0.0}};

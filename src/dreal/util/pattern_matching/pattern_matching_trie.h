@@ -118,25 +118,39 @@ namespace dreal
                 return *switch_kind;
             }
 
-            [[nodiscard]] const std::vector<TrieNode>& c(const TKind& k) const {
-                const auto it = children.find(k);
-                if (it != children.end()) return it->second;
+            [[nodiscard]] const std::vector<TrieNode>& c(const TKind& k, const size_t alpha_hash) const {
+                const auto it1 = children.find(k);
+                if (it1 != children.end()) {
+                    const auto it2 = it1->second.find(alpha_hash);
+                    if (it2 != it1->second.end()) {
+                        return it2->second;
+                    }
+                }
                 const static std::vector<TrieNode> t_empty;
                 return t_empty;
             }
 
-            [[nodiscard]] std::vector<TrieNode>& c(const TKind& k) {
-                return children[k];
+
+            [[nodiscard]] std::vector<TrieNode>& c(const TKind& k, const size_t alpha_hash) {
+                return children[k][alpha_hash];
             }
 
-            [[nodiscard]] const TrieNode& c_leafless(const TKind& k) const {
-                const auto& vec = c(k);
+            [[nodiscard]] const std::vector<TrieNode>& c_like(const This& t) const {
+                return c(t.get_kind(), t.get_al_hash());
+            }
+
+            [[nodiscard]] std::vector<TrieNode>& c_like(const This& t) {
+                return c(t.get_kind(), t.get_al_hash());
+            }
+
+            [[nodiscard]] const TrieNode& c_leafless(const TKind& k, const size_t alpha_hash) const {
+                const auto& vec = c(k, alpha_hash);
                 DREAL_ASSERT(vec.size() == 1);
                 return vec[0];
             }
 
-            [[nodiscard]] TrieNode& c_leafless(const TKind& k) {
-                auto& vec = c(k);
+            [[nodiscard]] TrieNode& c_leafless(const TKind& k, const size_t alpha_hash) {
+                auto& vec = c(k, alpha_hash);
                 if (vec.empty()) vec.emplace_back();
                 DREAL_ASSERT(vec.size() == 1);
                 return vec[0];
@@ -160,7 +174,7 @@ namespace dreal
             const uint64_t id;
 
         private:
-            std::unordered_map<TKind, std::vector<TrieNode>> children;
+            std::unordered_map<TKind, std::unordered_map<size_t, std::vector<TrieNode>>> children;
 
             // template <typename Key>
             // std::unordered_map<Key, TrieNode>& unique_children(const TKind& kind) const {

@@ -75,6 +75,11 @@ size_t Formula::get_hash() const {
   return ptr_->get_hash();
 }
 
+size_t Formula::get_al_hash() const {
+  assert(ptr_ != nullptr);
+  return ptr_->get_al_hash();
+}
+
 const Variables& Formula::GetFreeVariables() const {
   assert(ptr_ != nullptr);
   return ptr_->GetFreeVariables();

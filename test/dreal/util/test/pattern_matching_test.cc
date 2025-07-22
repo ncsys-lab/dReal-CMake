@@ -87,10 +87,12 @@ namespace dreal
             for (const auto& match : matches) {
                 EXPECT_EQ(found.count(match), 1);
                 std::cout << pattern << " MATCHES " << match << std::endl;
+                EXPECT_EQ(match.get_al_hash(), pattern.get_al_hash());
             }
             for (const auto& miss : misses1) {
                 EXPECT_EQ(found.count(miss), 0);
                 std::cout << pattern << " MISSES " << miss << std::endl;
+                // EXPECT_NE(miss.get_al_hash(), pattern.get_al_hash());
             }
         }
 
@@ -107,7 +109,7 @@ namespace dreal
             const auto [related_clauses, stats] = trie.find_matches(
                 {y1 == sin(x1), y1 == atan(x1)}, Box{}
             );
-            EXPECT_EQ(stats.misses.bc_bij, 4);
+            EXPECT_EQ(stats.misses.bc_bij, 2);
             EXPECT_EQ(stats.matches, 2);
             EXPECT_EQ(related_clauses.size(), 2);
             // EXPECT_EQ(trie.estimate_branches(y1 == sin(x1)), 12);

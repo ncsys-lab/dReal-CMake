@@ -115,6 +115,7 @@ class Formula {
 
   FormulaKind get_kind() const;
   size_t get_hash() const;
+  size_t get_al_hash() const;
 
   /** Gets free variables (unquantified variables).
    */

@@ -234,11 +234,12 @@ Expression ExpandPow(const Expression& base, const Expression& exponent) {
 }
 }  // anonymous namespace
 
-ExpressionCell::ExpressionCell(const ExpressionKind k, const size_t hash,
+ExpressionCell::ExpressionCell(const ExpressionKind k, const size_t hash, const size_t alpha_hash,
                                const bool is_poly, const bool include_ite,
                                Variables variables)
     : kind_{k},
       hash_{hash_combine(static_cast<size_t>(kind_), hash)},
+      alpha_hash_{hash_combine(static_cast<size_t>(kind_), alpha_hash)},
       is_polynomial_{is_poly},
       include_ite_{include_ite},
       variables_{std::move(variables)} {}
@@ -250,7 +251,7 @@ const Variables& ExpressionCell::GetVariables() const { return variables_; }
 UnaryExpressionCell::UnaryExpressionCell(const ExpressionKind k,
                                          const Expression& e,
                                          const bool is_poly)
-    : ExpressionCell{k, e.get_hash(), is_poly, e.include_ite(),
+    : ExpressionCell{k, e.get_hash(), e.get_al_hash(), is_poly, e.include_ite(),
                      e.GetVariables()},
       e_{e} {}
 
@@ -277,7 +278,10 @@ BinaryExpressionCell::BinaryExpressionCell(const ExpressionKind k,
                                            const Expression& e1,
                                            const Expression& e2,
                                            const bool is_poly)
-    : ExpressionCell{k, hash_combine(e1.get_hash(), e2), is_poly,
+    : ExpressionCell{k,
+                     hash_combine(e1.get_hash(), e2.get_hash()),
+                     hash_combine(e1.get_al_hash(), e2.get_al_hash()),
+                     is_poly,
                      e1.include_ite() || e2.include_ite(),
                      e1.GetVariables() + e2.GetVariables()},
       e1_{e1},
@@ -313,6 +317,7 @@ double BinaryExpressionCell::Evaluate(const Environment& env) const {
 ExpressionVar::ExpressionVar(const Variable& v)
     : ExpressionCell{ExpressionKind::Var,
                      hash_value<Variable>{}(v),
+                     41,
                      true,
                      false,
                      {v}},
@@ -382,7 +387,7 @@ Expression ExpressionVar::Differentiate(const Variable& x) const {
 ostream& ExpressionVar::Display(ostream& os) const { return os << var_; }
 
 ExpressionConstant::ExpressionConstant(const double v)
-    : ExpressionCell{ExpressionKind::Constant, hash<double>{}(v), true, false,
+    : ExpressionCell{ExpressionKind::Constant, hash<double>{}(v), hash<double>{}(v), true, false,
                      Variables{}},
       v_{v} {
   assert(!std::isnan(v));
@@ -425,7 +430,7 @@ ostream& ExpressionConstant::Display(ostream& os) const {
 
 ExpressionRealConstant::ExpressionRealConstant(const double lb, const double ub,
                                                bool use_lb_as_representative)
-    : ExpressionCell{ExpressionKind::RealConstant, hash<double>{}(lb), true,
+    : ExpressionCell{ExpressionKind::RealConstant, hash<double>{}(lb), hash<double>{}(lb), true,
                      false, Variables{}},
       lb_{lb},
       ub_{ub},
@@ -474,7 +479,7 @@ ostream& ExpressionRealConstant::Display(ostream& os) const {
 }
 
 ExpressionNaN::ExpressionNaN()
-    : ExpressionCell{ExpressionKind::NaN, 41, false, false, Variables{}} {
+    : ExpressionCell{ExpressionKind::NaN, 41, 41, false, false, Variables{}} {
   // ExpressionCell constructor calls hash_combine(ExpressionKind::NaN, 41) to
   // compute the hash of ExpressionNaN. Here 41 does not have any special
   // meaning.
@@ -511,10 +516,18 @@ Expression ExpressionNaN::Differentiate(const Variable&) const {
 
 ostream& ExpressionNaN::Display(ostream& os) const { return os << "NaN"; }
 
+size_t alpha_hash_map(const map<Expression, double> &map) {
+  size_t seed{};
+  for (const auto& [k,v] : map)
+    seed = hash_combine(seed, k.get_al_hash(), v);
+  return seed;
+}
+
 ExpressionAdd::ExpressionAdd(const double constant,
                              map<Expression, double> expr_to_coeff_map)
     : ExpressionCell{ExpressionKind::Add,
                      hash_combine(hash<double>{}(constant), expr_to_coeff_map),
+                     hash_combine(hash<double>{}(constant), alpha_hash_map(expr_to_coeff_map)),
                      determine_polynomial(expr_to_coeff_map),
                      determine_include_ite(expr_to_coeff_map),
                      ExtractVariables(expr_to_coeff_map)},
@@ -769,11 +782,18 @@ ExpressionAddFactory& ExpressionAddFactory::AddMap(
   return *this;
 }
 
+size_t alpha_hash_map(const map<Expression, Expression> &map) {
+  size_t seed{};
+  for (const auto& [k,v] : map)
+    seed = hash_combine(seed, k.get_al_hash(), v.get_al_hash());
+  return seed;
+}
+
 ExpressionMul::ExpressionMul(const double constant,
                              map<Expression, Expression> base_to_exponent_map)
     : ExpressionCell{ExpressionKind::Mul,
-                     hash_combine(hash<double>{}(constant),
-                                  base_to_exponent_map),
+                     hash_combine(hash<double>{}(constant), base_to_exponent_map),
+                     hash_combine(hash<double>{}(constant), alpha_hash_map(base_to_exponent_map)),
                      determine_polynomial(base_to_exponent_map),
                      determine_include_ite(base_to_exponent_map),
                      ExtractVariables(base_to_exponent_map)},
@@ -1998,8 +2018,8 @@ ExpressionIfThenElse::ExpressionIfThenElse(const Formula& f_cond,
                                            const Expression& e_then,
                                            const Expression& e_else)
     : ExpressionCell{ExpressionKind::IfThenElse,
-                     hash_combine(hash_value<Formula>{}(f_cond), e_then,
-                                  e_else),
+                     hash_combine(hash_value<Formula>{}(f_cond), e_then, e_else),
+                     hash_combine(f_cond.get_al_hash(), e_then.get_al_hash(), e_else.get_al_hash()),
                      false, true, ExtractVariables(f_cond, e_then, e_else)},
       f_cond_{f_cond},
       e_then_{e_then},
@@ -2090,6 +2110,7 @@ ostream& ExpressionIfThenElse::Display(ostream& os) const {
 ExpressionUninterpretedFunction::ExpressionUninterpretedFunction(
     const string& name, const Variables& vars)
     : ExpressionCell{ExpressionKind::UninterpretedFunction,
+                     hash_combine(hash_value<string>{}(name), vars),
                      hash_combine(hash_value<string>{}(name), vars), false,
                      false, vars},
       name_{name},
