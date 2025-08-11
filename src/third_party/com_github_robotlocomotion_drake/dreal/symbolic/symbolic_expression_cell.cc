@@ -239,7 +239,7 @@ ExpressionCell::ExpressionCell(const ExpressionKind k, const size_t hash, const 
                                Variables variables)
     : kind_{k},
       hash_{hash_combine(static_cast<size_t>(kind_), hash)},
-      alpha_hash_{hash_combine(static_cast<size_t>(kind_), alpha_hash)},
+      alpha_hash_{hash_combine(static_cast<size_t>(kind_), alpha_hash, variables.size())},
       is_polynomial_{is_poly},
       include_ite_{include_ite},
       variables_{std::move(variables)} {}

@@ -34,7 +34,7 @@ FormulaCell::FormulaCell(const FormulaKind k, const size_t hash, const size_t al
                          const bool include_ite, Variables variables)
     : kind_{k},
       hash_{hash_combine(hash, static_cast<size_t>(kind_))},
-      alpha_hash_{hash_combine(alpha_hash, static_cast<size_t>(kind_))},
+      alpha_hash_{hash_combine(alpha_hash, static_cast<size_t>(kind_), variables.size())},
       include_ite_{include_ite},
       variables_{std::move(variables)} {}
 
