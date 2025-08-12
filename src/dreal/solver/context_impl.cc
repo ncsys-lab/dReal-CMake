@@ -275,6 +275,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
         ////////////////////////////////////////////////////////////////////////////////
         kunal_paper_data.assertions_size = assertions.size();
 
+#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
         const auto ranking_start1 = std::chrono::high_resolution_clock::now();
         std::set assertions_set(assertions.begin(), assertions.end());
         kunal_paper_data.assertions_stats = pn_.heuristic.collect_statistics(make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(assertions_set)));
@@ -284,6 +285,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
         kunal_paper_data.biggest_assertion_stats = pn_.heuristic.collect_statistics(assertions[assertions.size()-1]);
         const auto ranking_end1 = std::chrono::high_resolution_clock::now();
         const std::chrono::duration<double, std::milli> ranking_elapsed1 = ranking_end1 - ranking_start1;
+#endif
 
         const auto tscs_start = std::chrono::high_resolution_clock::now();
         const auto tscs_result = theory_solver_.CheckSat(box, assertions);
@@ -325,6 +327,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           ////////////////////////////////////////////////////////////////////////////////
           kunal_paper_data.lemma_size = explanation.size();
 
+#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
           const auto ranking_start2 = std::chrono::high_resolution_clock::now();
           // kunal_paper_data.lemma_stats = pn_.heuristic.collect_statistics(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(explanation.first));
           // doing individual literals doesn't cost extra because they cache hit after running the entire conjunction
@@ -334,6 +337,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           const float predicted_is_worth_it = PatternMatchingHeuristic::calculate(kunal_paper_data);
           const auto ranking_end2 = std::chrono::high_resolution_clock::now();
           const std::chrono::duration<double, std::milli> ranking_elapsed2 = ranking_end2 - ranking_start2;
+#endif
 
 #ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_ALL
           static_assert(pattern_matching_mode == 2);
