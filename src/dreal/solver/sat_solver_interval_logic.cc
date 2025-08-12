@@ -148,7 +148,7 @@ namespace dreal
             match_statistics
         ] = pn.FindSimilar(base_conflict, base_box, timeout);
         if (all_related_conflicts.empty()) {
-            DREAL_LOG_ERROR("Clause did not match with itself... Adding regularly.");
+            DREAL_LOG_INFO("Clause did not match with itself... Adding regularly.");
             return match_statistics;
         }
         if (match_statistics.misses.bc_box)

@@ -146,7 +146,7 @@ optional<std::pair<SatSolver::Model, bool>> SatSolver::CheckSat(const bool reque
       num_literals_omitted = get_partial_model(model_is);
       // DREAL_LOG_INFO("SatSolver::CheckSat - Shrank model by {}%", num_literals_omitted * 100.0 / cadical->vars());
     }
-    std::cerr << "Omitted " << num_literals_omitted << " literals from model of size " << cadical->vars() << '.' << std::endl;
+    // std::cerr << "O " << num_literals_omitted << " l f m o s " << cadical->vars() << ".\n";
 
     if (DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) {
       if (/*model_is_fully_constrained*/ num_literals_omitted == 0) {

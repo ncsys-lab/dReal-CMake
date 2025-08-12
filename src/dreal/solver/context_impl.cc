@@ -376,10 +376,11 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             kunal_paper_data.pattern_match_ms = alcp_elapsed.count();
             kunal_paper_data.pattern_matching_stats = alcp_result;
 
-            std::cerr << "P(is W.I.)=" << std::setprecision(3) << predicted_is_worth_it;
-            std::cerr << ".\tMatched " << alcp_result.matches << " size " << explanation.size() << " in " << alcp_elapsed.count();
-            std::cerr << " ms.\tTSCS " << tscs_elapsed.count() << " ms.\t";
-            std::cerr << "Fully constrained = " << is_full_constrained << std::endl;
+            std::cerr << std::setprecision(3);
+            // std::cerr << "P(is W.I.)=" << predicted_is_worth_it;
+            std::cerr << ".\tM " << alcp_result.matches << " s " << explanation.size() << " i " << alcp_elapsed.count();
+            std::cerr << " m.\tT " << tscs_elapsed.count() << " m.\t";
+            std::cerr << "F c = " << is_full_constrained << '\n';
 
             // const double bb_lpms = 1 / tscs_elapsed.count();
             // const double pm_lpms = (std::max(alcp_result.matches, 1u) - 0.999) / alcp_elapsed.count();
@@ -390,10 +391,11 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             // const bool valid_under = (actual_log2_worth_it < 1) && (predicted_is_worth_it < 0.5);
             // const bool underestimated = (actual_log2_worth_it > 1) && (predicted_is_worth_it < 0.5);
           } else {
-            std::cerr << "P(is W.I.)=" << std::setprecision(3) << predicted_is_worth_it;
-            std::cerr << ".\tAdding 1 size " << explanation.size() << " directly.\t";
-            std::cerr << "TSCS " << tscs_elapsed.count() << " ms.\t";
-            std::cerr << "Fully constrained = " << is_full_constrained << std::endl;
+            // std::cerr << std::setprecision(3);
+            // std::cerr << "P(is W.I.)=" << predicted_is_worth_it;
+            // std::cerr << ".\tA 1 s " << explanation.size() << " d.\t";
+            // std::cerr << "T " << tscs_elapsed.count() << " m.\t";
+            // std::cerr << "F c = " << is_full_constrained << '\n';
             sat_solver->AddLearnedClauseUnboxed(explanation);
           }
           ////////////////////////////////////////////////////////////////////////////////
