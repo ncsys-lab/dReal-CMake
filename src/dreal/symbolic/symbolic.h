@@ -44,6 +44,7 @@
 #include "dreal/symbolic/symbolic_formula_visitor.h"
 #include "dreal/symbolic/symbolic_variable.h"
 #include "dreal/symbolic/symbolic_variables.h"
+#include "dreal/symbolic/symbolic_odes.h"
 
 namespace dreal {
 
