@@ -77,6 +77,8 @@
 %token TK_POP TK_PUSH TK_RESET TK_RESET_ASSERTIONS TK_SET_INFO
 %token TK_SET_LOGIC TK_SET_OPTION
 
+%token TK_DEFINEODE TK_DDT TK_LB TK_RB TK_COMMA TK_FORALLT TK_INTEGRAL
+
 %token TK_PLUS TK_MINUS TK_TIMES TK_DIV
 %token TK_EQ TK_LTE TK_GTE TK_LT TK_GT
 %token TK_EXP TK_LOG TK_ABS TK_SIN TK_COS TK_TAN TK_ASIN TK_ACOS TK_ATAN TK_ATAN2
@@ -104,6 +106,9 @@
 
 %type <Variable>              name_sort
 %type <std::vector<Variable>> name_sort_list
+
+%type <std::pair<Variable, Expression>>              ode
+%type <std::vector<std::pair<Variable, Expression>>> ode_list
 
 %{
 
@@ -133,6 +138,7 @@ command:
         |       command_check_sat
         |       command_declare_fun
         |       command_define_fun
+        |       command_define_ode
         |       command_exit
         |       command_get_model
         |       command_get_value
@@ -186,6 +192,12 @@ command_define_fun:
                     } else {
                         driver.DefineFun($3, $6, $8, $9);
                     }
+                }
+                ;
+
+command_define_ode:
+                '(' TK_DEFINEODE SYMBOL '(' ode_list ')' ')' {
+                    driver.DefineOde($3, $5);
                 }
                 ;
 
@@ -375,6 +387,24 @@ term:           TK_TRUE { $$ = Formula::True(); }
                 $$ = forall(quantified_variables, imply(domain, body));
 	    }
         }
+
+        | '(' TK_FORALLT INT TK_LB term term TK_RB term_list ')' {
+            Formula f = Formula::True();
+            for (const Term& t : $8) f = f && t.formula();
+            $$ = forallT($3, $5.expression(), $6.expression(), f);
+        }
+
+        | '(' TK_EQ TK_LB term_list TK_RB
+                '(' TK_INTEGRAL term term TK_LB term_list TK_RB SYMBOL ')'
+        ')'
+        {
+            std::vector<Expression> vec_0_expr($11.size());
+            std::vector<Expression> vec_t_expr($4.size());
+            std::transform($11.cbegin(), $11.cend(), vec_0_expr.begin(), [](const auto& t) { return t.expression(); });
+            std::transform($4.cbegin(), $4.cend(), vec_t_expr.begin(), [](const auto& t) { return t.expression(); });
+            $$ = integral( $8.expression(), $9.expression(), vec_0_expr, vec_t_expr, $13 );
+        }
+
         |       '(' TK_LET enter_scope let_binding_list term exit_scope ')' {
             $$ = $5;
         }
@@ -534,6 +564,19 @@ name_sort_list: /* empty list */ { $$ = std::vector<Variable>{}; }
         }
         ;
 
+ode: '(' TK_EQ TK_DDT TK_LB SYMBOL TK_RB term ')' {
+          $$ = std::pair<Variable, Expression>();
+          $$.first = Variable{driver.DeclareLocalVariable($5, Sort::Real)};
+          $$.second = $7.expression();
+        }
+        ;
+
+ode_list: /* empty list */ { $$ = std::vector<std::pair<Variable, Expression>>{}; }
+        |       ode_list ode {
+	    $1.push_back($2);
+	    $$ = $1;
+        }
+        ;
 
 variable_sort_list: /* empty list */ { $$ = std::pair<Variables, Formula>(Variables{}, Formula::True()); }
         |       variable_sort variable_sort_list {

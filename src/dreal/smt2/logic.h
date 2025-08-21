@@ -33,6 +33,7 @@ enum class Logic {
   QF_NRA,
   QF_NRAT,
   QF_RDL,
+  QF_NRA_ODE,
 };
 
 Logic parse_logic(const std::string& s);

@@ -294,6 +294,13 @@ void Smt2Driver::DefineFun(const string& name,
   function_definition_map_.insert(name, func);
 }
 
+/// Handles define-fun.
+void Smt2Driver::DefineOde(const std::string& flow_name,
+               const std::vector<std::pair<Variable, Expression>>& ode_list) {
+  // throw DREAL_RUNTIME_ERROR("DefineOde not implemented yet :)");
+  std::cerr << "DefineOde not implemented yet :)" << std::endl;
+}
+
 string Smt2Driver::MakeUniqueName(const string& name) {
   ostringstream oss;
   // The \ character ensures that the name cannot occur in an SMT-LIBv2 file.

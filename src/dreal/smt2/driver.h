@@ -111,6 +111,10 @@ class Smt2Driver {
                  const std::vector<Variable>& parameters, Sort return_type,
                  const Term& body);
 
+  /// Handles define-fun.
+  void DefineOde(const std::string& flow_name,
+                 const std::vector<std::pair<Variable, Expression>>& ode_list);
+
   /// Returns a representation of a model computed by the solver in
   /// response to an invocation of the check-sat.
   void GetModel() const;
