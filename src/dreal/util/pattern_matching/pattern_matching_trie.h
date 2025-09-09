@@ -98,7 +98,7 @@ namespace dreal
             explicit TrieNode(
                 const std::optional<This>& leaf,
                 const std::optional<This>& terminal_expression = {}
-            ): leaf{leaf}, terminal_expression{terminal_expression}, switch_kind{}, id{init_id()}, children{4} {}
+            ): leaf{leaf}, terminal_expression{terminal_expression}, id{init_id()}, children{4} {}
 
             TrieNode(const TrieNode& other) = delete; // these should never be copied.
 
@@ -106,8 +106,10 @@ namespace dreal
                 : leaf{std::move(other.leaf)},
                   terminal_expression{std::move(other.terminal_expression)},
                   switch_kind{std::move(other.switch_kind)},
-                  id{std::move(other.id)},
-                  children{std::move(other.children)} {}
+                  id{other.id},
+                  children{std::move(other.children)} {
+                other.switch_kind = nullptr; // ownership has been moved.
+            }
 
             ~TrieNode() noexcept {
                 if (switch_kind != nullptr) delete switch_kind;
@@ -169,7 +171,7 @@ namespace dreal
             std::optional<This> leaf{};
             std::optional<This> terminal_expression{};
             // important for ITEs which contain both Formulas and Expressions
-            TrieNode<OKind, Other, TKind, This>* switch_kind = nullptr;
+            TrieNode<OKind, Other, TKind, This>* switch_kind = nullptr; // todo: switch to unique_ptr or similar.
 
             const uint64_t id;
 
