@@ -391,7 +391,7 @@ term:           TK_TRUE { $$ = Formula::True(); }
         | '(' TK_FORALLT INT TK_LB term term TK_RB term_list ')' {
             Formula f = Formula::True();
             for (const Term& t : $8) f = f && t.formula();
-            $$ = forallT($3, $5.expression(), $6.expression(), f);
+            $$ = forallT(driver.LookupOde($3), $5.expression(), $6.expression(), f);
         }
 
         | '(' TK_EQ TK_LB term_list TK_RB
@@ -402,7 +402,7 @@ term:           TK_TRUE { $$ = Formula::True(); }
             std::vector<Expression> vec_t_expr($4.size());
             std::transform($11.cbegin(), $11.cend(), vec_0_expr.begin(), [](const auto& t) { return t.expression(); });
             std::transform($4.cbegin(), $4.cend(), vec_t_expr.begin(), [](const auto& t) { return t.expression(); });
-            $$ = integral( $8.expression(), $9.expression(), vec_0_expr, vec_t_expr, $13 );
+            $$ = integral( $8.expression(), $9.expression(), vec_0_expr, vec_t_expr, driver.LookupOde($13) );
         }
 
         |       '(' TK_LET enter_scope let_binding_list term exit_scope ')' {

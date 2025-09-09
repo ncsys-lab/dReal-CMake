@@ -294,11 +294,12 @@ void Smt2Driver::DefineFun(const string& name,
   function_definition_map_.insert(name, func);
 }
 
-/// Handles define-fun.
 void Smt2Driver::DefineOde(const std::string& flow_name,
-               const std::vector<std::pair<Variable, Expression>>& ode_list) {
-  // throw DREAL_RUNTIME_ERROR("DefineOde not implemented yet :)");
-  std::cerr << "DefineOde not implemented yet :)" << std::endl;
+                           const std::vector<std::pair<Variable, Expression>>& ode_list) {
+  if (ode_definition_map_.count(flow_name) != 0) {
+    throw DREAL_RUNTIME_ERROR("Scoped/shadowed define-ode's are not well supported yet.");
+  }
+  ode_definition_map_.insert(flow_name, std::make_shared<OdeFlow>(flow_name, ode_list));
 }
 
 string Smt2Driver::MakeUniqueName(const string& name) {
@@ -316,6 +317,12 @@ Term Smt2Driver::LookupFunction(const string& name,
   } else {
     throw runtime_error{fmt::format("No function definition for {}.", name)};
   }
+}
+
+const std::shared_ptr<const OdeFlow>& Smt2Driver::LookupOde(const string& name) {
+  const auto it = ode_definition_map_.find(name);
+  if (it != ode_definition_map_.end()) return it->second;
+  throw runtime_error{fmt::format("No ODE definition for {}.", name)};
 }
 
 Variable Smt2Driver::DeclareLocalVariable(const string& name, const Sort sort) {

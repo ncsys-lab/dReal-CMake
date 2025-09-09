@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "dreal/symbolic/odes/OdeFlow.h"
 #include "dreal/smt2/location.hh"
 #include "dreal/smt2/scanner.h"
 #include "dreal/smt2/sort.h"
@@ -144,6 +145,11 @@ class Smt2Driver {
   Term LookupFunction(const std::string& name,
                       const std::vector<Term>& arguments);
 
+  const std::shared_ptr<const OdeFlow>& LookupOde(const std::string& name);
+  const std::shared_ptr<const OdeFlow>& LookupOde(const int id) {
+      return LookupOde("flow_" + std::to_string(id));
+  }
+
   static Variable ParseVariableSort(const std::string& name, Sort s);
 
   std::string MakeUniqueName(const std::string& name);
@@ -180,6 +186,8 @@ class Smt2Driver {
 
   /** Scoped map from a string to a corresponding Variable. */
   ScopedUnorderedMap<std::string, FunctionDefinition> function_definition_map_;
+
+  ScopedUnorderedMap<std::string, std::shared_ptr<const OdeFlow>> ode_definition_map_;
 
   /// Sequential value concatenated to names to make them unique.
   int64_t nextUniqueId_{};
