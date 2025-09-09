@@ -273,6 +273,8 @@ namespace dreal
         ALL_DECLS(VisitDisjunction);
         ALL_DECLS(VisitNegation);
         ALL_DECLS(VisitForall);
+        ALL_DECLS(VisitForallT);
+        ALL_DECLS(VisitIntegral);
 #undef VISIT_DECL
 #undef ADD_DECL
 #undef ALL_DECLS

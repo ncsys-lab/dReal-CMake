@@ -8,6 +8,7 @@
 #include <dreal/symbolic/symbolic_expression_cell.h>
 #include <dreal/util/assert.h>
 #include <dreal/util/logging.h>
+#include "dreal/util/iterators.h"
 
 namespace dreal
 {
@@ -29,7 +30,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
 
     VISIT_DECL(VisitFalse) {
         DREAL_ASSERT(parent.c_like(_f).size() == 1); // todo? idk. idk how my own code works.
-        for (auto& node : parent.c_like(_f)) {
+        for (const auto& node : parent.c_like(_f)) {
             if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
             else
@@ -44,7 +45,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
 
     VISIT_DECL(VisitTrue) {
         DREAL_ASSERT(parent.c_like(_f).size() == 1); // todo? idk. idk how my own code works.
-        for (auto& node : parent.c_like(_f)) {
+        for (const auto& node : parent.c_like(_f)) {
             if (!node.terminal_expression.has_value())
                 partial_matches(node, substitutions);
             else
@@ -58,7 +59,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
 
     VISIT_DECL(VisitVariable) {
         const auto& f = get_variable(_f);
-        for (auto& node : parent.c_like(_f)) {
+        for (const auto& node : parent.c_like(_f)) {
             substitutions.push();
 
             const auto& matched_f = get_variable(*node.leaf);
@@ -103,7 +104,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         const f_misses_vec& misses
     ) const {
         e_matches_vec e_matches = PM_CONT_LAMBDA(m, s) { DREAL_UNREACHABLE(); };
-        for (auto& n1 : parent.c(k, _f.get_al_hash())) {
+        for (const auto& n1 : parent.c(k, _f.get_al_hash())) {
             recMatchExpr(get_lhs_expression(_f), *n1.switch_kind, s1, e_matches, PM_CONT_LAMBDA(n2, s2) {
                 DREAL_ASSERT(!n1.leaf.has_value());
                 DREAL_ASSERT(!n1.terminal_expression.has_value());
@@ -141,8 +142,8 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         const f_partial_matches_vec& partial_matches,
         const f_misses_vec& misses
     ) const {
-        const auto _f = to_nary(f);
-        for (auto& n1 : parent.c(k, f.get_al_hash())) {
+        const auto *const _f = to_nary(f);
+        for (const auto& n1 : parent.c(k, f.get_al_hash())) {
             DREAL_ASSERT(!n1.terminal_expression.has_value());
             const auto ibegin = _f->get_operands().begin();
             const auto iend = _f->get_operands().end();
@@ -212,7 +213,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     }
 
     VISIT_DECL(VisitNegation) {
-        for (auto& n1 : parent.c_like(_f)) {
+        for (const auto& n1 : parent.c_like(_f)) {
             DREAL_ASSERT(!n1.leaf.has_value());
             DREAL_ASSERT(!n1.terminal_expression.has_value());
             recMatchForm(get_operand(_f), n1, substitutions, matches, partial_matches, misses);
@@ -220,7 +221,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     }
 
     ADD_DECL(VisitForall) {
-        // temporary implementation...
+        // todo: temporary implementation...
         // I haven't put much thought into this.
         return parent.c_like(f).emplace_back(f, is_terminal);
     }
@@ -228,9 +229,9 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
     VISIT_DECL(VisitForall) {
         // temporary implementation...
         // I haven't put much thought into this.
-        const auto f = to_forall(_f);
-        for (auto& node : parent.c_like(_f)) {
-            const auto& matched_f = to_forall(*node.leaf);
+        const auto *const f = to_forall(_f);
+        for (const auto& node : parent.c_like(_f)) {
+            const auto matched_f = to_forall(*node.leaf);
             if (!f->EqualTo(*matched_f))
                 misses(substitutions_map::CONST_MISS);
             else if (!node.terminal_expression.has_value())
@@ -239,6 +240,94 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
                 matches(*node.terminal_expression, substitutions);
         }
     }
+
+    ADD_DECL(VisitForallT) {
+        const auto* const ft = to_forallT(f);
+        auto& n1 = parent.c_like(f).emplace_back(f); // contains flow.
+        auto& n2 = recAddExpr(ft->get_lb(), n1.init_switch_kind(), {});
+        auto& n3 = recAddExpr(ft->get_ub(), n2, {});
+        n3.init_switch_kind().terminal_expression = is_terminal;
+        // ft->get_bound_f() is bound, not free. Should be excluded from alpha-renaming.
+        // auto& n4 = recAddForm(ft->get_bound_f(), n3.init_switch_kind(), is_terminal);
+        return *n3.switch_kind;
+    }
+
+    VISIT_DECL(VisitForallT) {
+        const auto f = to_forallT(_f);
+        e_matches_vec e_matches = PM_CONT_LAMBDA(m, s) { DREAL_UNREACHABLE(); };
+        f_matches_vec f_matches = PM_CONT_LAMBDA(m, s) { DREAL_UNREACHABLE(); };
+        for (const auto& n1 : parent.c_like(_f)) {
+            const auto m = to_forallT(*n1.leaf);
+            if (!f->get_bound_f().EqualTo(m->get_bound_f())) continue;
+            if (f->get_flow() != m->get_flow()) continue;
+            DREAL_ASSERT(n1.switch_kind != nullptr);
+            recMatchExpr(f->get_lb(), *n1.switch_kind, substitutions, e_matches, PM_CONT_LAMBDA(n2, s2) {
+                recMatchExpr(f->get_ub(), n2, s2, e_matches, PM_CONT_LAMBDA(n3, s3) {
+                    DREAL_ASSERT(!n1.terminal_expression.has_value());
+                    DREAL_ASSERT(!n2.terminal_expression.has_value());
+                    DREAL_ASSERT(!n3.terminal_expression.has_value());
+                    DREAL_ASSERT(n3.switch_kind != nullptr);
+                    const auto& fn3 = *n3.switch_kind;
+                    if (fn3.terminal_expression.has_value()) { matches(*fn3.terminal_expression, s3); }
+                    else { partial_matches(fn3, s3); }
+                }, misses);
+            }, misses);
+        }
+    }
+
+    ADD_DECL(VisitIntegral) {
+        const auto* const i = to_integral(f);
+        auto& n1 = parent.c_like(f).emplace_back(f); // contains flow.
+        auto& n2 = recAddExpr(i->get_time_0(), n1.init_switch_kind(), {});
+        auto& n3 = recAddExpr(i->get_time_t(), n2, {});
+        ExprNode* stateV = &n3;
+        for (const auto& v : concat_view(i->get_vec_0(), i->get_vec_t())) {
+            stateV = &recAddExpr(v, *stateV, {});
+        }
+        stateV->init_switch_kind().terminal_expression = is_terminal;
+        return *stateV->switch_kind;
+    }
+
+    VISIT_DECL(VisitIntegral) {
+        const auto f = to_integral(_f);
+        e_matches_vec e_matches = PM_CONT_LAMBDA(m, s) { DREAL_UNREACHABLE(); };
+        f_matches_vec f_matches = PM_CONT_LAMBDA(m, s) { DREAL_UNREACHABLE(); };
+        for (const auto& n1 : parent.c_like(_f)) {
+            const auto m = to_integral(*n1.leaf);
+            if (f->get_flow() != m->get_flow()) continue;
+            DREAL_ASSERT(n1.switch_kind != nullptr);
+            recMatchExpr(f->get_time_0(), *n1.switch_kind, substitutions, e_matches, PM_CONT_LAMBDA(n2, s2) {
+                recMatchExpr(f->get_time_t(), n2, s2, e_matches, PM_CONT_LAMBDA(n3, s3) {
+                    DREAL_ASSERT(!n1.terminal_expression.has_value());
+                    DREAL_ASSERT(!n2.terminal_expression.has_value());
+                    DREAL_ASSERT(!n3.terminal_expression.has_value());
+
+                    const concat_view vec0t(f->get_vec_0(), f->get_vec_t());
+                    const auto ibegin = vec0t.begin();
+                    const auto iend = vec0t.end();
+                    e_partial_matches_vec done = PM_CONT_LAMBDA(n4, s4) {
+                        const auto& fn4 = *n4.switch_kind;
+                        if (fn4.terminal_expression.has_value()) matches(*fn4.terminal_expression, s4);
+                        else partial_matches(fn4, s4);
+                    };
+                    std::function<e_partial_matches_vec(typeof(ibegin))> it_to_match_op = [&](const auto& it1) {
+                        return [&, /*copy*/ it1](const auto& n, auto& s) {
+                            if (it1 == iend) {
+                                DREAL_ASSERT(f->get_vec_0().size() == 1);
+                                done(n, s);
+                            }
+                            auto it2 = it1;
+                            ++it2;
+                            if (it2 == iend) done(n, s);
+                            else recMatchExpr(*it2, n, s, e_matches, it_to_match_op(it2), misses);
+                        };
+                    };
+                    recMatchExpr(*ibegin, n3, s3, e_matches, it_to_match_op(ibegin), misses);
+                }, misses);
+            }, misses);
+        }
+    }
+
 #undef VISIT_DECL
 #undef ADD_DECL
 }

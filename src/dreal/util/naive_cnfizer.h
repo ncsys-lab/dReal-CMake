@@ -45,6 +45,8 @@ class NaiveCnfizer {
   Formula VisitDisjunction(const Formula& f) const;
   Formula VisitNegation(const Formula& f) const;
   Formula VisitForall(const Formula& f) const;
+  Formula VisitForallT(const Formula& f) const;
+  Formula VisitIntegral(const Formula& f) const;
 
   const Nnfizer nnfizer_{};
 

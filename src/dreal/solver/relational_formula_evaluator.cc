@@ -60,6 +60,10 @@ RelationalOperator GetRelationalOperator(const Formula& f) {
       DREAL_UNREACHABLE();
     case FormulaKind::Forall:
       DREAL_UNREACHABLE();
+    case FormulaKind::ForallT:
+      DREAL_UNREACHABLE();
+    case FormulaKind::Integral:
+      DREAL_UNREACHABLE();
     case FormulaKind::Var:
       DREAL_UNREACHABLE();
   }

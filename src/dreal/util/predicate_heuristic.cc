@@ -251,6 +251,25 @@ namespace dreal
             recHeurExpr({v}, stats);
     }
 
+    ADD_DECL(VisitForallT) {
+        stats.forallt_cntr++;
+        const auto* const ft = to_forallT(f);
+        recHeurExpr(ft->get_lb(), stats);
+        recHeurExpr(ft->get_ub(), stats);
+        recHeurForm(ft->get_bound_f(), stats, inverted);
+        // todo: recurse through flow as well?
+    }
+
+    ADD_DECL(VisitIntegral) {
+        stats.integral_cntr++;
+        const auto* const i = to_integral(f);
+        recHeurExpr(i->get_time_0(), stats);
+        recHeurExpr(i->get_time_t(), stats);
+        for (const auto& v : i->get_vec_0()) { recHeurExpr(v, stats); }
+        for (const auto& v : i->get_vec_t()) { recHeurExpr(v, stats); }
+        // todo: recurse through flow as well?
+    }
+
 #undef ADD_DECL
 
     void PredicateHeuristic::recHeurExprCheckCache(const Expression& e, predicate_stats_t& outer_stats) const {

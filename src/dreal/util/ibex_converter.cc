@@ -405,4 +405,14 @@ const ExprCtr* IbexConverter::VisitForall(const Formula&, const bool) {
       "IbexConverter: forall constraint is not supported.");
 }
 
+const ExprCtr* IbexConverter::VisitForallT(const Formula&, const bool) {
+  throw DREAL_RUNTIME_ERROR(
+      "IbexConverter: forallT constraint is not supported.");
+}
+
+const ExprCtr* IbexConverter::VisitIntegral(const Formula&, const bool) {
+  throw DREAL_RUNTIME_ERROR(
+      "IbexConverter: integral constraint is not supported.");
+}
+
 }  // namespace dreal

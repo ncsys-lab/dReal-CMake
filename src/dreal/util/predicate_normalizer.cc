@@ -88,10 +88,28 @@ namespace dreal
     }
 
     Formula PredicateNormalizer::VisitForall(const Formula& f) {
-        // todo: support this??
-        // const auto fa = to_forall(f);
-        // return forall(fa->get_quantified_variables(), Convert(fa->get_quantified_formula()));
-        // trie.insert(f);
+        trie.insert(f);
+        trie.insert(!f);
+        heuristic.collect_statistics(f);
+        heuristic.collect_statistics(!f);
+        const auto *const fa = to_forall(f);
+        return forall(fa->get_quantified_variables(), Convert(fa->get_quantified_formula()));
+    }
+
+    Formula PredicateNormalizer::VisitForallT(const Formula& f) {
+        trie.insert(f);
+        trie.insert(!f);
+        heuristic.collect_statistics(f);
+        heuristic.collect_statistics(!f);
+        const auto *const fa = to_forallT(f);
+        return forallT(fa->get_flow(), fa->get_lb(), fa->get_ub(), Convert(fa->get_bound_f()));
+    }
+
+    Formula PredicateNormalizer::VisitIntegral(const Formula& f) {
+        trie.insert(f);
+        trie.insert(!f);
+        heuristic.collect_statistics(f);
+        heuristic.collect_statistics(!f);
         return f;
     }
 

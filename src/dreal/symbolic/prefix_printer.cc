@@ -305,6 +305,36 @@ ostream& PrefixPrinter::VisitForall(const Formula&) {
   throw runtime_error("Not implemented.");
 }
 
+ostream& PrefixPrinter::VisitForallT(const Formula& f) {
+  const auto fc = to_forallT(f);
+  os_ << "(forall_t " << fc->get_flow()->name << " [";
+  Print(fc->get_lb());
+  os_ << ',';
+  Print(fc->get_ub());
+  os_ << "] ";
+  Print(fc->get_bound_f());
+  os_ << ')';
+}
+
+ostream& PrefixPrinter::VisitIntegral(const Formula& f) {
+  const auto ic = to_integral(f);
+  os_ << "(= [";
+  for (const auto& v : ic->get_vec_t()) {
+    Print(v);
+    os_ << ' ';
+  }
+  os_ << "] (integral ";
+  Print(ic->get_time_0());
+  os_ << ' ';
+  Print(ic->get_time_t());
+  os_ << " [";
+  for (const auto& v : ic->get_vec_0()) {
+    Print(v);
+    os_ << ' ';
+  }
+  os_ << "] " << ic->get_flow()->name << "))";
+}
+
 string ToPrefix(const Expression& e) {
   ostringstream oss;
   PrefixPrinter pp{oss};

@@ -55,8 +55,9 @@ class FormulaNot;             // In symbolic/symbolic_formula_cell.h
 class FormulaAnd;             // In symbolic/symbolic_formula_cell.h
 class FormulaOr;              // In symbolic/symbolic_formula_cell.h
 class FormulaForall;          // In symbolic/symbolic_formula_cell.h
-class FormulaForallT;          // In symbolic/symbolic_formula_cell.h
-class FormulaIntegral;          // In symbolic/symbolic_formula_cell.h
+class FormulaForallT;         // In symbolic/odes/symbolic_odes.h
+class FormulaIntegral;        // In symbolic/odes/symbolic_odes.h
+class OdeFlow;                // In symbolic/odes/OdeFlow.h
 
 /** Represents a symbolic form of a first-order logic formula.
 
@@ -264,10 +265,10 @@ class Formula {
 
   friend FormulaCell;
   friend Formula forall(const Variables& vars, const Formula& f);
-  friend Formula forallT(const int flow, const Expression& lb, const Expression& ub, const Formula& f);
+  friend Formula forallT(const std::shared_ptr<const OdeFlow>& flow, const Expression& lb, const Expression& ub, const Formula& f);
   friend Formula integral(const Expression& time_0, const Expression& time_t,
                                 const std::vector<Expression>& vec_0, const std::vector<Expression>& vec_t,
-                                const std::string& flow_name);
+                                const std::shared_ptr<const OdeFlow>& flow);
   friend Formula make_conjunction(const std::set<Formula>& formulas);
   friend Formula make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::set<Formula> formulas);
   friend Formula make_disjunction(const std::set<Formula>& formulas);

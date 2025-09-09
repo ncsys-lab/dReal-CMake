@@ -352,4 +352,19 @@ Formula IfThenElseEliminator::VisitForall(const Formula& f, const Formula&) {
   return forall(quantified_variables, Nnfizer{}.Convert(!eliminated));
 }
 
+Formula IfThenElseEliminator::VisitForallT(const Formula& f, const Formula& guard) {
+  // const auto* const ft = to_forallT(f);
+  // return forallT(
+  //   ft->get_flow(),
+  //   ft->get_lb(),
+  //   ft->get_ub(),
+  //   Visit(ft->get_bound_f(), guard)  // this is logically correct, but won't work / will crash CAPD.
+  // );
+  return f;
+}
+
+Formula IfThenElseEliminator::VisitIntegral(const Formula& f, const Formula& guard) {
+  return f;
+}
+
 }  // namespace dreal

@@ -155,4 +155,14 @@ Contractor GenericContractorGenerator::VisitForall(const Formula&, const Box&,
   throw DREAL_RUNTIME_ERROR("GenericContractorGenerator: Forall is detected.");
 }
 
+Contractor GenericContractorGenerator::VisitForallT(const Formula&, const Box&,
+                                                     const Config&) {
+  throw DREAL_RUNTIME_ERROR("GenericContractorGenerator: ForallT is detected.");
+}
+
+Contractor GenericContractorGenerator::VisitIntegral(const Formula&, const Box&,
+                                                       const Config&) {
+  throw DREAL_RUNTIME_ERROR("GenericContractorGenerator: Integral is detected.");
+}
+
 }  // namespace dreal

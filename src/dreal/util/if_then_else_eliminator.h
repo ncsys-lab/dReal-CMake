@@ -80,6 +80,8 @@ class IfThenElseEliminator {
   Formula VisitDisjunction(const Formula& f, const Formula& guard);
   Formula VisitNegation(const Formula& f, const Formula& guard);
   Formula VisitForall(const Formula& f, const Formula& guard);
+  Formula VisitForallT(const Formula& f, const Formula& guard);
+  Formula VisitIntegral(const Formula& f, const Formula& guard);
 
   // ---------------
   // Member fields

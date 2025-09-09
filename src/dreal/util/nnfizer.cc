@@ -177,4 +177,11 @@ Formula Nnfizer::VisitForall(const Formula& f, const bool polarity,
   // FormulaExists(∃) yet. Revisit this when we add FormulaExists.
   return polarity ? f : !f;
 }
+
+Formula Nnfizer::VisitForallT(const Formula& f, const bool polarity,
+                             const bool) const { return polarity ? f : !f; }
+
+Formula Nnfizer::VisitIntegral(const Formula& f, const bool polarity,
+                             const bool) const { return polarity ? f : !f; }
+
 }  // namespace dreal

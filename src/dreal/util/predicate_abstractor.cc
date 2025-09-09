@@ -182,4 +182,12 @@ Formula PredicateAbstractor::VisitForall(const Formula& f) {
   return VisitAtomic(f);
 }
 
+Formula PredicateAbstractor::VisitForallT(const Formula& f) {
+  return VisitAtomic(f);
+}
+
+Formula PredicateAbstractor::VisitIntegral(const Formula& f) {
+  return VisitAtomic(f);
+}
+
 }  // namespace dreal

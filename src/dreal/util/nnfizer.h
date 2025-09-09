@@ -63,6 +63,10 @@ class Nnfizer {
                         bool push_negation_into_relationals) const;
   Formula VisitForall(const Formula& f, bool polarity,
                       bool push_negation_into_relationals) const;
+  Formula VisitForallT(const Formula& f, bool polarity,
+                      bool push_negation_into_relationals) const;
+  Formula VisitIntegral(const Formula& f, bool polarity,
+                      bool push_negation_into_relationals) const;
 
   // Makes VisitFormula a friend of this class so that it can use private
   // methods.

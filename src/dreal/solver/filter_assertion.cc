@@ -347,6 +347,16 @@ class AssertionFilter {
                                            const bool /* unused */) {
     return {.filtered = false, .changed = false};
   }
+  static FilterAssertionResult VisitForallT(const Formula& /* unused */,
+                                         Box* const /* unused */,
+                                         const bool /* unused */) {
+    return {.filtered = false, .changed = false};
+  }
+  static FilterAssertionResult VisitIntegral(const Formula& /* unused */,
+                                         Box* const /* unused */,
+                                         const bool /* unused */) {
+    return {.filtered = false, .changed = false};
+  }
 
   // Makes VisitFormula a friend of this class so that it can use private
   // operator()s.
