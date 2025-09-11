@@ -6,6 +6,7 @@
 
 #include <dreal/symbolic/symbolic_formula_cell.h>
 #include <dreal/symbolic/symbolic_expression_cell.h>
+#include "dreal/symbolic/odes/symbolic_odes_cell.h"
 #include <dreal/util/assert.h>
 #include <dreal/util/logging.h>
 #include "dreal/util/iterators.h"
@@ -246,10 +247,19 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         auto& n1 = parent.c_like(f).emplace_back(f); // contains flow.
         auto& n2 = recAddExpr(ft->get_lb(), n1.init_switch_kind(), {});
         auto& n3 = recAddExpr(ft->get_ub(), n2, {});
-        n3.init_switch_kind().terminal_expression = is_terminal;
-        // ft->get_bound_f() is bound, not free. Should be excluded from alpha-renaming.
+
+        // PRIOR THINKING:
+        // `ft->get_bound_f()` is bound, not free. Should be excluded from alpha-renaming.
         // auto& n4 = recAddForm(ft->get_bound_f(), n3.init_switch_kind(), is_terminal);
-        return *n3.switch_kind;
+
+        // UPDATE:
+        // okay... so bound is BOUND TO THE INTEGRAL `(= vecT (integ ... vec0...))` formula rather than the FLOW itself.
+        // since vecT of the integral formula is free, bound's variables need to be renamed as well
+        // n3.init_switch_kind().terminal_expression = is_terminal;
+        // return *n3.switch_kind;
+
+        auto& n4 = recAddForm(ft->get_bound_f(), n3.init_switch_kind(), is_terminal);
+        return n4;
     }
 
     VISIT_DECL(VisitForallT) {
@@ -258,8 +268,8 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         f_matches_vec f_matches = PM_CONT_LAMBDA(m, s) { DREAL_UNREACHABLE(); };
         for (const auto& n1 : parent.c_like(_f)) {
             const auto m = to_forallT(*n1.leaf);
-            if (!f->get_bound_f().EqualTo(m->get_bound_f())) continue;
-            if (f->get_flow() != m->get_flow()) continue;
+            // if (!f->get_bound_f().EqualTo(m->get_bound_f())) continue; // see "UPDATE" in corresponding `ADD_DECL`
+            if (*f->get_flow() != *m->get_flow()) continue;
             DREAL_ASSERT(n1.switch_kind != nullptr);
             recMatchExpr(f->get_lb(), *n1.switch_kind, substitutions, e_matches, PM_CONT_LAMBDA(n2, s2) {
                 recMatchExpr(f->get_ub(), n2, s2, e_matches, PM_CONT_LAMBDA(n3, s3) {
@@ -267,9 +277,11 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
                     DREAL_ASSERT(!n2.terminal_expression.has_value());
                     DREAL_ASSERT(!n3.terminal_expression.has_value());
                     DREAL_ASSERT(n3.switch_kind != nullptr);
-                    const auto& fn3 = *n3.switch_kind;
-                    if (fn3.terminal_expression.has_value()) { matches(*fn3.terminal_expression, s3); }
-                    else { partial_matches(fn3, s3); }
+                    // see "UPDATE" in corresponding `ADD_DECL`
+                    //      const auto& fn3 = *n3.switch_kind;
+                    //      if (fn3.terminal_expression.has_value()) { matches(*fn3.terminal_expression, s3); }
+                    //      else { partial_matches(fn3, s3); }
+                    recMatchForm(f->get_bound_f(), *n3.switch_kind, s3, matches, partial_matches, misses);
                 }, misses);
             }, misses);
         }
@@ -294,7 +306,7 @@ PatternMatchingTrie::FormNode& PatternMatchingTrie::name (const Formula &f, Form
         f_matches_vec f_matches = PM_CONT_LAMBDA(m, s) { DREAL_UNREACHABLE(); };
         for (const auto& n1 : parent.c_like(_f)) {
             const auto m = to_integral(*n1.leaf);
-            if (f->get_flow() != m->get_flow()) continue;
+            if (*f->get_flow() != *m->get_flow()) continue;
             DREAL_ASSERT(n1.switch_kind != nullptr);
             recMatchExpr(f->get_time_0(), *n1.switch_kind, substitutions, e_matches, PM_CONT_LAMBDA(n2, s2) {
                 recMatchExpr(f->get_time_t(), n2, s2, e_matches, PM_CONT_LAMBDA(n3, s3) {
