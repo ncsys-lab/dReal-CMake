@@ -21,7 +21,6 @@ namespace dreal
     float sigmoid(const float x) { return 1 / (1 + expf(-x)); }
 
     float PatternMatchingHeuristic::calculate(const statistics &k) {
-        return 0; // todo: revisit this?
 
 const float LOG2P1_assertions_size = log2(1+k.assertions_size);
 const float LOG2P1_box_boolean_count = log2(1+k.box_boolean_count);

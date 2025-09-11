@@ -9,6 +9,7 @@
 #include "gtest/gtest.h"
 
 #include "dreal/symbolic/symbolic_expression.h"
+#include "dreal/symbolic/odes/symbolic_odes.h"
 #include "dreal/symbolic/test/symbolic_test_util.h"
 
 using std::exception;
@@ -259,6 +260,7 @@ class SymbolicSubstitutionTest : public ::testing::Test {
   const Variable var_x_{"x"};
   const Variable var_y_{"y"};
   const Variable var_z_{"z"};
+  const Variable var_w_{"w"};
 
   const Expression x_{var_x_};
   const Expression y_{var_y_};
@@ -542,6 +544,50 @@ class ForallFormulaSubstitutionTest : public SymbolicSubstitutionTest {
       forall_x_1_,  forall_x_2_,  forall_x_3_,  forall_x_4_, forall_x_5_,
       forall_x_6_,  forall_x_7_,  forall_x_8_,  forall_x_9_, forall_x_10_,
       forall_x_11_, forall_x_12_, forall_x_13_, forall_x_14_};
+
+  // todo: Write unit tests for ForAllT and Integral types.
+  // const std::shared_ptr<const OdeFlow> flow1 = std::make_shared<OdeFlow>(
+  //               "flow_1", std::vector<std::pair<Variable, Expression>>{
+  //                   {var_x_, 10 * (var_y_ - var_x_)}, // Lorenz
+  //                   {var_y_, var_x_ * (28 - var_z_) - var_y_},
+  //                   {var_z_, var_x_ * var_y_ - 8.0 / 3.0 * var_z_},
+  //               }
+  //           );
+  // const std::shared_ptr<const OdeFlow> flow2 = std::make_shared<OdeFlow>(
+  //     "flow_2", std::vector<std::pair<Variable, Expression>>{
+  //         {var_y_, -sin(var_x_) - var_y_}, // Pendulum
+  //         {var_x_, var_y_},
+  //     }
+  // );
+  // const std::shared_ptr<const OdeFlow> flow3 = std::make_shared<OdeFlow>(
+  //     "flow_3", std::vector<std::pair<Variable, Expression>>{
+  //         {var_y_, +3 * (1 - pow(var_x_, 2)) * var_y_ - var_x_}, // Hamiltonian Van der Pol
+  //         {var_z_, +3 * (1 - pow(var_x_, 2)) * var_z_ - var_w_},
+  //         {var_w_, var_z_},
+  //         {var_x_, var_y_}
+  //     }
+  // );
+  //
+  // const Variable var_t0_{"t0"};
+  // const Variable var_t1_{"t1"};
+  // const Formula forallt_1_{forallT(flow1, 0, var_t0_, f1_)};
+  // const Formula forallt_2_{forallT(flow2, 0, var_t0_, f2_)};
+  // const Formula forallt_3_{forallT(flow3, 0, var_t0_, f3_)};
+  // const Formula forallt_4_{forallT(flow1, 0, var_t0_, f4_)};
+  // const Formula forallt_5_{forallT(flow2, 0, var_t0_, f5_)};
+  // const Formula forallt_6_{forallT(flow3, 0, var_t0_, f6_)};
+  // const Formula forallt_7_{forallT(flow1, 0, var_t0_, f7_)};
+  // const Formula forallt_8_{forallT(flow2, 0, var_t0_, f8_)};
+  // const Formula forallt_9_{forallT(flow3, 0, var_t0_, f9_)};
+  // const Formula forallt_10_{forallT(flow1, 0, var_t0_, f10_)};
+  // const Formula forallt_11_{forallT(flow2, 0, var_t0_, f11_)};
+  // const Formula forallt_12_{forallT(flow3, 0, var_t0_, f12_)};
+  // const Formula forallt_13_{forallT(flow1, 0, var_t0_, f13_)};
+  // const Formula forallt_14_{forallT(flow2, 0, var_t0_, f14_)};
+  //
+  // const vector<Formula> forallt_formulas_{
+  //   forallt_1_, forallt_2_, forallt_3_, forallt_4_, forallt_5_, forallt_6_, forallt_7_,
+  //   forallt_8_, forallt_9_, forallt_10_, forallt_11_, forallt_12_, forallt_13_, forallt_14_};
 };
 
 TEST_F(ForallFormulaSubstitutionTest, VarExpr1) {
