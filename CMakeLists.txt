@@ -104,47 +104,51 @@ endif ()
 
 include(ExternalProject)
 set(SHARED_LIB_CONFIG_COMMAND "--disable-shared")
-#ExternalProject_Add(FILIB
-#        PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
-#        GIT_REPOSITORY https://github.com/dreal-deps/filibxx.git
-#        GIT_TAG d898fe000e157f44e4a84b8f79b4e7556a5d6fb5
-#        PATCH_COMMAND autoreconf -if
-#        UPDATE_COMMAND ""
-#        CONFIGURE_COMMAND ${ROSETTA_PREFIX} ${CMAKE_CURRENT_BINARY_DIR}/external/src/FILIB/configure
-##        CC=${CMAKE_C_COMPILER}
-##        CXX=${CMAKE_CXX_COMPILER}
-##        "CXXFLAGS=${EXTERNAL_CXX_FLAGS}"
-#        "CXXFLAGS=-std=c++11 -frounding-math -ffloat-store"
-##        "LDFLAGS=${EXTERNAL_LD_FLAGS}"
-#        --prefix=${CMAKE_CURRENT_BINARY_DIR}
-#        ${SHARED_LIB_CONFIG_COMMAND}
-#        BUILD_COMMAND ${ROSETTA_PREFIX} make -j16
-#        LOG_DOWNLOAD 1
-#        LOG_UPDATE 1
-#        LOG_CONFIGURE 1
-#        LOG_BUILD 1
-#        LOG_TEST 1
-#        LOG_INSTALL 1
-#        INSTALL_COMMAND make install)
+set(EXTERNAL_LD_FLAGS "-L${CMAKE_CURRENT_BINARY_DIR}/lib")
+link_directories("${CMAKE_CURRENT_BINARY_DIR}/lib/")
+include_directories("${CMAKE_CURRENT_BINARY_DIR}/include/")
 
-ExternalProject_Add(CAPD4
-#        DEPENDS FILIB
+ExternalProject_Add(FILIB
         PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
-        GIT_REPOSITORY https://github.com/dreal-deps/capdDynSys-4.0.git
-        GIT_TAG f39f3942dd1bd4899821316efc0ca55483ab5071
+        GIT_REPOSITORY https://github.com/dreal-deps/filibxx.git
+        GIT_TAG d898fe000e157f44e4a84b8f79b4e7556a5d6fb5
         PATCH_COMMAND autoreconf -if
         UPDATE_COMMAND ""
-        CONFIGURE_COMMAND ${ROSETTA_PREFIX} ${CMAKE_CURRENT_BINARY_DIR}/external/src/CAPD4/configure
-#        CC=${CMAKE_C_COMPILER}
-#        CXX=${CMAKE_CXX_COMPILER}
-#        "CXXFLAGS=${EXTERNAL_CXX_FLAGS}"
+        CONFIGURE_COMMAND ${ROSETTA_PREFIX} ${CMAKE_CURRENT_BINARY_DIR}/external/src/FILIB/configure
+        # CC=${CMAKE_C_COMPILER}
+        # CXX=${CMAKE_CXX_COMPILER}
+        # "CXXFLAGS=${EXTERNAL_CXX_FLAGS}"
         "CXXFLAGS=-std=c++11 -frounding-math -ffloat-store"
-#        "LDFLAGS=${EXTERNAL_LD_FLAGS}"
+        "LDFLAGS=${EXTERNAL_LD_FLAGS}"
+        --prefix=${CMAKE_CURRENT_BINARY_DIR}
+        ${SHARED_LIB_CONFIG_COMMAND}
+        BUILD_COMMAND ${ROSETTA_PREFIX} make -j16
+        LOG_DOWNLOAD 1
+        LOG_UPDATE 1
+        LOG_CONFIGURE 1
+        LOG_BUILD 1
+        LOG_TEST 1
+        LOG_INSTALL 1
+        INSTALL_COMMAND ${ROSETTA_PREFIX} make install)
+
+ExternalProject_Add(CAPD4
+        DEPENDS FILIB
+        PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
+        GIT_REPOSITORY https://github.com/ncsys-lab/capdDynSys-4.0.git
+        GIT_TAG 54145cf706031b826d5a49734e933c93b3ab1c03
+        PATCH_COMMAND ${ROSETTA_PREFIX} autoreconf -if
+        UPDATE_COMMAND ""
+        CONFIGURE_COMMAND ${ROSETTA_PREFIX} ${CMAKE_CURRENT_BINARY_DIR}/external/src/CAPD4/configure
+        # CC=${CMAKE_C_COMPILER}
+        # CXX=${CMAKE_CXX_COMPILER}
+        # "CXXFLAGS=${EXTERNAL_CXX_FLAGS}"
+        "CXXFLAGS=-std=c++11 -frounding-math -ffloat-store"
+        "LDFLAGS=${EXTERNAL_LD_FLAGS}"
         --prefix=${CMAKE_CURRENT_BINARY_DIR}
         --without-gui
         --without-boost
         --with-mpfr=no
-        --with-filib=yes
+        --with-filib=no
         --enable-asserts=no
         ${SHARED_LIB_CONFIG_COMMAND}
         BUILD_COMMAND ${ROSETTA_PREFIX} make -j16
@@ -155,8 +159,7 @@ ExternalProject_Add(CAPD4
         LOG_BUILD 1
         LOG_TEST 1
         LOG_INSTALL 1
-        INSTALL_COMMAND make install)
-link_directories("${CMAKE_CURRENT_BINARY_DIR}/lib/")
+        INSTALL_COMMAND ${ROSETTA_PREFIX} make install)
 
 # downloaded dependencies
 include(FetchContent)
@@ -219,9 +222,7 @@ target_link_libraries(
         dreal4_cmake PUBLIC ibex nlopt spdlog::spdlog fmt::fmt
 )
 add_dependencies(dreal4_cmake CAPD4)
-target_link_libraries(
-        dreal4_cmake PUBLIC capd
-)
+target_link_libraries(dreal4_cmake PUBLIC capd prim)
 
 # On some platforms, linking is purely sequential, and the order you specify libraries in matters.
 # I am repeating these libraries from above so that everything gets resolved on Ubuntu
