@@ -14,6 +14,14 @@
 
 namespace dreal
 {
+#define nra_ODE_taylor_order 20
+#define nra_ODE_grid_size 16
+#define nra_ODE_absolute_tolerance 1e-20
+#define nra_ODE_relative_tolerance 1e-20
+#define nra_ODE_step 0.0
+#define nra_ODE_show_progress false
+#define nra_ODE_trace false
+
     using nlohmann::json;
 
     std::ostream& operator<<(std::ostream& out, ode_direction const& d) {
@@ -421,7 +429,8 @@ namespace dreal
             if (nra_ODE_show_progress) {
                 cout << " [RangeError]" << endl;
             }
-            throw e; // contractor_exception(e.what());
+            // throw e; // contractor_exception(e.what());
+            DREAL_LOG_INFO("contractor_capd_full::prune - std::range_error");
         }
         catch (capd::intervals::IntervalError<double>& e) {
             if (nra_ODE_show_progress) {
@@ -433,7 +442,9 @@ namespace dreal
             if (nra_ODE_show_progress) {
                 cout << " [ISolverException]" << endl;
             }
-            throw e; // contractor_exception(e.what());
+            // dReal3 actually just logs and then no-ops on contractor_exception.
+            // throw e; // contractor_exception(e.what());
+            DREAL_LOG_INFO("contractor_capd_full::prune - ISolverException");
         }
         catch (std::runtime_error& e) {
             if (nra_ODE_show_progress) {

@@ -19,14 +19,6 @@
 #include "dreal/util/box.h"
 #include "nlohmann/json.hpp"
 
-#define nra_ODE_taylor_order 20
-#define nra_ODE_grid_size 16
-#define nra_ODE_absolute_tolerance 1e-20
-#define nra_ODE_relative_tolerance 1e-20
-#define nra_ODE_step 0.0
-#define nra_ODE_show_progress true
-#define nra_ODE_trace false
-
 namespace std
 {
     template <>
