@@ -15,6 +15,7 @@
 */
 #include "dreal/util/predicate_normalizer.h"
 #include <dreal/symbolic/symbolic_formula_cell.h>
+#include <dreal/symbolic/odes/symbolic_odes_cell.h>
 
 #include "logging.h"
 

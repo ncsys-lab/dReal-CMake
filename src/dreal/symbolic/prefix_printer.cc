@@ -20,6 +20,8 @@
 #include <stdexcept>
 #include <dreal/util/rounding_mode_guard.h>
 
+#include "dreal/symbolic/odes/symbolic_odes_cell.h"
+
 using std::ostream;
 using std::ostringstream;
 using std::runtime_error;

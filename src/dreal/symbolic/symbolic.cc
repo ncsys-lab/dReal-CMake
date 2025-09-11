@@ -19,6 +19,7 @@
 #include <iterator>
 #include <utility>
 
+#include "dreal/symbolic/odes/symbolic_odes_cell.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"

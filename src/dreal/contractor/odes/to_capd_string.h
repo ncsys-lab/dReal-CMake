@@ -8,6 +8,7 @@
 #ifndef DREAL4_CMAKE_TO_CAPD_STRING_H
 #define DREAL4_CMAKE_TO_CAPD_STRING_H
 #include "dreal/symbolic/symbolic.h"
+#include "dreal/symbolic/symbolic_expression_cell.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
 

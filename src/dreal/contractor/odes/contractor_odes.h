@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 #include "dreal/contractor/odes/ode_types.h"
+#include "dreal/symbolic/odes/symbolic_odes_cell.h"
 #include "dreal/contractor/contractor_cell.h"
 #include "dreal/symbolic/hash.h"
 #include "dreal/util/box.h"

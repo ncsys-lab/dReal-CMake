@@ -3,6 +3,7 @@
 //
 
 #include "symbolic_odes.h"
+#include "symbolic_odes_cell.h"
 
 #include "dreal/symbolic/symbolic_formula_cell.h"
 
@@ -77,7 +78,10 @@ namespace dreal::drake::symbolic
               hash_combine(bound_f.get_al_hash(), flow, lb.get_al_hash(), ub.get_al_hash()),
               lb.include_ite() || ub.include_ite() || bound_f.include_ite(),
               true,
-              lb.GetVariables() + ub.GetVariables() // variables in bound_f are bound, not free
+              // PRIOR THINKING: variables in bound_f are bound, not free
+              // lb.GetVariables() + ub.GetVariables() // variables in bound_f are bound, not free
+              // NEW: see UPDATE comment in `ADD_DECL(VisitForallT)` of `pattern_matching_trie_form.cc`
+              lb.GetVariables() + ub.GetVariables() + bound_f.GetFreeVariables()
           },
           flow_{flow},
           lb_{lb},
@@ -95,7 +99,7 @@ namespace dreal::drake::symbolic
         assert(get_kind() == f.get_kind());
         const FormulaForallT& f_forallT{static_cast<const FormulaForallT&>(f)};
         return (
-            flow_ == f_forallT.flow_ &&
+            *flow_ == *f_forallT.flow_ &&
             lb_.EqualTo(f_forallT.lb_) &&
             ub_.EqualTo(f_forallT.ub_) &&
             bound_f_.EqualTo(f_forallT.bound_f_)
@@ -106,13 +110,13 @@ namespace dreal::drake::symbolic
         // Formula::Less guarantees the following assertion.
         assert(get_kind() == f.get_kind());
         const FormulaForallT& f_forallT{static_cast<const FormulaForallT&>(f)};
-        if (flow_->name < f_forallT.flow_->name) return true; // todo: deeper comparison
+        if (flow_->name < f_forallT.flow_->name) return true; // todo: deeper comparison / handle scoping.
         if (f_forallT.flow_->name < flow_->name) return false;
         if (lb_.Less(f_forallT.lb_)) return true;
         if (f_forallT.lb_.Less(lb_)) return false;
         if (ub_.Less(f_forallT.ub_)) return true;
         if (f_forallT.ub_.Less(ub_)) return false;
-        return this->bound_f_.Less(f_forallT.bound_f_);
+        return bound_f_.Less(f_forallT.bound_f_);
     }
 
     bool FormulaForallT::Evaluate(const Environment&) const {
@@ -121,17 +125,21 @@ namespace dreal::drake::symbolic
 
     Formula FormulaForallT::Substitute(const ExpressionSubstitution& expr_subst,
                                        const FormulaSubstitution& formula_subst) {
-        // Quantified variables are already bound and should not be substituted by s.
-        for (const auto& bvar : bound_f_.GetFreeVariables()) {
-            DREAL_ASSERT(expr_subst.count(bvar) == 0);
-            DREAL_ASSERT(formula_subst.count(bvar) == 0);
-        }
+        // PRIOR THINKING: variables in bound_f are bound, not free
+        // // Quantified variables are already bound and should not be substituted by s.
+        // for (const auto& bvar : bound_f_.GetFreeVariables()) {
+        //     DREAL_ASSERT(expr_subst.count(bvar) == 0);
+        //     DREAL_ASSERT(formula_subst.count(bvar) == 0);
+        // }
+
+        // NEW: see UPDATE comment in `ADD_DECL(VisitForallT)` of `pattern_matching_trie_form.cc`
 
         const auto new_lb = lb_.Substitute(expr_subst, formula_subst);
         const auto new_ub = ub_.Substitute(expr_subst, formula_subst);
+        const auto new_bf = bound_f_.Substitute(expr_subst, formula_subst);
 
-        if (lb_.EqualTo(new_lb) && ub_.EqualTo(new_ub)) return GetFormula();
-        else return forallT(flow_, new_lb, new_ub, bound_f_);
+        if (lb_.EqualTo(new_lb) && ub_.EqualTo(new_ub) && bound_f_.EqualTo(new_bf)) return GetFormula();
+        else return forallT(flow_, new_lb, new_ub, new_bf);
     }
 
     ostream& FormulaForallT::Display(ostream& os) const {
@@ -224,7 +232,7 @@ namespace dreal::drake::symbolic
         assert(get_kind() == e.get_kind());
         const FormulaIntegral& int_e{static_cast<const FormulaIntegral&>(e)};
 
-        if (flow_ != int_e.flow_) return false;
+        if (*flow_ != *int_e.flow_) return false;
         if (!time_0_.EqualTo(int_e.time_0_)) return false;
         if (!time_t_.EqualTo(int_e.time_t_)) return false;
         if (!equal( // checks length automatically

@@ -17,6 +17,7 @@
 
 #include <dreal/symbolic/symbolic_expression_cell.h>
 #include <dreal/symbolic/symbolic_formula_cell.h>
+#include <dreal/symbolic/odes/symbolic_odes_cell.h>
 
 #include "exception.h"
 #include "logging.h"
