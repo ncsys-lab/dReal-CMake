@@ -38,6 +38,9 @@ OptionValue<double>& Config::mutable_precision() { return precision_; }
 bool Config::produce_models() const { return produce_models_.get(); }
 OptionValue<bool>& Config::mutable_produce_models() { return produce_models_; }
 
+bool Config::visualize() const { return visualize_.get(); }
+OptionValue<bool>& Config::mutable_visualize() { return visualize_; }
+
 bool Config::use_polytope() const { return use_polytope_.get(); }
 OptionValue<bool>& Config::mutable_use_polytope() { return use_polytope_; }
 
@@ -141,6 +144,7 @@ ostream& operator<<(ostream& os, const Config& config) {
              "Config("
              "precision = {}, "
              "produce_model = {}, "
+             "visualize = {}, "
              "use_polytope = {}, "
              "use_polytope_in_forall = {}, "
              "use_worklist_fixpoint = {}, "
@@ -154,7 +158,7 @@ ostream& operator<<(ostream& os, const Config& config) {
              "sat_default_phase = {}, "
              "random_seed = {}"
              ")",
-             config.precision(), config.produce_models(), config.use_polytope(),
+             config.precision(), config.produce_models(), config.visualize(), config.use_polytope(),
              config.use_polytope_in_forall(), config.use_worklist_fixpoint(),
              config.use_local_optimization(), config.dump_theory_literals(),
              config.number_of_jobs(), config.nlopt_ftol_rel(),

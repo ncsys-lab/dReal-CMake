@@ -661,6 +661,10 @@ void Context::Impl::SetOption(const string& key, const string& val) {
     return config_.mutable_produce_models().set_from_file(
         ParseBooleanOption(key, val));
   }
+  if (key == ":visualize") {
+    return config_.mutable_visualize().set_from_file(
+        ParseBooleanOption(key, val));
+  }
   if (key == ":smtlib2-compliant" || key == ":smtlib2_compliant") {
     return config_.mutable_smtlib2_compliant().set_from_file(
         ParseBooleanOption(key, val));
