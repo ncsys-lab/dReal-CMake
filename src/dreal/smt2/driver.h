@@ -23,6 +23,7 @@
 #include "dreal/smt2/sort.h"
 #include "dreal/smt2/term.h"
 #include "dreal/solver/context.h"
+#include "dreal/util/math.h"
 #include "dreal/util/scoped_unordered_map.h"
 
 namespace dreal {
@@ -146,8 +147,10 @@ class Smt2Driver {
                       const std::vector<Term>& arguments);
 
   const std::shared_ptr<const OdeFlow>& LookupOde(const std::string& name);
-  const std::shared_ptr<const OdeFlow>& LookupOde(const int id) {
-      return LookupOde("flow_" + std::to_string(id));
+  const std::shared_ptr<const OdeFlow>& LookupOde(const double id) {
+      DREAL_ASSERT(id >= 0);
+      DREAL_ASSERT(is_integer(id));
+      return LookupOde("flow_" + std::to_string(static_cast<int>(id)));
   }
 
   static Variable ParseVariableSort(const std::string& name, Sort s);
