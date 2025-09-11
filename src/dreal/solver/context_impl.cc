@@ -321,7 +321,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           // ordering the literals like this makes pattern matching fast.
           // todo: abstract this away better. should not happen at the top-level like it is now.
           std::sort(explanation.begin(), explanation.end(), [](const Formula &a, const Formula &b) {
-              return a.GetFreeVariables().size() > b.GetFreeVariables().size(); // descending
+              return a.GetFreeVariables().size() < b.GetFreeVariables().size(); // descending
           });
 
           ////////////////////////////////////////////////////////////////////////////////
@@ -385,6 +385,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             std::cerr << ".\tM " << alcp_result.matches << " s " << explanation.size() << " i " << alcp_elapsed.count();
             std::cerr << " m.\tT " << tscs_elapsed.count() << " m.\t";
             std::cerr << "F c = " << is_full_constrained << '\n';
+            // std::cerr << explanation << '\n';
 
             // const double bb_lpms = 1 / tscs_elapsed.count();
             // const double pm_lpms = (std::max(alcp_result.matches, 1u) - 0.999) / alcp_elapsed.count();

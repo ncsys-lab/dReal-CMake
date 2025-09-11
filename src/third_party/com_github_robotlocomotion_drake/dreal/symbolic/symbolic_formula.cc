@@ -112,6 +112,13 @@ bool Formula::Less(const Formula& f) const {
   if (k2 < k1) {
     return false;
   }
+
+  // todo: look into if this improves performance.
+  // const auto ah1 = get_al_hash();
+  // const auto ah2 = f.get_al_hash();
+  // if (ah1 < ah2) return true;
+  // if (ah2 < ah1) return false;
+
   return ptr_->Less(*(f.ptr_));
 }
 
