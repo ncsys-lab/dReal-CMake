@@ -163,12 +163,12 @@ namespace dreal
 
     ADD_DECL(VisitMin) {
         stats.min_cntr++;
-        UnaryOpHelper(e, stats);
+        BinaryOpHelper(e, stats);
     }
 
     ADD_DECL(VisitMax) {
         stats.max_cntr++;
-        UnaryOpHelper(e, stats);
+        BinaryOpHelper(e, stats);
     }
 
     ADD_DECL(VisitIfThenElse) {

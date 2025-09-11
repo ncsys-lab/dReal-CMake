@@ -37,7 +37,9 @@ namespace dreal
         for (const auto& f : ordered_clause) {
             const auto& atom = is_negation(f) ? get_operand(f) : f;
             // Learned clauses MUST be a collection of normalized literals.
-            DREAL_ASSERT(is_equal_to(atom) || is_less_than(atom) || is_less_than_or_equal_to(atom) || is_forall(atom));
+            DREAL_ASSERT(
+                is_equal_to(atom) || is_less_than(atom) || is_less_than_or_equal_to(atom) || is_forall(atom) ||
+                is_integral(atom) || is_forallT(atom));
         }
         return trie.find_matches(ordered_clause, box, timeout);
     }
@@ -92,8 +94,7 @@ namespace dreal
         trie.insert(!f);
         heuristic.collect_statistics(f);
         heuristic.collect_statistics(!f);
-        const auto *const fa = to_forall(f);
-        return forall(fa->get_quantified_variables(), Convert(fa->get_quantified_formula()));
+        return f;
     }
 
     Formula PredicateNormalizer::VisitForallT(const Formula& f) {
