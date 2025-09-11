@@ -37,6 +37,38 @@ namespace dreal::drake::symbolic
     using std::vector;
     using std::string;
 
+    set<Formula> flatten_nested_boolean_structures(Formula f, bool inverted=false) {
+        if (f.get_kind() == FormulaKind::True) {
+            return {};
+        }
+        else if (f.get_kind() == FormulaKind::False) {
+            DREAL_LOG_CRITICAL("false is not a valid invariant (forall_t constraint)");
+            throw DREAL_RUNTIME_ERROR("false is not a valid invariant (forall_t constraint)");
+        }
+        else if (f.get_kind() == FormulaKind::Not) {
+            return flatten_nested_boolean_structures(get_operand(f), !inverted);
+        }
+        else if (
+            (f.get_kind() == FormulaKind::And && !inverted) ||
+            (f.get_kind() == FormulaKind::Or && inverted)
+        ) {
+            set<Formula> ret;
+            for (const auto& op : get_operands(f)) {
+                auto const nlctrs = flatten_nested_boolean_structures(op, inverted);
+                ret.insert(nlctrs.begin(), nlctrs.end());
+            }
+            return ret;
+        }
+        else if (
+            (f.get_kind() == FormulaKind::And && inverted) ||
+            (f.get_kind() == FormulaKind::Or && !inverted)
+        ) {
+            DREAL_LOG_CRITICAL("or is not a valid invariant for now, (forall_t constraint {})", f);
+            throw DREAL_RUNTIME_ERROR("or is not a valid invariant for now, (forall_t constraint)");
+        }
+        else return {inverted ? !f : f};
+    }
+
     FormulaForallT::FormulaForallT(const std::shared_ptr<const OdeFlow>& flow, const Expression& lb, const Expression& ub, const Formula& bound_f)
         : FormulaCell{
               FormulaKind::ForallT,
@@ -48,17 +80,12 @@ namespace dreal::drake::symbolic
           flow_{flow},
           lb_{lb},
           ub_{ub},
-          bound_f_{bound_f} {
-        if (!is_relational(bound_f_)) { // todo: Implement flattening like https://github.com/dreal/dreal3/blob/936dbed383e6d248c73b4095b010419a783b6d3a/src/constraint/constraint.cpp#L488
-            DREAL_ASSERT(is_conjunction(bound_f_));
-            for (const auto& conj : to_conjunction(bound_f_)->get_operands())
-                DREAL_ASSERT(is_relational(conj));
-        }
-        else { DREAL_ASSERT(is_relational(bound_f_)); }
-
-        for (const auto& var : get_bound_vars()) {
-            DREAL_ASSERT(flow->is_var(var) || flow->is_par(var));
-        }
+          bound_f_{make_conjunction(flatten_nested_boolean_structures(bound_f, false))} {
+        // the variable names are instantiated... e.g. `v_0_t`
+        // can only be viewed/assigned in the context of an integral vec_t
+        // for (const auto& var : get_bound_vars()) {
+        // DREAL_ASSERT(flow->is_var(var) xor flow->is_par(var));
+        // }
     }
 
     bool FormulaForallT::EqualTo(const FormulaCell& f) const {
