@@ -71,10 +71,11 @@ class FormulaCell {
   /// Returns true if this symbolic formula includes an ITE (If-Then-Else)
   /// expression.
   bool include_ite() const;
+  bool include_ode() const;
 
  protected:
   /** Construct FormulaCell of kind @p k with @p hash. */
-  FormulaCell(FormulaKind k, size_t hash, size_t alpha_hash, bool include_ite,
+  FormulaCell(FormulaKind k, size_t hash, size_t alpha_hash, bool include_ite, bool include_ode,
               Variables variables);
   /** Default destructor. */
   virtual ~FormulaCell() = default;
@@ -85,6 +86,7 @@ class FormulaCell {
   const FormulaKind kind_{};
   const size_t hash_{}, alpha_hash_{};
   const bool include_ite_{false};
+  const bool include_ode_{false};
   const Variables variables_;
 
   // Reference counter.

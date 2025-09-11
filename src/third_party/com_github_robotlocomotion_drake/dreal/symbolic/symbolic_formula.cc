@@ -176,6 +176,11 @@ bool Formula::include_ite() const {
   return ptr_->include_ite();
 }
 
+bool Formula::include_ode() const {
+  assert(ptr_ != nullptr);
+  return ptr_->include_ode();
+}
+
 Formula forall(const Variables& vars, const Formula& f) {
   return Formula{new FormulaForall(intersect(vars, f.GetFreeVariables()), f)};
 }

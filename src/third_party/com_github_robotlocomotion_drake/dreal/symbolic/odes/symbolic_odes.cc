@@ -21,6 +21,7 @@
 #include "dreal/symbolic/symbolic_variables.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
+#include "dreal/util/logging.h"
 #include "dreal/util/naive_cnfizer.h"
 
 namespace dreal::drake::symbolic
@@ -75,6 +76,7 @@ namespace dreal::drake::symbolic
               hash_combine(bound_f.get_hash(), flow, lb.get_hash(), ub.get_hash()),
               hash_combine(bound_f.get_al_hash(), flow, lb.get_al_hash(), ub.get_al_hash()),
               lb.include_ite() || ub.include_ite() || bound_f.include_ite(),
+              true,
               lb.GetVariables() + ub.GetVariables() // variables in bound_f are bound, not free
           },
           flow_{flow},
@@ -161,7 +163,8 @@ namespace dreal::drake::symbolic
 
     Variables extract_variables(const Expression& time_0, const Expression& time_t,
                                 const std::vector<Expression>& vec_0, const std::vector<Expression>& vec_t) {
-        Variables ret{time_0.GetVariables()};
+        Variables ret;
+        ret.insert(time_0.GetVariables());
         ret.insert(time_t.GetVariables());
         for (const auto& v : vec_0)
             ret.insert(v.GetVariables());
@@ -186,7 +189,7 @@ namespace dreal::drake::symbolic
                   alpha_hash_vec(vec_t),
                   time_0.get_al_hash(), time_t.get_al_hash(), flow->name
               ),
-              false, extract_variables(time_0, time_t, vec_0, vec_t)
+              false, true, extract_variables(time_0, time_t, vec_0, vec_t)
           },
           time_0_{time_0},
           time_t_{time_t},

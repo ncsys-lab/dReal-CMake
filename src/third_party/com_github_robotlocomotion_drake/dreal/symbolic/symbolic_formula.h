@@ -283,6 +283,7 @@ class Formula {
   /// Returns true if this symbolic formula includes an ITE (If-Then-Else)
   /// expression.
   bool include_ite() const;
+  bool include_ode() const;
 
  private:
   explicit Formula(FormulaCell* ptr);

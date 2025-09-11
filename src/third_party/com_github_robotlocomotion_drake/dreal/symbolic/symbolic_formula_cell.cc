@@ -31,11 +31,12 @@ using std::set;
 using std::string;
 
 FormulaCell::FormulaCell(const FormulaKind k, const size_t hash, const size_t alpha_hash,
-                         const bool include_ite, Variables variables)
+                         const bool include_ite, const bool include_ode, Variables variables)
     : kind_{k},
       hash_{hash_combine(hash, static_cast<size_t>(kind_))},
       alpha_hash_{hash_combine(alpha_hash, static_cast<size_t>(kind_), variables.size())},
       include_ite_{include_ite},
+      include_ode_{include_ode},
       variables_{std::move(variables)} {}
 
 Formula FormulaCell::GetFormula() { return Formula{this}; }
@@ -43,13 +44,14 @@ Formula FormulaCell::GetFormula() { return Formula{this}; }
 const Variables& FormulaCell::GetFreeVariables() const { return variables_; }
 
 bool FormulaCell::include_ite() const { return include_ite_; }
+bool FormulaCell::include_ode() const { return include_ode_; }
 
 RelationalFormulaCell::RelationalFormulaCell(const FormulaKind k,
                                              const Expression& lhs,
                                              const Expression& rhs)
     : FormulaCell{k, hash_combine(lhs.get_hash(), rhs),
                   hash_combine(lhs.get_al_hash(), rhs.get_al_hash()),
-                  lhs.include_ite() || rhs.include_ite(),
+                  lhs.include_ite() || rhs.include_ite(), false,
                   lhs.GetVariables() + rhs.GetVariables()},
       e_lhs_{lhs},
       e_rhs_{rhs} {}
@@ -83,8 +85,8 @@ size_t alpha_hash_set(const set<Formula> &set) {
 
 NaryFormulaCell::NaryFormulaCell(const FormulaKind k, set<Formula> formulas)
     : FormulaCell{k, hash_value<set<Formula>>{}(formulas), alpha_hash_set(formulas),
-                  any_of(formulas.begin(), formulas.end(),
-                         [](const Formula& f) { return f.include_ite(); }),
+        any_of(formulas.begin(), formulas.end(), [](const Formula& f) { return f.include_ite(); }),
+        any_of(formulas.begin(), formulas.end(), [](const Formula& f) { return f.include_ode(); }),
                   ExtractFreeVariables(formulas)},
       formulas_{std::move(formulas)} {}
 
@@ -132,7 +134,7 @@ ostream& NaryFormulaCell::DisplayWithOp(ostream& os, const string& op) const {
 }
 
 FormulaTrue::FormulaTrue()
-    : FormulaCell{FormulaKind::True, hash<string>{}("True"), hash<string>{}("True"), false,
+    : FormulaCell{FormulaKind::True, hash<string>{}("True"), hash<string>{}("True"), false, false,
                   Variables{}} {}
 
 bool FormulaTrue::EqualTo(const FormulaCell& f) const {
@@ -158,7 +160,7 @@ Formula FormulaTrue::Substitute(const ExpressionSubstitution&,
 ostream& FormulaTrue::Display(ostream& os) const { return os << "True"; }
 
 FormulaFalse::FormulaFalse()
-    : FormulaCell{FormulaKind::False, hash<string>{}("False"), hash<string>{}("False"), false,
+    : FormulaCell{FormulaKind::False, hash<string>{}("False"), hash<string>{}("False"), false, false,
                   Variables{}} {}
 
 bool FormulaFalse::EqualTo(const FormulaCell& f) const {
@@ -184,7 +186,7 @@ Formula FormulaFalse::Substitute(const ExpressionSubstitution&,
 ostream& FormulaFalse::Display(ostream& os) const { return os << "False"; }
 
 FormulaVar::FormulaVar(const Variable& v)
-    : FormulaCell{FormulaKind::Var, hash_value<Variable>{}(v), 41, false, {v}},
+    : FormulaCell{FormulaKind::Var, hash_value<Variable>{}(v), 41, false, false, {v}},
       var_{v} {
   // Dummy symbolic variable (ID = 0) should not be used in constructing
   // symbolic formulas.
@@ -509,7 +511,7 @@ ostream& FormulaOr::Display(ostream& os) const {
 }
 
 FormulaNot::FormulaNot(const Formula& f)
-    : FormulaCell{FormulaKind::Not, f.get_hash(), f.get_al_hash(), f.include_ite(),
+    : FormulaCell{FormulaKind::Not, f.get_hash(), f.get_al_hash(), f.include_ite(), f.include_ode(),
                   f.GetFreeVariables()},
       f_{f} {}
 
@@ -547,7 +549,7 @@ ostream& FormulaNot::Display(ostream& os) const {
 
 FormulaForall::FormulaForall(const Variables& vars, Formula f)
     : FormulaCell{FormulaKind::Forall, hash_combine(vars.get_hash(), f), hash_combine(vars.get_hash(), f),
-                  f.include_ite(), f.GetFreeVariables() - vars},
+                  f.include_ite(), f.include_ode(), f.GetFreeVariables() - vars},
       vars_{vars},
       f_{std::move(f)} {}
 
