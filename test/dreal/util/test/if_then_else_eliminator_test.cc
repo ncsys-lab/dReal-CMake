@@ -108,20 +108,28 @@ TEST_F(IfThenElseEliminatorTest, NestedITEs) {
   const Formula f{e > 0};
   IfThenElseEliminator ite_elim;
   const Formula processed{ite_elim.Process(f)};
+  // EXPECT_EQ(processed.to_string(),
+  //           "((ITE1 > 0) and (b3 or (ITE1 == ITE3)) and ((ITE1 == ITE2) or "
+  //           "!(b3)) and ((ITE2 == x) or !((b1 and b3))) and ((ITE2 == y) or "
+  //           "!((b3 and !(b1)))) and ((ITE3 == z) or !((b2 and !(b3)))) and "
+  //           "((ITE3 == w) or !((!(b2) and !(b3)))))");
   EXPECT_EQ(processed.to_string(),
-            "((ITE1 > 0) and (b3 or (ITE1 == ITE3)) and ((ITE1 == ITE2) or "
-            "!(b3)) and ((ITE2 == x) or !((b1 and b3))) and ((ITE2 == y) or "
-            "!((b3 and !(b1)))) and ((ITE3 == z) or !((b2 and !(b3)))) and "
-            "((ITE3 == w) or !((!(b2) and !(b3)))))");
+            "((ITE3 > 0) and (b3 or (ITE3 == ITE5)) and ((ITE3 == ITE4) or "
+            "!(b3)) and ((ITE4 == x) or !((b1 and b3))) and ((ITE4 == y) or "
+            "!((b3 and !(b1)))) and ((ITE5 == z) or !((b2 and !(b3)))) and "
+            "((ITE5 == w) or !((!(b2) and !(b3)))))");
 }
 
 TEST_F(IfThenElseEliminatorTest, ITEsInForall) {
   const Formula f{forall({y_}, if_then_else(x_ > y_, x_, y_) > 0)};
   IfThenElseEliminator ite_elim;
   const Formula processed{ite_elim.Process(f)};
+  // EXPECT_EQ(processed.to_string(),
+  //           "forall({y, ITE4}. ((ITE4 > 0) or ((x > y) and !((ITE4 == x))) or "
+  //           "(!((ITE4 == y)) and !((x > y)))))");
   EXPECT_EQ(processed.to_string(),
-            "forall({y, ITE4}. ((ITE4 > 0) or ((x > y) and !((ITE4 == x))) or "
-            "(!((ITE4 == y)) and !((x > y)))))");
+            "forall({y, ITE6}. ((ITE6 > 0) or ((x > y) and !((ITE6 == x))) or "
+            "(!((ITE6 == y)) and !((x > y)))))");
 }
 
 }  // namespace
