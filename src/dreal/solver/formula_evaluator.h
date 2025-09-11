@@ -107,6 +107,8 @@ class FormulaEvaluator {
 
   friend FormulaEvaluator make_relational_formula_evaluator(const Formula& f);
 
+  friend FormulaEvaluator make_ode_formula_evaluator(const Formula& f);
+
   friend FormulaEvaluator make_forall_formula_evaluator(const Formula& f,
                                                         double epsilon,
                                                         double delta,
@@ -115,6 +117,8 @@ class FormulaEvaluator {
 
 /// Creates FormulaEvaluator for a relational formula @p f using @p variables.
 FormulaEvaluator make_relational_formula_evaluator(const Formula& f);
+
+FormulaEvaluator make_ode_formula_evaluator(const Formula& f);
 
 /// Creates FormulaEvaluator for a universally quantified formula @p f
 /// using @p variables, @p epsilon, @p delta, and @p number_of_jobs.

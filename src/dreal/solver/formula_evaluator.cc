@@ -21,7 +21,7 @@
 #include "dreal/solver/expression_evaluator.h"
 #include "dreal/solver/forall_formula_evaluator.h"
 #include "dreal/solver/formula_evaluator_cell.h"
-#include "dreal/solver/relational_formula_evaluator.h"
+#include "dreal/solver/odes/ode_formula_evaluator.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
 
@@ -86,6 +86,10 @@ ostream& operator<<(ostream& os, const FormulaEvaluator& evaluator) {
 
 FormulaEvaluator make_relational_formula_evaluator(const Formula& f) {
   return FormulaEvaluator{make_shared<RelationalFormulaEvaluator>(f)};
+}
+
+FormulaEvaluator make_ode_formula_evaluator(const Formula& f) {
+  return FormulaEvaluator{make_shared<OdeFormulaEvaluator>(f)};
 }
 
 FormulaEvaluator make_forall_formula_evaluator(const Formula& f,

@@ -61,8 +61,9 @@ class FormulaEvaluatorCell {
 
   virtual std::ostream& Display(std::ostream& os) const = 0;
 
+ protected:
+    const Formula f_;
  private:
-  const Formula f_;
   const bool is_simple_relational_{false};
   const bool is_neq_{false};
 };
