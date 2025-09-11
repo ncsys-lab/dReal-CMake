@@ -77,7 +77,7 @@
 %token TK_POP TK_PUSH TK_RESET TK_RESET_ASSERTIONS TK_SET_INFO
 %token TK_SET_LOGIC TK_SET_OPTION
 
-%token TK_DEFINEODE TK_DDT TK_LB TK_RB TK_COMMA TK_FORALLT TK_INTEGRAL
+%token TK_DEFINEODE TK_DDT TK_FORALLT TK_INTEGRAL
 
 %token TK_PLUS TK_MINUS TK_TIMES TK_DIV
 %token TK_EQ TK_LTE TK_GTE TK_LT TK_GT
@@ -109,6 +109,8 @@
 
 %type <std::pair<Variable, Expression>>              ode
 %type <std::vector<std::pair<Variable, Expression>>> ode_list
+%type <double>                                       double_or_int_value
+%type <std::string>                                  ignored_dreal3_precision_value
 
 %{
 
@@ -321,11 +323,11 @@ term:           TK_TRUE { $$ = Formula::True(); }
                 YYABORT;
             }
         }
-        |       '('TK_LT term term ')'  { $$ = $3.expression() <  $4.expression(); }
-        |       '('TK_LTE term term ')' { $$ = $3.expression() <= $4.expression(); }
-        |       '('TK_GT term term ')'  { $$ = $3.expression() >  $4.expression(); }
-        |       '('TK_GTE term term ')' { $$ = $3.expression() >= $4.expression(); }
-        |       '('TK_AND term_list ')' {
+        |       '('TK_LT term term ignored_dreal3_precision_value ')'  { $$ = $3.expression() <  $4.expression(); }
+        |       '('TK_LTE term term ignored_dreal3_precision_value ')' { $$ = $3.expression() <= $4.expression(); }
+        |       '('TK_GT term term ignored_dreal3_precision_value ')'  { $$ = $3.expression() >  $4.expression(); }
+        |       '('TK_GTE term term ignored_dreal3_precision_value ')' { $$ = $3.expression() >= $4.expression(); }
+        |       '('TK_AND term_list ignored_dreal3_precision_value ')' {
             Formula f = Formula::True();
             for (const Term& t : $3) {
                 f = f && t.formula();
@@ -388,14 +390,14 @@ term:           TK_TRUE { $$ = Formula::True(); }
 	    }
         }
 
-        | '(' TK_FORALLT INT TK_LB term term TK_RB term_list ')' {
+        | '(' TK_FORALLT double_or_int_value '[' term term ']' term_list ')' {
             Formula f = Formula::True();
             for (const Term& t : $8) f = f && t.formula();
             $$ = forallT(driver.LookupOde($3), $5.expression(), $6.expression(), f);
         }
 
-        | '(' TK_EQ TK_LB term_list TK_RB
-                '(' TK_INTEGRAL term term TK_LB term_list TK_RB SYMBOL ')'
+        | '(' TK_EQ '[' term_list ']'
+                '(' TK_INTEGRAL term term '[' term_list ']' SYMBOL ')'
         ')'
         {
             std::vector<Expression> vec_0_expr($11.size());
@@ -564,9 +566,9 @@ name_sort_list: /* empty list */ { $$ = std::vector<Variable>{}; }
         }
         ;
 
-ode: '(' TK_EQ TK_DDT TK_LB SYMBOL TK_RB term ')' {
+ode: '(' TK_EQ TK_DDT '[' SYMBOL ']' term ')' {
           $$ = std::pair<Variable, Expression>();
-          $$.first = Variable{driver.DeclareLocalVariable($5, Sort::Real)};
+          $$.first = Variable{driver.lookup_variable($5)};
           $$.second = $7.expression();
         }
         ;
@@ -577,6 +579,16 @@ ode_list: /* empty list */ { $$ = std::vector<std::pair<Variable, Expression>>{}
 	    $$ = $1;
         }
         ;
+
+double_or_int_value
+  : DOUBLE             { $$ = std::stod($1); }
+  | INT                { $$ = static_cast<double>($1); }
+  ;
+
+ignored_dreal3_precision_value
+  : '[' DOUBLE ']'             { $$ = ""; }
+  |                            { $$ = ""; }
+  ;
 
 variable_sort_list: /* empty list */ { $$ = std::pair<Variables, Formula>(Variables{}, Formula::True()); }
         |       variable_sort variable_sort_list {

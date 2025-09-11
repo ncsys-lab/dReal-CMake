@@ -135,9 +135,6 @@ simple_symbol   {sym_begin}{sym_continue}*
 
 "define-ode"            { return Smt2Parser::token::TK_DEFINEODE; } // from dReal3
 "d/dt"                  { return Smt2Parser::token::TK_DDT; }       // from dReal3
-"["                     { return Smt2Parser::token::TK_LB; }        // from dReal3
-"]"                     { return Smt2Parser::token::TK_RB; }        // from dReal3
-","                     { return Smt2Parser::token::TK_COMMA; }     // from dReal3
 "forall_t"              { return Smt2Parser::token::TK_FORALLT; }   // from dReal3
 "integral"              { return Smt2Parser::token::TK_INTEGRAL; }  // from dReal3
 
