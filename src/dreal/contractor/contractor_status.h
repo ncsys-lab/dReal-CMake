@@ -53,6 +53,8 @@ class ContractorStatus {
   /// Returns explanation, a list of formula responsible for the unsat.
   std::set<Formula> Explanation() const;
 
+  const std::set<Formula>& UsedConstraints() const { return used_constraints_; }
+
   /// Add a formula @p f into the used constraints.
   void AddUsedConstraint(const Formula& f);
 
