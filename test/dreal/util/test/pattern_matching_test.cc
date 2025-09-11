@@ -171,12 +171,15 @@ namespace dreal
 
         TEST_F(PatternMatchingTest, IntegralExpressions) {
             PatternMatchingTrie trie;
-            auto pattern = integral(t0, t0 / t1, {pow(x1, y1), x2}, {y1, y2}, flow2);
+            auto pattern = integral(t0, t1, {x1, x2}, {y1, y2}, flow2);
 
             std::vector matches{
-                integral(t2, t2 / t1, {pow(x1, y1), x2}, {y1, y2}, flow2),
-                integral(t0, t0 / t1, {pow(x1, z1), x2}, {z1, y2}, flow2),
-                integral(t1, t1 / t0, {pow(y1, x1), y2}, {x1, x2}, flow2)
+                integral(t0, t1, {x1, x2}, {y1, y2}, flow2),
+                integral(t1, t0, {x1, x2}, {y1, y2}, flow2),
+                integral(t1, t2, {x1, x2}, {y1, y2}, flow2),
+                integral(t0, t2, {x1, x2}, {y1, y2}, flow2),
+                integral(t0, t1, {z1, x2}, {y1, y2}, flow2),
+                integral(t0, t1, {y1, y2}, {x1, x2}, flow2),
             };
             std::vector misses{
                 forallT(flow1, 1, t2, (x1 < 2) && (y1 > 3)),
@@ -184,13 +187,15 @@ namespace dreal
                 forallT(flow1, 0, t1, (z1 < 2) && (y1 > 3)),
                 forallT(flow1, 0, t1, (x1 < 2) && (y1 > 4)),
 
-                integral(t0, t0 / t1, {pow(x1, y1), x2, z1, z2}, {y1, y2, y1, y2}, flow3),
-                integral(t2, t2 / t1, {pow(x1, y1), x2, z1}, {y1, y2, z1}, flow1),
-                integral(t0, t0 / t1, {pow(x1, y1), x2, x1}, {y1, y2, z1}, flow1),
-                integral(t0, t1, {pow(x1, y1), x2}, {y1, y2}, flow2),
-                integral(t0, t0 / t1, {x1 * y1, x2}, {y1, y2}, flow2),
-                integral(t0, t0 / t1, {y1, y2}, {x1 + y1, x2}, flow2),
-                integral(t0, t0 / t1, {pow(x1, y1), x2}, {y1, x2}, flow2),
+                integral(t0, t1, {x1, x2, z1}, {y1, y2, z2}, flow1),
+                integral(t1, t2, {x1, x2, z1, z2}, {y1, y2, z1, z2}, flow3),
+                integral(t0, t2, {x1, x2, z1}, {y1, y2, z2}, flow1),
+                integral(t0, t1, {z1, x2, z1, z2}, {y1, y2, z1, z2}, flow3),
+                integral(t0, t1, {y1, y2, z1}, {x1, x2, z2}, flow1),
+
+                integral(t0, t1, {x2, x2}, {y1, y2}, flow2),
+                integral(t0, t0, {x1, x2}, {y1, y2}, flow2),
+                integral(t0, t1, {x1, x2}, {x1, y2}, flow2)
             };
 
             test_matches_and_misses(pattern, matches, misses);
