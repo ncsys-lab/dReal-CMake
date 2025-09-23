@@ -112,4 +112,6 @@ std::string ToPrefix(const Expression& e);
 /// Returns the prefix-string representation of the formula @p e.
 std::string ToPrefix(const Formula& f);
 
+std::string ToPrefix(const OdeFlow& flow);
+
 }  // namespace dreal
