@@ -19,6 +19,7 @@
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
 #include "dreal/version.h"
+#include "dreal/symbolic/odes/symbolic_odes_cell.h"
 
 namespace dreal
 {
@@ -75,11 +76,25 @@ namespace dreal
         theory_audit_formula(label, make_disjunction(lits), box);
     }
 
+    void get_odeflows(const Formula& f, const std::function<void(const std::shared_ptr<const OdeFlow>&)>& callback) {
+        if (!f.include_ode()) { /*no-op*/ }
+        else if (is_forallT(f)) callback(to_forallT(f)->get_flow());
+        else if (is_integral(f)) callback(to_integral(f)->get_flow());
+        else if (is_negation(f)) get_odeflows(get_operand(f), callback);
+        else if (is_conjunction(f) || is_disjunction(f)) for (const auto& op : get_operands(f)) get_odeflows(op, callback);
+        else
+            DREAL_UNREACHABLE();
+    }
+
     void theory_audit_formula(const std::string& label, const Formula& formula, const std::optional<Box>& box) {
         // the operands passed here are expensive to produce, so really shouldn't be called unnecessarily.
         DREAL_ASSERT(DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED);
 
-        const auto& vs = formula.GetFreeVariables();
+        auto /*copy*/ vs = formula.GetFreeVariables();
+
+        std::set<std::shared_ptr<const OdeFlow>> flows;
+        get_odeflows(formula, [&](const std::shared_ptr<const OdeFlow>& _) { flows.insert(_); });
+        for (const auto& odeflow : flows) for (const auto& [var, _] : odeflow->ode_list) vs.insert(var);
 
         std::string lemma_comment;
         {
@@ -101,7 +116,7 @@ namespace dreal
         myfile.open("/tmp/dreal_audit/lemma" + std::to_string(audit_no++) + ".smt2");
 
         myfile << "\n" << lemma_comment << "\n\n";
-
+        myfile << "(set-logic QF_NRA_ODE)\n";
         for (const auto& v : vs) {
             myfile << "(declare-const " << v << " Real)\n";
             if (box) {
@@ -110,10 +125,11 @@ namespace dreal
                 if (isfinite(boxv.ub())) myfile << "(assert " << ToPrefix(v <= boxv.ub()) << " )\n";
             }
         }
+        for (const auto& odeflow : flows) myfile << ToPrefix(*odeflow) << '\n';
 
         myfile << "(assert " << ToPrefix(!formula) << " )\n";
 
-        myfile << "(check-sat)(get-model)(exit)" << std::endl;
+        myfile << "(check-sat)(exit)" << std::endl;
         myfile.flush();
         myfile.close();
     }
