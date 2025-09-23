@@ -372,7 +372,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             // the pattern matching is kinda best-effort now.
             // it breaks down when one clause pattern matches into 1000s of permutations of itself
             // just make the best effort, and at the very minimum make sure the original at least gets inserted
-            sat_solver->AddLearnedClauseUnboxed(explanation); // just to be sure, sound because this is unmatched, straight from theory solver.
+            sat_solver->AddLearnedClauseDirect(explanation, box); // just to be sure, sound because this is unmatched, straight from theory solver.
 
             const auto alcp_end = std::chrono::high_resolution_clock::now();
             const std::chrono::duration<double, std::milli> alcp_elapsed = alcp_end - alcp_start;
@@ -401,7 +401,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             // std::cerr << ".\tA 1 s " << explanation.size() << " d.\t";
             // std::cerr << "T " << tscs_elapsed.count() << " m.\t";
             // std::cerr << "F c = " << is_full_constrained << '\n';
-            sat_solver->AddLearnedClauseUnboxed(explanation);
+            sat_solver->AddLearnedClauseDirect(explanation, box);
           }
           ////////////////////////////////////////////////////////////////////////////////
 

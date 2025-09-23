@@ -12,10 +12,10 @@
 
 namespace dreal
 {
-    void SatSolver::AddLearnedClauseUnboxed(
-        const std::vector<Formula>& conflicting_conjunction
+    void SatSolver::AddLearnedClauseDirect(
+        const std::vector<Formula>& conflicting_conjunction, const Box& unfitted_box
     ) {
-        sat_log_label_clause("SatSolver::AddLearnedClauseUnboxed");
+        sat_log_label_clause("SatSolver::AddLearnedClauseDirect");
         for (const Formula& f : conflicting_conjunction) {
             AddLiteral(!predicate_abstractor_.Convert(f));
         }
@@ -25,7 +25,7 @@ namespace dreal
         if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
             std::vector<Formula> a;
             for (const Formula& f : conflicting_conjunction) a.emplace_back(!predicate_abstractor_.Convert(f));
-            theory_audit_literals("AddLearnedClauseUnboxed", predicate_abstractor_, a, {});
+            theory_audit_literals("AddLearnedClauseDirect", predicate_abstractor_, a, unfitted_box);
         }
     }
 
@@ -166,7 +166,7 @@ namespace dreal
         for (const auto& [conflict_clause, subs] : all_related_conflicts) {
             // const auto conflict_box = substitutions_map::apply_substitution(base_box, subs, true);
             // AddLearnedClause(pn, conflict_clause, conflict_box);
-            AddLearnedClauseUnboxed(conflict_clause);
+            AddLearnedClauseDirect(conflict_clause, base_box);
         }
         return match_statistics;
     }
@@ -196,7 +196,7 @@ namespace dreal
             // (x < Ub) => (x < Ub+ε)
             // = ~(x < Ub) \/ (x < Ub+ε)
             // = ~((x < Ub) /\ ~(x < Ub+ε))
-            AddLearnedClauseUnboxed({ub_pred, !gt.second});
+            AddLearnedClauseDirect({ub_pred, !gt.second}, {});
         }
         if (ub_gte_it != var_ub_preds.begin()) {
             --ub_gte_it;
@@ -207,7 +207,7 @@ namespace dreal
             // (x < Ub-ε) => (x < Ub)
             // = ~(x < Ub-ε) \/ (x < Ub)
             // = ~((x < Ub-ε) /\ ~(x < Ub))
-            AddLearnedClauseUnboxed({lt.second, !ub_pred});
+            AddLearnedClauseDirect({lt.second, !ub_pred}, {});
         }
         var_ub_preds[ub] = ub_pred;
         return {ub_pred, false};
@@ -238,7 +238,7 @@ namespace dreal
             // (Lb+ε < x) => (Lb < x)
             // = ~(Lb+ε < x) \/ (Lb < x)
             // = ~((Lb+ε < x) /\ ~(Lb < x))
-            AddLearnedClauseUnboxed({gt.second, !lb_pred});
+            AddLearnedClauseDirect({gt.second, !lb_pred}, {});
         }
         if (lb_gte_it != var_lb_preds.begin()) {
             --lb_gte_it;
@@ -249,7 +249,7 @@ namespace dreal
             // (Lb < x) => (Lb-ε < x)
             // = ~(Lb < x) \/ (Lb-ε < x)
             // = ~((Lb < x) /\ ~(Lb-ε < x))
-            AddLearnedClauseUnboxed({lb_pred, !lt.second});
+            AddLearnedClauseDirect({lb_pred, !lt.second}, {});
         }
         var_lb_preds[lb] = lb_pred;
         return {lb_pred, false};
