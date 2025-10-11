@@ -45,6 +45,7 @@ class FormulaCell {
   FormulaKind get_kind() const { return kind_; }
   /** Returns hash of formula. */
   size_t get_hash() const { return hash_; }
+  size_t get_al_hash() const { return alpha_hash_; }
   /** Returns set of free variables in formula. */
   const Variables& GetFreeVariables() const;
   /** Checks structural equality. */
@@ -73,7 +74,7 @@ class FormulaCell {
 
  protected:
   /** Construct FormulaCell of kind @p k with @p hash. */
-  FormulaCell(FormulaKind k, size_t hash, bool include_ite,
+  FormulaCell(FormulaKind k, size_t hash, size_t alpha_hash, bool include_ite,
               Variables variables);
   /** Default destructor. */
   virtual ~FormulaCell() = default;
@@ -82,7 +83,7 @@ class FormulaCell {
 
  private:
   const FormulaKind kind_{};
-  const size_t hash_{};
+  const size_t hash_{}, alpha_hash_{};
   const bool include_ite_{false};
   const Variables variables_;
 

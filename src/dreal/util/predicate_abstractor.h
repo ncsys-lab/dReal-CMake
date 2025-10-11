@@ -19,12 +19,19 @@
 #include <unordered_map>
 #include <vector>
 
+#include "assert.h"
 #include "dreal/symbolic/symbolic.h"
 
 namespace dreal {
 
 class PredicateAbstractor {
  public:
+
+  PredicateAbstractor() {
+    formula_to_var_map_.max_load_factor(0.25);
+    var_to_formula_map_.max_load_factor(0.25);
+  }
+
   /// Converts a first-order logic formula @p f into a Boolean formula
   /// by predicate abstraction. For example, a formula `(x > 0) ∧ (y <
   /// 0)` will be converted into `b₁ ∧ b₂` while `b₁` corresponds with
@@ -43,10 +50,12 @@ class PredicateAbstractor {
   }
 
   const Variable& operator[](const Formula& f) const {
+    DREAL_ASSERT(formula_to_var_map_.count(f)); // creates debuggable stack trace
     return formula_to_var_map_.at(f);
   }
 
   const Formula& operator[](const Variable& var) const {
+    DREAL_ASSERT(var_to_formula_map_.count(var)); // creates debuggable stack trace
     return var_to_formula_map_.at(var);
   }
 

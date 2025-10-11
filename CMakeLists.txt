@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.30)
+cmake_minimum_required(VERSION 3.16)
 project(dreal4_cmake)
 include(CMakePrintHelpers)
 
@@ -52,6 +52,8 @@ set(LIBCDS_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_khizmax_libcds
 set(JSON_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_nlohmann_json/")
 set(PICOSAT_HOME "${PROJECT_SOURCE_DIR}/src/third_party/com_github_dreal-deps_picosat/")
 
+unset(DREAL_SOURCES)
+unset(DREAL_SOURCES CACHE)
 file(GLOB_RECURSE DREAL_SOURCES
         "${PROJECT_SOURCE_DIR}/src/dreal/*/**.cc"
         "${PROJECT_SOURCE_DIR}/src/dreal/*/**.yy"
@@ -61,7 +63,7 @@ file(GLOB_RECURSE DREAL_SOURCES
         "${LIBCDS_HOME}/src/**.cpp"
         "${PICOSAT_HOME}/src/**.c"
 )
-add_library(dreal4_cmake
+add_library(dreal4_cmake STATIC
         ${DREAL_SOURCES}
         ${BISON_smt2_parser_OUTPUTS} ${FLEX_smt2_scanner_OUTPUTS}
         ${BISON_dr_parser_OUTPUTS} ${FLEX_dr_scanner_OUTPUTS}
@@ -79,8 +81,9 @@ target_include_directories(dreal4_cmake PUBLIC
 )
 
 # system dependencies
+find_library(   FLEX_LIB NAMES libfl.a    HINTS "${FLEX_ROOT}" PATH_SUFFIXES lib libs lib32 lib64 REQUIRED NO_CACHE)
 target_include_directories(dreal4_cmake PUBLIC "${FLEX_INCLUDE_DIRS}")
-target_link_libraries(dreal4_cmake PUBLIC "${FLEX_LIBRARIES}")
+target_link_libraries(dreal4_cmake PUBLIC "${FLEX_LIB}")
 
 find_path(       GMP_INC NAMES gmpxx.h    HINTS "${GMP_ROOT}" PATH_SUFFIXES include includes     REQUIRED NO_CACHE)
 find_library(  GMP_C_LIB NAMES libgmp.a   HINTS "${GMP_ROOT}" PATH_SUFFIXES lib libs lib32 lib64 REQUIRED NO_CACHE)
@@ -106,7 +109,7 @@ include(FetchContent)
 FetchContent_Declare(
         ibex
         GIT_REPOSITORY https://github.com/ncsys-lab/ibex-lib
-        GIT_TAG 4d61b84139eaeab628506d9edaf5fd8879a3302e)  # Kunal's M1 + namespace fixes
+        GIT_TAG 33408ed0733da56979ddf797473609d4c39ea1ea)  # Kunal's M1 + namespace fixes
 FetchContent_MakeAvailable(ibex)
 
 FetchContent_Declare(
@@ -154,6 +157,9 @@ target_link_libraries(
         dreal4_cmake PUBLIC ibex nlopt spdlog::spdlog fmt::fmt
 )
 
+# On some platforms, linking is purely sequential, and the order you specify libraries in matters.
+# I am repeating these libraries from above so that everything gets resolved on Ubuntu
+target_link_libraries(dreal4_cmake PUBLIC "${GMP_C_LIB}" "${GMP_CXX_LIB}")
 
 # executable
 add_executable(dreal4 "${PROJECT_SOURCE_DIR}/src/dreal/dreal_main.cc")

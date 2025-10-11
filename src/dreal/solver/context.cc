@@ -113,7 +113,26 @@ optional<string> Context::GetOption(const string& key) const {
 const Config& Context::config() const { return impl_->config(); }
 Config& Context::mutable_config() { return impl_->mutable_config(); }
 
-string Context::version() { return DREAL_VERSION_STRING; }
+string Context::version() {
+  std::ostringstream oss;
+  oss << DREAL_VERSION_FULL << '.';
+  oss << DREAL_VERSION_MAJOR << '.';
+  oss << DREAL_VERSION_MINOR << '.';
+  oss << DREAL_VERSION_REVISION << '.';
+
+  oss << "patmat" << pattern_matching_mode << '.';
+  oss << "parmod" << partial_model_mode << '.';
+
+  oss << "audit" <<
+    static_cast<int>(DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) <<
+    static_cast<int>(DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED);
+
+#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
+  oss << ".GENERATE_CSV";
+#endif
+
+  return oss.str();
+}
 
 const Box& Context::box() const { return impl_->box(); }
 

@@ -67,7 +67,7 @@ namespace dreal
             for (const auto& miss : misses1) trie.insert(miss);
             for (const auto& miss : misses2) trie.insert(miss);
             std::set<T1> found;
-            for (const auto& [form, subs] : trie.find_matches(pattern)) {
+            for (const auto& [form, subs] : trie.find_matches(pattern, Box{}).first) {
                 // check substitutions are correct and injective:
                 EXPECT_TRUE(substitutions_map::apply_substitution(form, subs, false).EqualTo(pattern));
                 EXPECT_TRUE(substitutions_map::apply_substitution(pattern, subs, true).EqualTo(form));
@@ -87,10 +87,12 @@ namespace dreal
             for (const auto& match : matches) {
                 EXPECT_EQ(found.count(match), 1);
                 std::cout << pattern << " MATCHES " << match << std::endl;
+                EXPECT_EQ(match.get_al_hash(), pattern.get_al_hash());
             }
             for (const auto& miss : misses1) {
                 EXPECT_EQ(found.count(miss), 0);
                 std::cout << pattern << " MISSES " << miss << std::endl;
+                // EXPECT_NE(miss.get_al_hash(), pattern.get_al_hash());
             }
         }
 
@@ -104,10 +106,13 @@ namespace dreal
                 y2 == atan(x2),
             };
             for (const auto& lit : literals) trie.insert(lit);
-            const auto related_clauses = trie.find_matches(
-                {y1 == sin(x1), y1 == atan(x1)}
+            const auto [related_clauses, stats] = trie.find_matches(
+                {y1 == sin(x1), y1 == atan(x1)}, Box{}
             );
+            EXPECT_EQ(stats.misses.bc_bij, 2);
+            EXPECT_EQ(stats.matches, 2);
             EXPECT_EQ(related_clauses.size(), 2);
+            // EXPECT_EQ(trie.estimate_branches(y1 == sin(x1)), 12);
 
             // todo: make less brittle... depends on hash values.
             EXPECT_TRUE(related_clauses[0].first[0].EqualTo(y1 == sin(x1)));
@@ -542,12 +547,12 @@ namespace dreal
                     pattern.Substitute({{x1, p1}, {x2, p2}}),
                 };
                 for (const auto& match : matches) {
-                    const auto found = trie.find_matches(match);
+                    const auto found = trie.find_matches(match, Box{}).first;
                     EXPECT_EQ(found.size(), 1);
                     std::cout << pattern << " MATCHES " << match << std::endl;
                 }
                 for (const auto& miss : misses) {
-                    const auto found = trie.find_matches(miss);
+                    const auto found = trie.find_matches(miss, Box{}).first;
                     EXPECT_EQ(found.size(), 0);
                     std::cout << pattern << " MISSES " << miss << std::endl;
                 }

@@ -184,6 +184,7 @@ class Expression {
   ExpressionKind get_kind() const;
   /** Returns hash value. */
   size_t get_hash() const;
+  size_t get_al_hash() const;
   /** Collects variables in expression. */
   const Variables& GetVariables() const;
 

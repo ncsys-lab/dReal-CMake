@@ -75,6 +75,11 @@ size_t Formula::get_hash() const {
   return ptr_->get_hash();
 }
 
+size_t Formula::get_al_hash() const {
+  assert(ptr_ != nullptr);
+  return ptr_->get_al_hash();
+}
+
 const Variables& Formula::GetFreeVariables() const {
   assert(ptr_ != nullptr);
   return ptr_->GetFreeVariables();
@@ -221,6 +226,22 @@ Formula Formula::make_conjunction(Formula& f1, const Formula& f2) {
     return f1 = Formula{new FormulaAnd(std::move(operands))};
   }
   return f1 = Formula{new FormulaAnd(set<Formula>{f1, f2})};
+}
+
+Formula make_conjunction_SKIP_CHECKS_KUNAL_HACK(set<Formula> formulas) { // copy because move later.
+  for (const Formula& f : formulas) {
+    DREAL_ASSERT(!is_false(f));
+    DREAL_ASSERT(!is_true(f));
+    DREAL_ASSERT(!is_conjunction(f));
+  }
+  if (formulas.empty()) {
+    // ⋀{} = True
+    return Formula::True();
+  }
+  if (formulas.size() == 1) {
+    return *(formulas.begin());
+  }
+  return Formula{new FormulaAnd(std::move(formulas))};
 }
 
 Formula make_conjunction(const set<Formula>& formulas) {

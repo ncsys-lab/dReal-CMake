@@ -32,10 +32,11 @@
 #include "dreal/util/scoped_unordered_map.h"
 #include "dreal/util/scoped_unordered_set.h"
 #include "dreal/util/tseitin_cnfizer.h"
+#include "dreal/version.h"
 
 namespace dreal {
 
-class SatSolver {
+class SatSolver : public CaDiCaL::Learner {
  public:
   using Literal = std::pair<Variable, bool>;
 
@@ -68,17 +69,32 @@ class SatSolver {
 
   /// Given a @p formulas = {f₁, ..., fₙ}, adds a clause (¬f₁ ∨ ... ∨ ¬ fₙ) to
   /// the solver.
-  void AddLearnedClause(const std::set<Formula>& conflicting_conjunction, const Box& box);
-  void AddLearnedClausePattern(PredicateNormalizer& pn, const std::set<Formula>& base_conflict, const Box& base_box);
-  void AddBox(PredicateNormalizer& pn, const Box& base_box);
+  void AddLearnedClauseUnboxed(const std::vector<Formula>& conflicting_conjunction);
 
-  Formula MakeSatIntervalVar(PredicateNormalizer& pn, const Variable& var, const Box::Interval& intv);
+  // void AddLearnedClause(PredicateNormalizer& pn, const std::vector<Formula>& conflicting_conjunction, const Box& box);
+
+  PatternMatchingTrie::matching_stats_t AddLearnedClausePattern(
+      PredicateNormalizer& pn,
+      const std::vector<Formula>& base_conflict,
+      const Box& base_box, std::chrono::duration<uint64_t, std::micro> timeout);
+  std::pair<Formula, bool> MakeSatUbVar(PredicateNormalizer& pn, const Variable& var, double ub, bool inclusive);
+  std::pair<Formula, bool> MakeSatLbVar(PredicateNormalizer& pn, const Variable& var, double lb, bool inclusive);
+  // void AddBox(PredicateNormalizer& pn, const Box& base_box);
+
+  // Formula MakeSatIntervalVarWithClauses(PredicateNormalizer& pn, const Variable& var, const Box::Interval& intv);
 
   /// Checks the satisfiability of the current configuration.
   ///
   /// @returns a witness, satisfying model if the problem is satisfiable.
   /// @returns nullopt if UNSAT.
-  optional<Model> CheckSat();
+  optional<std::pair<Model, bool>> CheckSat(
+#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
+    bool request_fully_constrained = true
+#endif
+#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_PARTIAL_CONSTRAINTS
+    bool request_fully_constrained = false
+#endif
+  );
 
   // TODO(soonho): Push/Pop cnfizer and predicate_abstractor?
   void Pop();
@@ -87,7 +103,7 @@ class SatSolver {
 
   [[nodiscard]] Formula theory_literal(const Variable& var) const;
 
- private:
+private:
   // Adds a formula @p f to the solver.
   //
   // @pre @p f is a clause. That is, it is either a literal (b or ¬b)
@@ -105,6 +121,8 @@ class SatSolver {
   // variable.
   void AddLiteral(const Formula& f);
 
+  int get_partial_model(std::vector<int>& model_is);
+
   // Member variables
   // ----------------
   CaDiCaL::Solver* const cadical;
@@ -113,25 +131,31 @@ class SatSolver {
   TseitinCnfizer cnfizer_;
   PredicateAbstractor predicate_abstractor_;
 
-  // Map symbolic::Variable → int (Variable type in PicoSat).
+  // Map symbolic::Variable → int (Variable type in CaDiCaL).
   ScopedUnorderedMap<Variable::Id, int> to_sat_var_;
 
-  // Map int (Variable type in PicoSat) → symbolic::Variable.
+  // Map int (Variable type in CaDiCaL) → symbolic::Variable.
   ScopedUnorderedMap<int, Variable> to_sym_var_;
 
   /// Set of temporary Boolean variables introduced by Tseitin
   /// transformations.
   ScopedUnorderedSet<Variable::Id> tseitin_variables_;
 
-  std::unordered_map<Variable, std::map<double, Formula>> all_lb_predicates;
-  std::unordered_map<Variable, std::map<double, Formula>> all_ub_predicates;
+  std::unordered_map<Variable, std::map<double, Formula>> all_excl_lb_predicates;
+  std::unordered_map<Variable, std::map<double, Formula>> all_incl_lb_predicates;
+  std::unordered_map<Variable, std::map<double, Formula>> all_excl_ub_predicates;
+  std::unordered_map<Variable, std::map<double, Formula>> all_incl_ub_predicates;
 
-  /// @note We found an issue when picosat_deref_partial is used with
-  /// picosat_pop. When this variable is true, we use `picosat_deref`
-  /// instead.
-  ///
-  /// TODO(soonho): Remove this hack when it's not needed.
-  bool has_picosat_pop_used_{false};
+  // learner stuff.
+private:
+  static constexpr size_t LOG_INFO_SIZE = 2;
+  static constexpr size_t MAX_BUFFER_SIZE = 8;
+  int buffer[MAX_BUFFER_SIZE] = {0};
+  int buffer_i = 0;
+  int expected_clause_size = 0;
+
+public:
+  bool learning(int size) override;
+  void learn(int new_lit) override;
 };
-
-}  // namespace dreal
+} // namespace dreal

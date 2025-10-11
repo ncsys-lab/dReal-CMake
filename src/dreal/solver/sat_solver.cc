@@ -17,6 +17,8 @@
 
 #include <ostream>
 #include <utility>
+#include <dreal/version.h>
+#include <dreal/symbolic/symbolic_formula_cell.h>
 #include <dreal/util/predicate_normalizer.h>
 
 #include "auditor.h"
@@ -34,20 +36,31 @@ using std::vector;
 
 SatSolver::SatSolver(const Config& config) : cadical(new CaDiCaL::Solver) {
   // SatSolver::CheckSat().
+  bool success = false;
   if (config.random_seed() != 0) {
-    cadical->set("seed", config.random_seed());
+    success = cadical->set("seed", config.random_seed()); DREAL_ASSERT(success);
     DREAL_LOG_DEBUG("SatSolver::Set Random Seed {}", config.random_seed());
   }
-  cadical->set("phase", static_cast<int>(config.sat_default_phase()));
-  DREAL_LOG_DEBUG("SatSolver::Set Default Phase {}",
-                  config.sat_default_phase());
 
-  // todo: look into this? want to absolutely minimize calls to theory solver.
-  // eliminate as many variables as possible. ?
-  cadical->optimize(9);
-  cadical->set("condition", 1); // "globally blocked clause elim"
-  cadical->set("cover", 1); // "covered clause elimination"
-  cadical->set("block", 1); // "blocked clause elimination"
+  // todo: remove dReal phase flag...
+
+  success = cadical->set("vivify", 1); DREAL_ASSERT(success);
+  success = cadical->set("vivifyonce", 2); DREAL_ASSERT(success);
+  success = cadical->set("vivifymineff", 1e3); DREAL_ASSERT(success);
+  success = cadical->set("vivifymaxeff", 2e9); DREAL_ASSERT(success);
+  success = cadical->set("vivifyreleff", 20); DREAL_ASSERT(success);
+  success = cadical->set("eagersubsume", 1); DREAL_ASSERT(success);
+  success = cadical->set("subsume", 1); DREAL_ASSERT(success);
+  success = cadical->set("subsumeclslim", 1e3); DREAL_ASSERT(success);
+  success = cadical->set("subsumeint", 1e3); DREAL_ASSERT(success);
+  cadical->options();
+
+  if (DREAL_LOG_INFO_ENABLED || DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) cadical->connect_learner(this);
+
+  all_incl_lb_predicates.max_load_factor(0.25);
+  all_excl_lb_predicates.max_load_factor(0.25);
+  all_incl_ub_predicates.max_load_factor(0.25);
+  all_excl_ub_predicates.max_load_factor(0.25);
 }
 
 SatSolver::~SatSolver() { delete cadical; }
@@ -61,67 +74,6 @@ void SatSolver::AddFormula(const Formula& f) {
   }
   for (Formula& clause : clauses) {
     AddClause(predicate_abstractor_.Convert(clause));
-  }
-}
-
-void SatSolver::AddLearnedClause(const set<Formula>& conflicting_conjunction, const Box& box) {
-  // audit(!make_conjunction(conflicting_conjunction), box); // todo: gate.
-  for (const Formula& f : conflicting_conjunction) {
-    AddLiteral(!predicate_abstractor_.Convert(f));
-  }
-  cadical->add(0);
-}
-
-void SatSolver::AddBox(PredicateNormalizer& pn, const Box& base_box) {
-  for (const auto& v : base_box.variables()) {
-    if (v.get_type() == Variable::Type::BOOLEAN) continue;
-    const auto condition = MakeSatIntervalVar(pn, v, base_box[v]);
-    if (is_true(condition)) continue;
-    for (
-      const auto& lit :
-      is_conjunction(condition) ? get_operands(condition) : set{condition}
-    ) {
-      // todo: audit? currently can't because it is already predicate_abstractor-ed
-      // std::cout << "AddBox: " << lit << std::endl;
-      AddLiteral(lit);
-      cadical->add(0);
-    }
-  }
-}
-
-void SatSolver::AddLearnedClausePattern(
-  PredicateNormalizer &pn,
-  const set<Formula>& base_conflict, const Box& base_box
-) {
-  // todo: clean this a little.. avoid duplicates. but some clauses aren't in the trie and don't match to themselves?
-  // AddLearnedClause(base_conflict, base_box);
-  const auto all_related_conflicts = pn.FindSimilar(base_conflict);
-  DREAL_ASSERT(!all_related_conflicts.empty()); // should AT LEAST match with itself.
-  std::cout << "Matched " << all_related_conflicts.size() << " for the price of 1." << std::endl;
-  for (const auto& [conflict_clause, subs] : all_related_conflicts) {
-    Box conflict_box = substitutions_map_node::apply_substitution(base_box, subs, true);
-
-    // audit(!make_conjunction(conflict_clause), conflict_box); // todo: gate.
-
-    // a & b & c & ... ==> ~(x & y & z & ...)
-    // ~(a & b & c & ...) | ~(x & y & z & ...)
-    // ~a | ~b | ~c | ... | ~x | ~y | ~z | ...
-
-    for (const auto& v : conflict_box.variables()) {
-      if (v.get_type() == Variable::Type::BOOLEAN) continue;
-      const auto condition = MakeSatIntervalVar(pn, v, conflict_box[v]);
-      if (is_true(condition)) continue;
-      for (
-        const auto& lit :
-        is_conjunction(condition) ? get_operands(condition) : set{condition}
-      ) {
-        AddLiteral(!lit); // already predicate-converted.
-      }
-    }
-    for (const Formula& f : conflict_clause) {
-      AddLiteral(!predicate_abstractor_.Convert(f));
-    }
-    cadical->add(0);
   }
 }
 
@@ -142,6 +94,7 @@ void SatSolver::AddClause(const Formula& f) {
     AddLiteral(f);
   }
   cadical->add(0);
+  sat_log_literal0();
 }
 
 namespace {
@@ -168,28 +121,49 @@ class SatSolverStat : public Stat {
 };
 }  // namespace
 
-optional<SatSolver::Model> SatSolver::CheckSat() {
+optional<std::pair<SatSolver::Model, bool>> SatSolver::CheckSat(const bool request_fully_constrained) {
   static SatSolverStat stat{DREAL_LOG_INFO_ENABLED};
-  DREAL_LOG_DEBUG("SatSolver::CheckSat(#vars = {}, #clauses = {})",
+  DREAL_LOG_TRACE("SatSolver::CheckSat(#vars = {}, #clauses = {})",
                   cadical->vars(),
                   cadical->irredundant());
   stat.num_check_sat_++;
   // Call SAT solver.
-  TimerGuard check_sat_timer_guard(&stat.timer_check_sat_,
-                                   DREAL_LOG_INFO_ENABLED);
+  TimerGuard check_sat_timer_guard(&stat.timer_check_sat_,DREAL_LOG_INFO_ENABLED);
   const int ret{cadical->solve()};
   // check_sat_timer_guard.pause();
 
   Model model;
   if (ret == CaDiCaL::SATISFIABLE) {
     // SAT Case.
+
+    int num_literals_omitted = 0;
+    std::vector<int> model_is(cadical->vars() + 1);
+    if (request_fully_constrained) {
+      num_literals_omitted = 0;
+      for (int i = 1; i <= cadical->vars(); ++i) model_is[i] = cadical->val(i) > 0 ? +1 : -1;
+    }
+    else {
+      num_literals_omitted = get_partial_model(model_is);
+      // DREAL_LOG_INFO("SatSolver::CheckSat - Shrank model by {}%", num_literals_omitted * 100.0 / cadical->vars());
+    }
+    // std::cerr << "O " << num_literals_omitted << " l f m o s " << cadical->vars() << ".\n";
+
+    if (DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) {
+      if (/*model_is_fully_constrained*/ num_literals_omitted == 0) {
+        sat_log_label_clause("SatSolver::CheckSat - Fully Constrained");
+      } else {
+        sat_log_label_clause("SatSolver::CheckSat - Partially Constrained");
+      }
+      for (int i = 1; i <= cadical->vars(); ++i) if (model_is[i] != 0) sat_log_literal(i * model_is[i]);
+      sat_log_literal0();
+
+      // check that we haven't OVER constrained somehow.
+      for (int i = 1; i <= cadical->vars(); ++i) if (model_is[i] != 0) cadical->assume(i * model_is[i]);
+      int result = cadical->solve(); // must call OUTSIDE of DREAL_ASSERT since we added a bunch of `assumes`
+      DREAL_ASSERT(result == CaDiCaL::SATISFIABLE);
+    }
+
     const auto& var_to_formula_map = predicate_abstractor_.var_to_formula_map();
-    // from CaDiCaL documentation:
-    //    try to avoid mixing 'flip' and 'val' (for efficiency only).
-    std::vector<int> model_is(cadical->vars()+1);
-    for (int i = 1; i <= cadical->vars(); ++i) model_is[i] = cadical->val(i) > 0 ? +1 : -1;
-    for (int i = 1; i <= cadical->vars(); ++i) if(cadical->flip(i)) model_is[i] = 0; // todo: use IPASIR-UP, see cvc5 paper.
-    // for (int i = 1; i <= cadical->vars(); ++i) if(model_is[i] == 0) cadical->flip(i); // restore default state.
     for (int i = 1; i <= cadical->vars(); ++i) {
       const auto model_i = model_is[i];
       if (model_i == 0) {
@@ -222,7 +196,7 @@ optional<SatSolver::Model> SatSolver::CheckSat() {
       }
     }
     DREAL_LOG_DEBUG("SatSolver::CheckSat() Found a model.");
-    return model;
+    return {{model, /*model_is_fully_constrained*/ num_literals_omitted == 0}};
   } else if (ret == CaDiCaL::UNSATISFIABLE) {
     DREAL_LOG_DEBUG("SatSolver::CheckSat() No solution.");
     // UNSAT Case.
@@ -241,7 +215,6 @@ void SatSolver::Pop() {
   to_sat_var_.pop();
   // picosat_pop(sat_);
   throw DREAL_RUNTIME_ERROR("NOT YET IMPLEMENTED SatSolver::Pop()");
-  has_picosat_pop_used_ = true;
 }
 
 void SatSolver::Push() {
@@ -262,6 +235,7 @@ void SatSolver::AddLiteral(const Formula& f) {
     DREAL_ASSERT(var.get_type() == Variable::Type::BOOLEAN);
     // Add l = b
     cadical->add(to_sat_var_[var.get_id()]);
+    sat_log_literal(to_sat_var_[var.get_id()], var);
   } else {
     // f = ¬b
     DREAL_ASSERT(is_negation(f) && is_variable(get_operand(f)));
@@ -269,6 +243,7 @@ void SatSolver::AddLiteral(const Formula& f) {
     DREAL_ASSERT(var.get_type() == Variable::Type::BOOLEAN);
     // Add l = ¬b
     cadical->add(-to_sat_var_[var.get_id()]);
+    sat_log_literal(-to_sat_var_[var.get_id()], var);
   }
 }
 
@@ -286,84 +261,8 @@ void SatSolver::MakeSatVar(const Variable& var) {
   DREAL_LOG_DEBUG("SatSolver::MakeSatVar({} ↦ {})", fmt::streamed(var), sat_var);
 }
 
-Formula SatSolver::MakeSatIntervalVar(PredicateNormalizer &pn, const Variable& var, const Box::Interval& intv) {
-  DREAL_ASSERT(var.get_type() != Variable::Type::BOOLEAN);
-  auto ub_pred = Formula::True();
-  if (isfinite(intv.ub())) {
-    ub_pred = var <= intv.ub(); // TODO: figure out if this is inclusive or exclusive.
-    // an iterator pointing to the first element that is greater or equal to intv.ub()
-    auto& var_ub_preds = all_ub_predicates[var];
-    auto ub_gte_it = var_ub_preds.lower_bound(intv.ub());
-    if (!var_ub_preds.empty() && ub_gte_it->first == intv.ub()) ub_pred = ub_gte_it->second;
-    else {
-      ub_pred = predicate_abstractor_.Convert(pn.Convert(ub_pred));
-      MakeSatVar(get_variable(ub_pred));
-
-      if (ub_gte_it != var_ub_preds.end()) {
-        const auto& gt = *ub_gte_it;
-        DREAL_ASSERT(intv.ub() < gt.first);
-        DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", ub_pred, gt.second);
-        // std::cout << ub_pred << " => " << gt.second << std::endl;
-        // (x < Ub) => (x < Ub+ε)
-        // = ~(x < Ub) \/ (x < Ub+ε)
-        // = ~((x < Ub) /\ ~(x < Ub+ε))
-        AddLearnedClause({ub_pred, !gt.second}, {});
-      }
-      if (ub_gte_it != var_ub_preds.begin()) {
-        --ub_gte_it;
-        const auto& lt = *ub_gte_it;
-        DREAL_ASSERT(lt.first < intv.ub());
-        DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", lt.second, ub_pred);
-        // std::cout << lt.second << " => " << ub_pred << std::endl;
-        // (x < Ub-ε) => (x < Ub)
-        // = ~(x < Ub-ε) \/ (x < Ub)
-        // = ~((x < Ub-ε) /\ ~(x < Ub))
-        AddLearnedClause({lt.second, !ub_pred}, {});
-      }
-      var_ub_preds[intv.ub()] = ub_pred;
-    }
-  }
-
-  auto lb_pred = Formula::True();
-  if (isfinite(intv.lb())) {
-    lb_pred = intv.lb() <= var; // TODO: figure out if this is inclusive or exclusive.
-    // an iterator pointing to the first element that is greater or equal to intv.lb()
-    auto& var_lb_preds = all_lb_predicates[var];
-    auto lb_gte_it = var_lb_preds.lower_bound(intv.lb());
-    if (!var_lb_preds.empty() && lb_gte_it->first == intv.lb()) lb_pred = lb_gte_it->second;
-    else {
-      lb_pred = predicate_abstractor_.Convert(pn.Convert(lb_pred));
-      MakeSatVar(get_variable(lb_pred));
-
-      if (lb_gte_it != var_lb_preds.end()) {
-        const auto& gt = *lb_gte_it;
-        DREAL_ASSERT(intv.lb() < gt.first);
-        DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", gt.second, lb_pred);
-        // std::cout << gt.second << " => " << lb_pred << std::endl;
-        // (Lb+ε < x) => (Lb < x)
-        // = ~(Lb+ε < x) \/ (Lb < x)
-        // = ~((Lb+ε < x) /\ ~(Lb < x))
-        AddLearnedClause({gt.second, !lb_pred}, {});
-      }
-      if (lb_gte_it != var_lb_preds.begin()) {
-        --lb_gte_it;
-        const auto& lt = *lb_gte_it;
-        DREAL_ASSERT(lt.first < intv.lb());
-        DREAL_LOG_DEBUG("Adding SAT interval implication: {} => {}", lb_pred, lt.second);
-        // std::cout << lb_pred << " => " << lt.second << std::endl;
-        // (Lb < x) => (Lb-ε < x)
-        // = ~(Lb < x) \/ (Lb-ε < x)
-        // = ~((Lb < x) /\ ~(Lb-ε < x))
-        AddLearnedClause({lb_pred, !lt.second}, {});
-      }
-      var_lb_preds[intv.lb()] = lb_pred;
-    }
-  }
-
-  return lb_pred && ub_pred;
-}
-
 Formula SatSolver::theory_literal(const Variable& var) const {
   return predicate_abstractor_[var];
 }
+
 }  // namespace dreal

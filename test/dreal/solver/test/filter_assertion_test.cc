@@ -40,6 +40,20 @@ TEST_F(FilterAssertionTest, FilteredWithChange1) {
   EXPECT_EQ(box_[z_].lb(), old_box[z_].lb());
 }
 
+TEST_F(FilterAssertionTest, FilteredWithChange1_MinVersusLowest) {
+  // https://github.com/dreal/dreal4/blob/f93bdcc26b62abdcc30ad7de6046729bb48016b9/dreal/solver/filter_assertion.cc#L135
+  // should have been ::lowest() not ::min().
+  // semantics of `::min()` are different between integer and fp types.
+
+  // (z < 0)
+  const Box old_box{box_};
+  const auto result = FilterAssertion(z_ < 0, &box_);
+  EXPECT_TRUE(result.filtered); EXPECT_TRUE(result.changed);
+  EXPECT_LT(box_[z_].ub(), 0);
+  // No change on z.lb().
+  EXPECT_EQ(box_[z_].lb(), old_box[z_].lb());
+}
+
 TEST_F(FilterAssertionTest, FilteredWithChange2) {
   // ¬(z < 50) => (z >= 50)
   const Box old_box{box_};
@@ -76,6 +90,16 @@ TEST_F(FilterAssertionTest, FilteredWithChange5) {
   const auto result = FilterAssertion(z_ > 50, &box_);
   EXPECT_TRUE(result.filtered); EXPECT_TRUE(result.changed);
   EXPECT_GT(box_[z_].lb(), 50);
+  // No change on z.ub().
+  EXPECT_EQ(box_[z_].ub(), old_box[z_].ub());
+}
+
+TEST_F(FilterAssertionTest, FilteredWithChange5_MinVersusLowest) {
+  // (z > 0)
+  const Box old_box{box_};
+  const auto result = FilterAssertion(z_ > 0, &box_);
+  EXPECT_TRUE(result.filtered); EXPECT_TRUE(result.changed);
+  EXPECT_GT(box_[z_].lb(), 0);
   // No change on z.ub().
   EXPECT_EQ(box_[z_].ub(), old_box[z_].ub());
 }

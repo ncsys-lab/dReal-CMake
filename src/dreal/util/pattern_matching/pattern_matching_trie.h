@@ -7,7 +7,6 @@
 
 #include <vector>
 #include <dreal/util/assert.h>
-#include <dreal/util/exception.h>
 #include <dreal/util/pattern_matching/substitutions_map.h>
 
 #include "dreal/symbolic/symbolic.h"
@@ -18,44 +17,97 @@ namespace dreal
     class PatternMatchingTrie
     {
     public:
+        typedef struct
+        {
+            struct
+            {
+                unsigned bc_type;
+                unsigned bc_box;
+                unsigned bc_bij;
+                unsigned bc_const;
+            } misses;
+
+            unsigned partial_matches;
+            unsigned matches;
+        } matching_stats_t;
+
+        static std::string matching_stats_csv_header(const std::string& prefix) {
+            std::ostringstream s;
+            s << prefix << "misses,";
+            s << prefix << "partial_matches,";
+            s << prefix << "matches";
+            return s.str();
+        }
+
         using e_matches_vec = std::function<void(const Expression& e, substitutions_map& s)>;
         using f_matches_vec = std::function<void(const Formula& f, substitutions_map& s)>;
 
-        [[nodiscard]] std::vector<std::pair<std::vector<Formula>, substitutions_map>>
+        [[nodiscard]] std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, matching_stats_t>
         find_matches(
-            const std::set<Formula>& literals
+            const std::vector<Formula>& literals,
+            const Box& b, std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
         ) const;
-        [[nodiscard]] std::vector<std::pair<Formula, substitutions_map>> find_matches(
+
+        [[nodiscard]] std::pair<std::vector<std::pair<Formula, substitutions_map>>, matching_stats_t> find_matches(
             const Formula& f,
-            const substitutions_map& substitutions = {}
+            substitutions_map& substitutions
         ) const;
-        [[nodiscard]] std::vector<std::pair<Expression, substitutions_map>> find_matches(
-            const Expression& f,
-            const substitutions_map& substitutions = {}
+
+        [[nodiscard]] std::pair<std::vector<std::pair<Formula, substitutions_map>>, matching_stats_t> find_matches(
+            const Formula& f, const Box& box
+        ) const {
+            substitutions_map s(box, f.GetFreeVariables().size());
+            return find_matches(f, s);
+        }
+
+        [[nodiscard]] std::pair<std::vector<std::pair<Expression, substitutions_map>>, matching_stats_t> find_matches(
+            const Expression& e,
+            substitutions_map& substitutions
         ) const;
+
+        [[nodiscard]] std::pair<std::vector<std::pair<Expression, substitutions_map>>, matching_stats_t> find_matches(
+            const Expression& e, const Box& b
+        ) const {
+            substitutions_map s(b, e.GetVariables().size());
+            return find_matches(e, s);
+        }
+
+        // ended up being completely useless :(
+        // uint64_t estimate_branches(const Formula& f);
+        // uint64_t estimate_branches(const Expression& e);
+
+        // uint64_t estimate_branches(const Formula& f) const;
+        // uint64_t estimate_branches(const Expression& f) const;
 
         void insert(const Formula& f);
         void insert(const Expression& f);
 
-        // private:
+    private:
+        static uint64_t init_id() {
+            static uint64_t global_id_counter = 0;
+            return global_id_counter++;
+        }
+
+    public:
         template <typename TKind, typename This, typename OKind, typename Other>
         class TrieNode
         {
         public:
-            TrieNode(): children{4} {}
+            TrieNode(): id{init_id()}, children{4} {}
 
-            TrieNode(
+            explicit TrieNode(
                 const std::optional<This>& leaf,
                 const std::optional<This>& terminal_expression = {}
-            ): switch_kind{}, children{4}, leaf{leaf}, terminal_expression{terminal_expression} {}
+            ): leaf{leaf}, terminal_expression{terminal_expression}, switch_kind{}, id{init_id()}, children{4} {}
 
             TrieNode(const TrieNode& other) = delete; // these should never be copied.
 
             TrieNode(TrieNode&& other) noexcept
-                : switch_kind{std::move(other.switch_kind)},
-                  children{std::move(other.children)},
-                  leaf{std::move(other.leaf)},
-                  terminal_expression{std::move(other.terminal_expression)} {}
+                : leaf{std::move(other.leaf)},
+                  terminal_expression{std::move(other.terminal_expression)},
+                  switch_kind{std::move(other.switch_kind)},
+                  id{std::move(other.id)},
+                  children{std::move(other.children)} {}
 
             ~TrieNode() noexcept {
                 if (switch_kind != nullptr) delete switch_kind;
@@ -66,37 +118,72 @@ namespace dreal
                 return *switch_kind;
             }
 
-            [[nodiscard]] const std::vector<TrieNode<TKind, This, OKind, Other>>& c(const TKind& k) const {
-                const auto it = children.find(k);
-                if (it != children.end()) return it->second;
-                const static std::vector<TrieNode<TKind, This, OKind, Other>> t_empty;
+            [[nodiscard]] const std::vector<TrieNode>& c(const TKind& k, const size_t alpha_hash) const {
+                const auto it1 = children.find(k);
+                if (it1 != children.end()) {
+                    const auto it2 = it1->second.find(alpha_hash);
+                    if (it2 != it1->second.end()) {
+                        return it2->second;
+                    }
+                }
+                const static std::vector<TrieNode> t_empty;
                 return t_empty;
             }
 
-            [[nodiscard]] std::vector<TrieNode<TKind, This, OKind, Other>>& c(const TKind& k) {
-                return children[k];
+
+            [[nodiscard]] std::vector<TrieNode>& c(const TKind& k, const size_t alpha_hash) {
+                return children[k][alpha_hash];
             }
 
-            [[nodiscard]] const TrieNode<TKind, This, OKind, Other>& c_leafless(const TKind& k) const {
-                const auto& vec = c(k);
+            [[nodiscard]] const std::vector<TrieNode>& c_like(const This& t) const {
+                return c(t.get_kind(), t.get_al_hash());
+            }
+
+            [[nodiscard]] std::vector<TrieNode>& c_like(const This& t) {
+                return c(t.get_kind(), t.get_al_hash());
+            }
+
+            [[nodiscard]] const TrieNode& c_leafless(const TKind& k, const size_t alpha_hash) const {
+                const auto& vec = c(k, alpha_hash);
                 DREAL_ASSERT(vec.size() == 1);
                 return vec[0];
             }
 
-            [[nodiscard]] TrieNode<TKind, This, OKind, Other>& c_leafless(const TKind& k) {
-                auto& vec = c(k);
+            [[nodiscard]] TrieNode& c_leafless(const TKind& k, const size_t alpha_hash) {
+                auto& vec = c(k, alpha_hash);
                 if (vec.empty()) vec.emplace_back();
                 DREAL_ASSERT(vec.size() == 1);
                 return vec[0];
             }
+
+            // template <typename Key>
+            // [[nodiscard]] const std::unordered_map<Key, TrieNode>& c_unique(const TKind& kind) const {
+            //     return unique_children<Key>(kind);
+            // }
+            //
+            // template <typename Key>
+            // [[nodiscard]] std::unordered_map<Key, TrieNode>& c_unique(const TKind& kind) {
+            //     return unique_children<Key>(kind);
+            // }
 
             std::optional<This> leaf{};
             std::optional<This> terminal_expression{};
             // important for ITEs which contain both Formulas and Expressions
             TrieNode<OKind, Other, TKind, This>* switch_kind = nullptr;
 
+            const uint64_t id;
+
         private:
-            std::unordered_map<TKind, std::vector<TrieNode>> children;
+            std::unordered_map<TKind, std::unordered_map<size_t, std::vector<TrieNode>>> children;
+
+            // template <typename Key>
+            // std::unordered_map<Key, TrieNode>& unique_children(const TKind& kind) const {
+            //     static std::unordered_map<
+            //         uint64_t, std::unordered_map<TKind, std::unordered_map<Key, TrieNode>>
+            //     > additional_members;
+            //     return additional_members[id][kind];
+            // }
+
             // friend PatternMatchingTrie;
         };
 
@@ -104,16 +191,23 @@ namespace dreal
         using FormNode = TrieNode<FormulaKind, Formula, ExpressionKind, Expression>;
         ExprNode e_root;
         FormNode f_root;
+        // std::unordered_set<Formula> f_already_inserted;
+        // std::unordered_set<Expression> e_already_inserted;
+        // std::unordered_map<Formula, uint64_t> f_branch_est_cache;
+        // std::unordered_map<Expression, uint64_t> e_branch_est_cache;
 
         // using e_partial_matches_vec = std::vector<std::pair<const ExprNode*, substitutions_map>>;
         using e_partial_matches_vec = std::function<void(const ExprNode& n, substitutions_map& s)>;
+        using e_est_continuation_vec = std::function<void(const ExprNode& n)>;
         // using f_partial_matches_vec = std::vector<std::pair<const FormNode*, substitutions_map>>;
         using f_partial_matches_vec = std::function<void(const FormNode& n, substitutions_map& s)>;
+        using f_est_continuation_vec = std::function<void(const FormNode& n)>;
 
-        using e_misses_vec = std::function<void(const substitutions_map &s)>;
-        using f_misses_vec = std::function<void(const substitutions_map &s)>;
+        using e_misses_vec = std::function<void(const substitutions_map::substitution_status& s)>;
+        using f_misses_vec = std::function<void(const substitutions_map::substitution_status& s)>;
 
 #define PM_CONT_LAMBDA(n,s) [&](const auto &n, auto &s)
+#define EST_CONT_LAMBDA(n) [&](const auto &n)
 
 #define VISIT_DECL(name) void name ( \
     const Expression &_e, const ExprNode &parent, \
@@ -123,37 +217,37 @@ namespace dreal
     const e_misses_vec &misses \
 ) const
 #define ADD_DECL(name) ExprNode& name (const Expression &e, ExprNode &parent, const std::optional<Expression> &is_terminal)
-#define VISIT_AND_ADD_DECL(name) \
+#define ALL_DECLS(name) \
         VISIT_DECL(name); \
         ADD_DECL(name);
-        VISIT_AND_ADD_DECL(VisitVariable);
-        VISIT_AND_ADD_DECL(VisitConstant);
-        VISIT_AND_ADD_DECL(VisitRealConstant);
-        VISIT_AND_ADD_DECL(VisitAddition);
-        VISIT_AND_ADD_DECL(VisitMultiplication);
-        VISIT_AND_ADD_DECL(VisitDivision);
-        VISIT_AND_ADD_DECL(VisitLog);
-        VISIT_AND_ADD_DECL(VisitAbs);
-        VISIT_AND_ADD_DECL(VisitExp);
-        VISIT_AND_ADD_DECL(VisitSqrt);
-        VISIT_AND_ADD_DECL(VisitPow);
-        VISIT_AND_ADD_DECL(VisitSin);
-        VISIT_AND_ADD_DECL(VisitCos);
-        VISIT_AND_ADD_DECL(VisitTan);
-        VISIT_AND_ADD_DECL(VisitAsin);
-        VISIT_AND_ADD_DECL(VisitAcos);
-        VISIT_AND_ADD_DECL(VisitAtan);
-        VISIT_AND_ADD_DECL(VisitAtan2);
-        VISIT_AND_ADD_DECL(VisitSinh);
-        VISIT_AND_ADD_DECL(VisitCosh);
-        VISIT_AND_ADD_DECL(VisitTanh);
-        VISIT_AND_ADD_DECL(VisitMin);
-        VISIT_AND_ADD_DECL(VisitMax);
-        VISIT_AND_ADD_DECL(VisitIfThenElse);
-        VISIT_AND_ADD_DECL(VisitUninterpretedFunction);
+        ALL_DECLS(VisitVariable);
+        ALL_DECLS(VisitConstant);
+        ALL_DECLS(VisitRealConstant);
+        ALL_DECLS(VisitAddition);
+        ALL_DECLS(VisitMultiplication);
+        ALL_DECLS(VisitDivision);
+        ALL_DECLS(VisitLog);
+        ALL_DECLS(VisitAbs);
+        ALL_DECLS(VisitExp);
+        ALL_DECLS(VisitSqrt);
+        ALL_DECLS(VisitPow);
+        ALL_DECLS(VisitSin);
+        ALL_DECLS(VisitCos);
+        ALL_DECLS(VisitTan);
+        ALL_DECLS(VisitAsin);
+        ALL_DECLS(VisitAcos);
+        ALL_DECLS(VisitAtan);
+        ALL_DECLS(VisitAtan2);
+        ALL_DECLS(VisitSinh);
+        ALL_DECLS(VisitCosh);
+        ALL_DECLS(VisitTanh);
+        ALL_DECLS(VisitMin);
+        ALL_DECLS(VisitMax);
+        ALL_DECLS(VisitIfThenElse);
+        ALL_DECLS(VisitUninterpretedFunction);
 #undef VISIT_DECL
 #undef ADD_DECL
-#undef VISIT_AND_ADD_DECL
+#undef ALL_DECLS
 
 #define VISIT_DECL(name) void name ( \
     const Formula &f, const FormNode &parent, \
@@ -163,25 +257,25 @@ namespace dreal
     const f_misses_vec& misses \
 ) const
 #define ADD_DECL(name) FormNode& name (const Formula &f, FormNode &parent, const std::optional<Formula> &is_terminal)
-#define VISIT_AND_ADD_DECL(name) \
+#define ALL_DECLS(name) \
         VISIT_DECL(name); \
         ADD_DECL(name);
-        VISIT_AND_ADD_DECL(VisitFalse);
-        VISIT_AND_ADD_DECL(VisitTrue);
-        VISIT_AND_ADD_DECL(VisitVariable);
-        VISIT_AND_ADD_DECL(VisitEqualTo);
-        VISIT_AND_ADD_DECL(VisitNotEqualTo);
-        VISIT_AND_ADD_DECL(VisitGreaterThan);
-        VISIT_AND_ADD_DECL(VisitGreaterThanOrEqualTo);
-        VISIT_AND_ADD_DECL(VisitLessThan);
-        VISIT_AND_ADD_DECL(VisitLessThanOrEqualTo);
-        VISIT_AND_ADD_DECL(VisitConjunction);
-        VISIT_AND_ADD_DECL(VisitDisjunction);
-        VISIT_AND_ADD_DECL(VisitNegation);
-        VISIT_AND_ADD_DECL(VisitForall);
+        ALL_DECLS(VisitFalse);
+        ALL_DECLS(VisitTrue);
+        ALL_DECLS(VisitVariable);
+        ALL_DECLS(VisitEqualTo);
+        ALL_DECLS(VisitNotEqualTo);
+        ALL_DECLS(VisitGreaterThan);
+        ALL_DECLS(VisitGreaterThanOrEqualTo);
+        ALL_DECLS(VisitLessThan);
+        ALL_DECLS(VisitLessThanOrEqualTo);
+        ALL_DECLS(VisitConjunction);
+        ALL_DECLS(VisitDisjunction);
+        ALL_DECLS(VisitNegation);
+        ALL_DECLS(VisitForall);
 #undef VISIT_DECL
 #undef ADD_DECL
-#undef VISIT_AND_ADD_DECL
+#undef ALL_DECLS
 
         void UnaryOpMatchHelper(const Expression& e, const ExpressionKind& k, const ExprNode& parent,
                                 substitutions_map& substitutions,
@@ -229,7 +323,10 @@ namespace dreal
 
         ExprNode& recAddExpr(
             const Expression& e, ExprNode& parent, const std::optional<Expression>& is_terminal
-        ) { return VisitExpression<ExprNode&>(this, e, parent, is_terminal); }
+        ) {
+            // std::cout << "recAddExpr: " << e << std::endl;
+            return VisitExpression<ExprNode&>(this, e, parent, is_terminal);
+        }
 
         void recMatchForm(
             const Formula& f, const FormNode& parent, substitutions_map& substitutions,
@@ -241,7 +338,10 @@ namespace dreal
 
         FormNode& recAddForm(
             const Formula& f, FormNode& parent, const std::optional<Formula>& is_terminal
-        ) { return VisitFormula<FormNode&>(this, f, parent, is_terminal); }
+        ) {
+            // std::cout << "recAddForm: " << f << std::endl;
+            return VisitFormula<FormNode&>(this, f, parent, is_terminal);
+        }
 
         friend void drake::symbolic::VisitExpression<void>(
             PatternMatchingTrie*, const Expression& e,
@@ -262,6 +362,20 @@ namespace dreal
             const std::optional<Expression>& is_terminal
         );
     };
+
+    // inline std::ostream& operator<<(std::ostream& os, const PatternMatchingTrie::matching_stats_t& stats) {
+    //     os << "matching_stats_t {\n"
+    //        << "  misses {\n"
+    //        << "    bc_type: " << stats.misses.bc_type << ",\n"
+    //        << "    bc_box: " << stats.misses.bc_box << ",\n"
+    //        << "    bc_bij: " << stats.misses.bc_bij << ",\n"
+    //        << "    bc_const: " << stats.misses.bc_const << "\n"
+    //        << "  },\n"
+    //        << "  partial_matches: " << stats.partial_matches << ",\n"
+    //        << "  matches: " << stats.matches << "\n"
+    //        << "}";
+    //     return os;
+    // }
 } // namespace dreal
 
 

@@ -30,6 +30,7 @@ class ExpressionCell {
 
   /** Returns hash value. */
   size_t get_hash() const { return hash_; }
+  size_t get_al_hash() const { return alpha_hash_; }
 
   /** Collects variables in expression. */
   const Variables& GetVariables() const;
@@ -97,7 +98,7 @@ class ExpressionCell {
  protected:
   /** Constructs ExpressionCell of kind @p k with @p hash, @p is_poly, and @p
    * include_ite. */
-  ExpressionCell(ExpressionKind k, size_t hash, bool is_poly, bool include_ite,
+  ExpressionCell(ExpressionKind k, size_t hash, size_t alpha_hash, bool is_poly, bool include_ite,
                  Variables variables);
   /** Default destructor. */
   virtual ~ExpressionCell() = default;
@@ -106,7 +107,7 @@ class ExpressionCell {
 
  private:
   const ExpressionKind kind_{};
-  const size_t hash_{};
+  const size_t hash_{}, alpha_hash_{};
   const bool is_polynomial_{false};
   const bool include_ite_{false};
   const Variables variables_;

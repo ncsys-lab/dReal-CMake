@@ -131,7 +131,7 @@ FilterAssertionResult UpdateStrictUpperBound(const Variable& var,
                                              const double v, Box* const box) {
   switch (var.get_type()) {
     case Variable::Type::CONTINUOUS:
-      return UpdateUpperBound(var, nextafter(v, numeric_limits<double>::min()),
+      return UpdateUpperBound(var, nextafter(v, numeric_limits<double>::lowest()),
                               box);
     case Variable::Type::INTEGER:
     case Variable::Type::BINARY:
