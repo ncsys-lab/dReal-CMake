@@ -124,6 +124,7 @@ string Context::version() {
   oss << "parmod" << partial_model_mode << '.';
 
   oss << "audit" <<
+    static_cast<int>(DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED) <<
     static_cast<int>(DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) <<
     static_cast<int>(DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED);
 
