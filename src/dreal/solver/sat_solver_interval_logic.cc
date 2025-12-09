@@ -163,6 +163,10 @@ namespace dreal
             );
         }
 
+        if (DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED) {
+            pm_dump_all(base_conflict, all_related_conflicts);
+        }
+
         for (const auto& [conflict_clause, subs] : all_related_conflicts) {
             // const auto conflict_box = substitutions_map::apply_substitution(base_box, subs, true);
             // AddLearnedClause(pn, conflict_clause, conflict_box);
