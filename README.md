@@ -1,11 +1,29 @@
-# todo: actual build/env instructions...
+# Docker Build Instructions (Recommended)
+### Build
+NOTE: there is a filesystem bug in docker on MacOS, if you get some build error related to "Bad" file discriptors then change all `-j` flags in FULL_BUILD.sh and CMakeLists.txt to `-j1` (disable parallelism).
 
-In the meantime, here is the environment(s) I'm using on Mac and/or CentOS. Don't copy and paste any of this, this is just for context on how you might want to setup your system for native builds.
-Alternatively, you can just use Docker. todo: upload my Dockerfiles.
+In this directory, run:
+```
+docker build --platform linux/amd64 -t dreal/my_dreal_image:1.0 -f Dockerfile.dreal_ubuntu .
+```
+
+This will probably take 20+ minutes.
+
+### Execute
+```
+cat YOUR_QUERY.smt2 | docker run --platform linux/amd64 --rm -i dreal/my_dreal_image:1.0 ./dreal4 --in --model
+```
+
+
+# Native Build Instructions (Not Recommended on Mac)
+NOTE: This is tedious on Linux, and very tricky on M1 Macs. Lots of manual environment setup is required.
+
+Todo: Write actual build instructions... In the meanwhile, here are the environment(s) I'm using on Mac and/or CentOS. Don't copy and paste any of this, this is just for context on how you might want to setup your system for native builds.
 
 On mac, you need to use Rosetta since CAPD (for ODEs) is x86 only.
-All compilers, dependencies, tooling, etc. needs to be ran through a separate rosetta environemnt.
-Start by re-downloading and installing x86 homebrew— you will probably have two homebrews on your Mac now. 1 is a ARM, 1 is Rosetta— in different paths.
+All compilers, dependencies, tooling, etc. (including whatever CMake/Make/Ninja runs underneath you) needs to be ran through Rosetta (`arch -x86_64`).
+Start by re-downloading and installing x86 homebrew— you will probably have two homebrew executables (in different paths) on your Mac now. One for ARM, and one for x86/Rosetta.
+These homebrews operate independently, be careful which one you are running.
 On mac, I used x86 homebrew to get:
 ```
 ==> bison: stable 3.8.2 (bottled) [keg-only]
@@ -18,18 +36,9 @@ On mac, I used x86 homebrew to get:
 
 My CentOS `.bashrc` file (relevant paths should be configured similarly for Mac):
 ```
-# .bashrc
+...
 
-# Source global definitions
-if [ -f /etc/bashrc ]; then
-	. /etc/bashrc
-fi
-
-# Uncomment the following line if you don't like systemctl's auto-paging feature:
-# export SYSTEMD_PAGER=
-
-# User specific aliases and functions
-
+# Dependencies in my environment provided by package manager...
 ml python/3.12.1 \
    java/11.0.11 \
    git/2.45.1 \
@@ -46,9 +55,8 @@ ml python/3.12.1 \
    py-tables/3.10.1_py312 \
    protobuf/29.1
 
-# separate line, because python/3.12 loads gcc/12
+
 ml gcc/14.2.0
-# ml llvm/17.0.6
 
 source ~/.gcc_SOURCE_ME.sh
 
@@ -57,12 +65,13 @@ export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${HOME}/usr/local/lib/"
 export PATH="$PATH:${HOME}/usr/local/bin/"
 ```
 
-On CentOS I'm using
+On CentOS I'm using:
 ```
 ks1@sh04-ln02 ~> cat ~/.gcc_SOURCE_ME.sh
 export CXX="YOUR/PATH/HERE/gcc/14.2.0/bin/g++"
 export CC="YOUR/PATH/HERE/gcc/14.2.0/bin/gcc"
 ```
+
 On MacOS, make sure you're running:
 ```
 Apple clang version 17.0.0 (clang-1700.4.4.1)
@@ -79,3 +88,8 @@ flex-2.6.4
 gmp-6.3.0
 ```
 
+On Mac, you can get them from homebrew... CMakeLists.txt should pick them up automatically, so you may or may not need to manually set `CMAKE_PREFIX_PATH`/`LD_LIBRARY_PATH` like I did on linux.
+
+Once your environment, paths, and dependencies are setup, you can launch CMake configuration and build using `./FULL_BUILD.sh`.
+You can launch subsequent builds using `./BUILD.sh`, which will skip the CMake configuration step.
+The executable will be found in `gcc_build/dreal4`.
