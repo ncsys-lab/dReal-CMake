@@ -105,12 +105,10 @@ namespace dreal
         DREAL_ASSERT(invs.size() == m_inv_ctcs.size());
         for (unsigned i = 0; i < invs.size(); ++i) {
             const auto& inv_e = invs[i];
-            // if (inv_e->hasPolarity() && inv_e->getPolarity() == l_True) {
-            m_inv_ctcs[i].Prune(&cs);
-            if (cs.box().empty()) {
-                return false;
-            }
-            // } else throw runtime_error("unreachable 1");
+            if (!is_negation(inv_e)) {
+                m_inv_ctcs[i].Prune(&cs);
+                if (cs.box().empty()) return false;
+            } else DREAL_LOG_WARN("contractor_capd_full::check_invariant - Silent omission of invariant: {}", inv_e);
         }
         // // 3. extract v' from the pruned box b'
         // //    if b' is empty, then it means invariant violation
@@ -462,17 +460,15 @@ namespace dreal
         if (!diff_dims.empty()) {
             // Add integral constraint
             cs->AddUsedConstraint(m_ctr.first);
-            cs->AddUsedConstraint(m_ctr.second);
-            // todo: they are all asserted?
-            // // Add forallt constraint (but only the asserted ones)
-            // auto const& invs = m_ctr.second;
-            // for (unsigned i = 0; i < invs.size(); ++i) {
-            //     const auto & inv_e = invs[i];
-            //     // if (inv_e->hasPolarity() && inv_e->getPolarity() == l_True) {
-            //         cs->m_used_constraints.insert(invs[i]);
-            //         cs->AddUsedConstraint(invs[i]);
-            //     // }
-            // }
+            // Add forallt constraint (but only the asserted ones)
+            auto const& invs = m_ctr.second;
+            for (unsigned i = 0; i < invs.size(); ++i) {
+                const auto inv_e = invs[i];
+                if (!is_negation(inv_e)) {
+                    cs->AddUsedConstraint(invs[i]);
+                }
+                else DREAL_LOG_WARN("contractor_capd_full::prune - Silent omission of invariant: {}", inv_e);
+            }
         }
         return;
     }
