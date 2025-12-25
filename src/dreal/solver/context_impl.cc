@@ -362,7 +362,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 #ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
               std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::seconds(20))
 #else
-              std::min( // based on information from WORTH_IT_regression_4.ipynb
+              std::min( // based on i̶n̶f̶o̶r̶m̶a̶t̶i̶o̶n̶ ̶f̶r̶o̶m̶ ̶W̶O̶R̶T̶H̶_̶I̶T̶_̶r̶e̶g̶r̶e̶s̶s̶i̶o̶n̶_̶4̶.̶i̶p̶y̶n̶b̶  vibes
                 std::chrono::duration_cast<std::chrono::microseconds>(100 * tscs_elapsed),
                 std::chrono::duration_cast<std::chrono::microseconds>(DREAL_EXPERIMENTAL_PATTERN_MATCH_TIMEOUT)
               )
@@ -396,11 +396,12 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             // const bool valid_under = (actual_log2_worth_it < 1) && (predicted_is_worth_it < 0.5);
             // const bool underestimated = (actual_log2_worth_it > 1) && (predicted_is_worth_it < 0.5);
           } else {
-            // std::cerr << std::setprecision(3);
+            if (DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED) pm_dump_all(explanation, {});
+            std::cerr << std::setprecision(3);
             // std::cerr << "P(is W.I.)=" << predicted_is_worth_it;
-            // std::cerr << ".\tA 1 s " << explanation.size() << " d.\t";
-            // std::cerr << "T " << tscs_elapsed.count() << " m.\t";
-            // std::cerr << "F c = " << is_full_constrained << '\n';
+            std::cerr << ".\tA 1 s " << explanation.size() << " d.\t";
+            std::cerr << "T " << tscs_elapsed.count() << " m.\t";
+            std::cerr << "F c = " << is_full_constrained << '\n';
             sat_solver->AddLearnedClauseDirect(explanation, box);
           }
           ////////////////////////////////////////////////////////////////////////////////
