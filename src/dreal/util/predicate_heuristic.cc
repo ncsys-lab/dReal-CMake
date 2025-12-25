@@ -17,6 +17,7 @@
 
 #include <dreal/symbolic/symbolic_expression_cell.h>
 #include <dreal/symbolic/symbolic_formula_cell.h>
+#include <dreal/symbolic/odes/symbolic_odes_cell.h>
 
 #include "exception.h"
 #include "logging.h"
@@ -163,12 +164,12 @@ namespace dreal
 
     ADD_DECL(VisitMin) {
         stats.min_cntr++;
-        UnaryOpHelper(e, stats);
+        BinaryOpHelper(e, stats);
     }
 
     ADD_DECL(VisitMax) {
         stats.max_cntr++;
-        UnaryOpHelper(e, stats);
+        BinaryOpHelper(e, stats);
     }
 
     ADD_DECL(VisitIfThenElse) {
@@ -249,6 +250,25 @@ namespace dreal
         recHeurForm(get_quantified_formula(f), stats, inverted);
         for (const auto & v : get_quantified_variables(f))
             recHeurExpr({v}, stats);
+    }
+
+    ADD_DECL(VisitForallT) {
+        stats.forallt_cntr++;
+        const auto* const ft = to_forallT(f);
+        recHeurExpr(ft->get_lb(), stats);
+        recHeurExpr(ft->get_ub(), stats);
+        recHeurForm(ft->get_bound_f(), stats, inverted);
+        // todo: recurse through flow as well?
+    }
+
+    ADD_DECL(VisitIntegral) {
+        stats.integral_cntr++;
+        const auto* const i = to_integral(f);
+        recHeurExpr(i->get_time_0(), stats);
+        recHeurExpr(i->get_time_t(), stats);
+        for (const auto& v : i->get_vec_0()) { recHeurExpr(v, stats); }
+        for (const auto& v : i->get_vec_t()) { recHeurExpr(v, stats); }
+        // todo: recurse through flow as well?
     }
 
 #undef ADD_DECL

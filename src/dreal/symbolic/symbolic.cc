@@ -19,6 +19,7 @@
 #include <iterator>
 #include <utility>
 
+#include "dreal/symbolic/odes/symbolic_odes_cell.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"
@@ -79,6 +80,8 @@ bool is_atomic(const Formula& f) {
     case FormulaKind::Lt:
     case FormulaKind::Leq:
     case FormulaKind::Forall:
+    case FormulaKind::ForallT:
+    case FormulaKind::Integral:
       return true;
     case FormulaKind::And:
     case FormulaKind::Or:
@@ -398,6 +401,20 @@ class DeltaStrengthenVisitor {
         "DeltaStrengthenVisitor: forall formula is not supported.");
   }
 
+  Formula VisitIntegral(const Formula& f, const double delta) const {
+    return f;
+  }
+
+  Formula VisitForallT(const Formula& f, const double delta) const {
+    const auto* const ft = to_forallT(f);
+    return forallT(
+      ft->get_flow(),
+      ft->get_lb(),
+      ft->get_ub(),
+      Visit(ft->get_bound_f(), delta)
+    );
+  }
+
   // Makes VisitExpression a friend of this class so that it can use private
   // operator()s.
   friend Expression drake::symbolic::VisitExpression<Expression>(
@@ -453,6 +470,9 @@ class IsDifferentiableVisitor {
   }
   bool VisitNegation(const Formula& f) const { return Visit(get_operand(f)); }
   bool VisitForall(const Formula&) const { return false; }
+
+  bool VisitForallT(const Formula&) const { return false; }
+  bool VisitIntegral(const Formula&) const { return false; } // todo?
 
   // Handle Expressions.
   bool VisitVariable(const Expression&) const { return true; }

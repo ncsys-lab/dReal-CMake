@@ -21,9 +21,9 @@
 #include "dreal/contractor/contractor_status.h"
 #include "dreal/solver/config.h"
 #include "dreal/util/box.h"
+#include "odes/ode_types.h"
 
 namespace dreal {
-
 // Forward declarations.
 class ContractorCell;
 class ContractorId;
@@ -53,6 +53,7 @@ class Contractor {
     WORKLIST_FIXPOINT,
     FORALL,
     JOIN,
+    CAPD_FULL
   };
 
   explicit Contractor(const Config& config);
@@ -117,6 +118,9 @@ class Contractor {
                                            const Config& config);
   friend Contractor make_contractor_join(std::vector<Contractor> vec,
                                          const Config& config);
+  friend Contractor mk_contractor_capd_full(Box const& box, const ode_constraint& ctr,
+                                            ode_direction dir, Config const& config,
+                                            double timeout);
 
   // Note that the following converter functions are only for
   // low-level operations. To use them, you need to include
@@ -134,6 +138,7 @@ class Contractor {
   friend std::shared_ptr<ContractorWorklistFixpoint> to_worklist_fixpoint(
       const Contractor& contractor);
   friend std::shared_ptr<ContractorJoin> to_join(const Contractor& contractor);
+  friend std::shared_ptr<contractor_capd_full> to_capd(const Contractor& contractor);
   template <typename ContextType>
   friend std::shared_ptr<ContractorForall<ContextType>> to_forall(
       const Contractor& contractor);
@@ -208,6 +213,10 @@ Contractor make_contractor_worklist_fixpoint(
 Contractor make_contractor_join(std::vector<Contractor> vec,
                                 const Config& config);
 
+Contractor mk_contractor_capd_full(Box const& box, const ode_constraint& ctr,
+                                   ode_direction dir, Config const& config,
+                                   double timeout);
+
 /// Returns a forall contractor.
 ///
 /// @note the implementation is at `dreal/contractor/contractor_forall.h` file.
@@ -244,5 +253,7 @@ bool is_forall(const Contractor& contractor);
 
 /// Returns true if @p contractor is join contractor.
 bool is_join(const Contractor& contractor);
+
+bool is_capd(const Contractor& contractor);
 
 }  // namespace dreal

@@ -8,6 +8,7 @@
 #include <dreal/util/box.h>
 #include <dreal/util/predicate_abstractor.h>
 #include <optional>
+#include <dreal/util/pattern_matching/substitutions_map.h>
 
 namespace dreal
 {
@@ -22,6 +23,11 @@ namespace dreal
         const std::optional<Box>& box
     );
     void theory_audit_formula(const std::string& label, const Formula& formula, const std::optional<Box>& box);
+
+    void pm_dump_all(
+        const std::vector<Formula>& base_conflict,
+        const std::vector<std::pair<std::vector<Formula>, substitutions_map>>& all_matches
+    );
 }
 
 #endif //AUDITOR_H

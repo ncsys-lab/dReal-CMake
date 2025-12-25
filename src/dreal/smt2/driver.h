@@ -17,11 +17,13 @@
 #include <string>
 #include <vector>
 
+#include "dreal/symbolic/odes/OdeFlow.h"
 #include "dreal/smt2/location.hh"
 #include "dreal/smt2/scanner.h"
 #include "dreal/smt2/sort.h"
 #include "dreal/smt2/term.h"
 #include "dreal/solver/context.h"
+#include "dreal/util/math.h"
 #include "dreal/util/scoped_unordered_map.h"
 
 namespace dreal {
@@ -111,6 +113,10 @@ class Smt2Driver {
                  const std::vector<Variable>& parameters, Sort return_type,
                  const Term& body);
 
+  /// Handles define-fun.
+  void DefineOde(const std::string& flow_name,
+                 const std::vector<std::pair<Variable, Expression>>& ode_list);
+
   /// Returns a representation of a model computed by the solver in
   /// response to an invocation of the check-sat.
   void GetModel() const;
@@ -139,6 +145,13 @@ class Smt2Driver {
 
   Term LookupFunction(const std::string& name,
                       const std::vector<Term>& arguments);
+
+  const std::shared_ptr<const OdeFlow>& LookupOde(const std::string& name);
+  const std::shared_ptr<const OdeFlow>& LookupOde(const double id) {
+      DREAL_ASSERT(id >= 0);
+      DREAL_ASSERT(is_integer(id));
+      return LookupOde("flow_" + std::to_string(static_cast<int>(id)));
+  }
 
   static Variable ParseVariableSort(const std::string& name, Sort s);
 
@@ -176,6 +189,8 @@ class Smt2Driver {
 
   /** Scoped map from a string to a corresponding Variable. */
   ScopedUnorderedMap<std::string, FunctionDefinition> function_definition_map_;
+
+  ScopedUnorderedMap<std::string, std::shared_ptr<const OdeFlow>> ode_definition_map_;
 
   /// Sequential value concatenated to names to make them unique.
   int64_t nextUniqueId_{};

@@ -32,6 +32,7 @@
 #include "dreal/contractor/contractor_seq.h"
 #include "dreal/contractor/contractor_worklist_fixpoint.h"
 #include "dreal/util/stat.h"
+#include "odes/contractor_odes.h"
 
 using std::any_of;
 using std::cout;
@@ -205,6 +206,16 @@ Contractor make_contractor_join(vector<Contractor> vec, const Config& config) {
   return Contractor{make_shared<ContractorJoin>(std::move(vec), config)};
 }
 
+Contractor mk_contractor_capd_full(Box const& box, const ode_constraint& ctr,
+                                         ode_direction const dir, Config const& config,
+                                         double const timeout) {
+  if (config.number_of_jobs() > 1) {
+    // todo: paralellism ?
+    throw DREAL_RUNTIME_ERROR("Parallel ODE solving is buggy/unsupported. todo: fix.");
+  }
+  return Contractor{std::make_shared<contractor_capd_full>(box, ctr, dir, config, timeout)};
+}
+
 ostream& operator<<(ostream& os, const Contractor& ctc) {
   if (ctc.ptr_) {
     os << *(ctc.ptr_);
@@ -238,6 +249,9 @@ bool is_forall(const Contractor& contractor) {
 }
 bool is_join(const Contractor& contractor) {
   return contractor.kind() == Contractor::Kind::JOIN;
+}
+bool is_capd(const Contractor& contractor) {
+  return contractor.kind() == Contractor::Kind::CAPD_FULL;
 }
 
 }  // namespace dreal

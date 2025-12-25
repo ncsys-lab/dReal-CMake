@@ -35,6 +35,39 @@ class PrefixPrinterTest : public ::testing::Test {
   const Variable b1_{"b1", Variable::Type::BOOLEAN};
   const Variable b2_{"b2", Variable::Type::BOOLEAN};
   const Variable b3_{"b3", Variable::Type::BOOLEAN};
+
+  const Variable x1{"x1", Variable::Type::CONTINUOUS};
+  const Variable y1{"y1", Variable::Type::CONTINUOUS};
+  const Variable z1{"z1", Variable::Type::CONTINUOUS};
+  const Variable x2{"x2", Variable::Type::CONTINUOUS};
+  const Variable y2{"y2", Variable::Type::CONTINUOUS};
+  const Variable z2{"z2", Variable::Type::CONTINUOUS};
+
+  const Variable t0{"t0", Variable::Type::CONTINUOUS};
+  const Variable t1{"t1", Variable::Type::CONTINUOUS};
+  const Variable t2{"t2", Variable::Type::CONTINUOUS};
+
+  const std::shared_ptr<const OdeFlow> flow1 = std::make_shared<OdeFlow>(
+                "flow_1", std::vector<std::pair<Variable, Expression>>{
+                    {x1, 10 * (y1 - x1)}, // Lorenz
+                    {y1, x1 * (28 - z1) - y1},
+                    {z1, x1 * y1 - 8.0 / 3.0 * z1},
+                }
+            );
+  const std::shared_ptr<const OdeFlow> flow2 = std::make_shared<OdeFlow>(
+      "flow_2", std::vector<std::pair<Variable, Expression>>{
+          {x2, -sin(x1) - x2}, // Pendulum
+          {x1, x2},
+      }
+  );
+  const std::shared_ptr<const OdeFlow> flow3 = std::make_shared<OdeFlow>(
+      "flow_3", std::vector<std::pair<Variable, Expression>>{
+          {x2, +3 * (1 - pow(x1, 2)) * x2 - x1}, // Hamiltonian Van der Pol
+          {y2, +3 * (1 - pow(x1, 2)) * y2 - y1},
+          {y1, y2},
+          {x1, x2}
+      }
+  );
 };
 
 TEST_F(PrefixPrinterTest, Variable) {
@@ -201,6 +234,16 @@ TEST_F(PrefixPrinterTest, Or) {
 
 TEST_F(PrefixPrinterTest, Negation) {
   EXPECT_EQ(ToPrefix(!(x_ <= y_)), "(not (<= x y))");
+}
+
+TEST_F(PrefixPrinterTest, FormulaForallT) {
+  // (forall_t 1 [0 time_2] (>= tau_2_t 0))
+  EXPECT_EQ(ToPrefix(forallT(flow2, 0, t2, x1 >= 0)), "(forall_t 2 [0 t2] (>= x1 0))");
+}
+
+TEST_F(PrefixPrinterTest, FormulaIntegral) {
+  // (forall_t 1 [0 time_2] (>= tau_2_t 0))
+  EXPECT_EQ(ToPrefix(integral(0, t0, {x1,y1,z1}, {x2,y2,z2}, flow1)), "(= [x2 y2 z2 ] (integral 0 t0 [x1 y1 z1 ] flow_1))");
 }
 
 }  // namespace

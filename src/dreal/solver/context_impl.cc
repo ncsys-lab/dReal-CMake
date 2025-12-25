@@ -321,7 +321,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           // ordering the literals like this makes pattern matching fast.
           // todo: abstract this away better. should not happen at the top-level like it is now.
           std::sort(explanation.begin(), explanation.end(), [](const Formula &a, const Formula &b) {
-              return a.GetFreeVariables().size() > b.GetFreeVariables().size(); // descending
+              return a.GetFreeVariables().size() < b.GetFreeVariables().size(); // descending
           });
 
           ////////////////////////////////////////////////////////////////////////////////
@@ -372,7 +372,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             // the pattern matching is kinda best-effort now.
             // it breaks down when one clause pattern matches into 1000s of permutations of itself
             // just make the best effort, and at the very minimum make sure the original at least gets inserted
-            sat_solver->AddLearnedClauseUnboxed(explanation); // just to be sure, sound because this is unmatched, straight from theory solver.
+            sat_solver->AddLearnedClauseDirect(explanation, box); // just to be sure, sound because this is unmatched, straight from theory solver.
 
             const auto alcp_end = std::chrono::high_resolution_clock::now();
             const std::chrono::duration<double, std::milli> alcp_elapsed = alcp_end - alcp_start;
@@ -385,6 +385,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             std::cerr << ".\tM " << alcp_result.matches << " s " << explanation.size() << " i " << alcp_elapsed.count();
             std::cerr << " m.\tT " << tscs_elapsed.count() << " m.\t";
             std::cerr << "F c = " << is_full_constrained << '\n';
+            // std::cerr << explanation << '\n';
 
             // const double bb_lpms = 1 / tscs_elapsed.count();
             // const double pm_lpms = (std::max(alcp_result.matches, 1u) - 0.999) / alcp_elapsed.count();
@@ -400,7 +401,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             // std::cerr << ".\tA 1 s " << explanation.size() << " d.\t";
             // std::cerr << "T " << tscs_elapsed.count() << " m.\t";
             // std::cerr << "F c = " << is_full_constrained << '\n';
-            sat_solver->AddLearnedClauseUnboxed(explanation);
+            sat_solver->AddLearnedClauseDirect(explanation, box);
           }
           ////////////////////////////////////////////////////////////////////////////////
 
@@ -659,6 +660,10 @@ void Context::Impl::SetOption(const string& key, const string& val) {
   }
   if (key == ":produce-models" || key == ":produce_models") {
     return config_.mutable_produce_models().set_from_file(
+        ParseBooleanOption(key, val));
+  }
+  if (key == ":visualize") {
+    return config_.mutable_visualize().set_from_file(
         ParseBooleanOption(key, val));
   }
   if (key == ":smtlib2-compliant" || key == ":smtlib2_compliant") {

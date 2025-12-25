@@ -46,6 +46,10 @@ Result VisitFormula(Visitor* v, const Formula& f, Args&&... args) {
       return v->VisitNegation(f, std::forward<Args>(args)...);
     case FormulaKind::Forall:
       return v->VisitForall(f, std::forward<Args>(args)...);
+    case FormulaKind::ForallT:
+      return v->VisitForallT(f, std::forward<Args>(args)...);
+    case FormulaKind::Integral:
+      return v->VisitIntegral(f, std::forward<Args>(args)...);
   }
   // Should not be reachable. But we need the following to avoid "control
   // reaches end of non-void function" gcc-warning.

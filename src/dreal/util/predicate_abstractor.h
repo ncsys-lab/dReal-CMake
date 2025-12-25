@@ -75,6 +75,8 @@ class PredicateAbstractor {
   Formula VisitDisjunction(const Formula& f);
   Formula VisitNegation(const Formula& f);
   Formula VisitForall(const Formula& f);
+  Formula VisitForallT(const Formula& f);
+  Formula VisitIntegral(const Formula& f);
 
   void Add(const Variable& var, const Formula& f);
 

@@ -27,6 +27,7 @@
 #include "dreal/contractor/contractor_seq.h"
 #include "dreal/contractor/contractor_worklist_fixpoint.h"
 #include "dreal/util/assert.h"
+#include "odes/contractor_odes.h"
 
 using std::ostream;
 using std::shared_ptr;
@@ -100,6 +101,10 @@ shared_ptr<ContractorWorklistFixpoint> to_worklist_fixpoint(
 shared_ptr<ContractorJoin> to_join(const Contractor& contractor) {
   DREAL_ASSERT(is_join(contractor));
   return static_pointer_cast<ContractorJoin>(contractor.ptr_);
+}
+shared_ptr<contractor_capd_full> to_capd(const Contractor& contractor) {
+  DREAL_ASSERT(is_capd(contractor));
+  return static_pointer_cast<contractor_capd_full>(contractor.ptr_);
 }
 
 }  // namespace dreal

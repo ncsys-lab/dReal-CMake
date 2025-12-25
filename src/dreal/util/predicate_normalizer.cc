@@ -15,6 +15,7 @@
 */
 #include "dreal/util/predicate_normalizer.h"
 #include <dreal/symbolic/symbolic_formula_cell.h>
+#include <dreal/symbolic/odes/symbolic_odes_cell.h>
 
 #include "logging.h"
 
@@ -37,7 +38,9 @@ namespace dreal
         for (const auto& f : ordered_clause) {
             const auto& atom = is_negation(f) ? get_operand(f) : f;
             // Learned clauses MUST be a collection of normalized literals.
-            DREAL_ASSERT(is_equal_to(atom) || is_less_than(atom) || is_less_than_or_equal_to(atom) || is_forall(atom));
+            DREAL_ASSERT(
+                is_equal_to(atom) || is_less_than(atom) || is_less_than_or_equal_to(atom) || is_forall(atom) ||
+                is_integral(atom) || is_forallT(atom));
         }
         return trie.find_matches(ordered_clause, box, timeout);
     }
@@ -88,10 +91,27 @@ namespace dreal
     }
 
     Formula PredicateNormalizer::VisitForall(const Formula& f) {
-        // todo: support this??
-        // const auto fa = to_forall(f);
-        // return forall(fa->get_quantified_variables(), Convert(fa->get_quantified_formula()));
-        // trie.insert(f);
+        trie.insert(f);
+        trie.insert(!f);
+        heuristic.collect_statistics(f);
+        heuristic.collect_statistics(!f);
+        return f;
+    }
+
+    Formula PredicateNormalizer::VisitForallT(const Formula& f) {
+        trie.insert(f);
+        trie.insert(!f);
+        heuristic.collect_statistics(f);
+        heuristic.collect_statistics(!f);
+        const auto *const fa = to_forallT(f);
+        return forallT(fa->get_flow(), fa->get_lb(), fa->get_ub(), Convert(fa->get_bound_f()));
+    }
+
+    Formula PredicateNormalizer::VisitIntegral(const Formula& f) {
+        trie.insert(f);
+        trie.insert(!f);
+        heuristic.collect_statistics(f);
+        heuristic.collect_statistics(!f);
         return f;
     }
 

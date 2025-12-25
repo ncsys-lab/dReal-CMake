@@ -118,6 +118,8 @@ class IbexConverter {
   const ibex::ExprCtr* VisitDisjunction(const Formula&, bool);
   const ibex::ExprCtr* VisitNegation(const Formula& f, bool polarity);
   const ibex::ExprCtr* VisitForall(const Formula&, bool);
+  const ibex::ExprCtr* VisitForallT(const Formula&, bool);
+  const ibex::ExprCtr* VisitIntegral(const Formula&, bool);
 
   // ---------------
   // Member fields

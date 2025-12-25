@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include "dreal/symbolic/symbolic_formula.h"
+#include "dreal/symbolic/odes/symbolic_odes.h"
 #include "dreal/symbolic/test/symbolic_test_util.h"
 
 namespace dreal {
@@ -81,6 +82,10 @@ class SymbolicFormulaTest : public ::testing::Test {
   const Variable var_x_{"x", Variable::Type::CONTINUOUS};
   const Variable var_y_{"y", Variable::Type::CONTINUOUS};
   const Variable var_z_{"z", Variable::Type::CONTINUOUS};
+  const Variable var_xT_{"xT", Variable::Type::CONTINUOUS};
+  const Variable var_yT_{"yT", Variable::Type::CONTINUOUS};
+  const Variable var_zT_{"zT", Variable::Type::CONTINUOUS};
+
   const Variable var_b1_{"x", Variable::Type::BOOLEAN};
   const Variable var_b2_{"y", Variable::Type::BOOLEAN};
 
@@ -91,6 +96,13 @@ class SymbolicFormulaTest : public ::testing::Test {
   const Expression e1_prime_{x_ + y_};
   const Expression e2_{x_ - y_};
   const Expression e3_{x_ + z_};
+
+  const std::shared_ptr<const OdeFlow> flow1 = std::make_shared<OdeFlow>(
+    "flow_1", std::vector<std::pair<Variable, Expression>>{
+      {var_y_, -sin(var_x_) - var_y_}, // Pendulum
+      {var_x_, var_y_},
+    }
+  );
 
   const Formula b1_{var_b1_};
   const Formula b2_{var_b2_};
@@ -110,6 +122,10 @@ class SymbolicFormulaTest : public ::testing::Test {
   const Formula f_or_{f1_ || f2_};
   const Formula not_f_or_{!f_or_};
   const Formula f_forall_{forall({var_x_, var_y_}, f_or_)};
+  const Formula f_forallt_{forallT(flow1, 0, var_z_, f_and_)};
+  const Formula f_integral_{integral(
+    0, var_z_,{var_x_, var_y_},{var_xT_, var_yT_}, flow1
+  )};
 
   const Environment env1_{{var_x_, 1}, {var_y_, 1}};
   const Environment env2_{{var_x_, 3}, {var_y_, 4}};
@@ -134,6 +150,8 @@ TEST_F(SymbolicFormulaTest, LessKind) {
         f1_ || f2_,
         !f1_,
         f_forall_,
+        f_forallt_,
+        f_integral_
 });
   // clang-format on
 }
@@ -535,7 +553,7 @@ TEST_F(SymbolicFormulaTest, And4) {
   // Simplification: f && f => f.
   for (const Formula& f :
        {b1_, b2_, tt_, ff_, f1_, f2_, f3_, f4_, f_eq_, f_neq_, f_lt_, f_lte_,
-        f_gt_, f_gte_, f_and_, f_or_, not_f_or_, f_forall_}) {
+        f_gt_, f_gte_, f_and_, f_or_, not_f_or_, f_forall_, f_forallt_, f_integral_}) {
     EXPECT_PRED2(FormulaEqual, f && f, f);
   }
 }
@@ -624,7 +642,7 @@ TEST_F(SymbolicFormulaTest, Or4) {
   // Simplification: f || f => f.
   for (const Formula& f :
        {b1_, b2_, tt_, ff_, f1_, f2_, f3_, f4_, f_eq_, f_neq_, f_lt_, f_lte_,
-        f_gt_, f_gte_, f_and_, f_or_, not_f_or_, f_forall_}) {
+        f_gt_, f_gte_, f_and_, f_or_, not_f_or_, f_forall_, f_forallt_, f_integral_}) {
     EXPECT_PRED2(FormulaEqual, f || f, f);
   }
 }
@@ -693,7 +711,7 @@ TEST_F(SymbolicFormulaTest, DoubleNegationSimplification) {
   const vector<Formula> collection{b1_,   b2_,       tt_,      ff_,    f1_,
                                    f2_,   f3_,       f4_,      f_eq_,  f_neq_,
                                    f_lt_, f_lte_,    f_gt_,    f_gte_, f_and_,
-                                   f_or_, not_f_or_, f_forall_};
+                                   f_or_, not_f_or_, f_forall_, f_forallt_, f_integral_};
   vector<Formula> negated_collection{collection.size()};
   transform(collection.cbegin(), collection.cend(), negated_collection.begin(),
             [](const Formula& f) { return !f; });
@@ -773,6 +791,7 @@ TEST_F(SymbolicFormulaTest, ToString) {
   EXPECT_EQ(f_or_.to_string(), "(((x + y) > 0) or ((x * y) < 5))");
   EXPECT_EQ(f_forall_.to_string(),
             "forall({x, y}. (((x + y) > 0) or ((x * y) < 5)))");
+  // todo: check forallT and integral printing, once API is solidified.
 }
 
 TEST_F(SymbolicFormulaTest, IsTrue) {
@@ -790,6 +809,8 @@ TEST_F(SymbolicFormulaTest, IsTrue) {
           f_or_,
           not_f_or_,
           f_forall_,
+          f_forallt_,
+          f_integral_
       },
       is_true));
 }
@@ -809,6 +830,8 @@ TEST_F(SymbolicFormulaTest, IsFalse) {
           f_or_,
           not_f_or_,
           f_forall_,
+          f_forallt_,
+          f_integral_
       },
       is_false));
 }
@@ -828,6 +851,8 @@ TEST_F(SymbolicFormulaTest, IsEqualTo) {
           f_or_,
           not_f_or_,
           f_forall_,
+          f_forallt_,
+          f_integral_
       },
       is_equal_to));
 }
@@ -847,6 +872,8 @@ TEST_F(SymbolicFormulaTest, IsNotEqualTo) {
           f_or_,
           not_f_or_,
           f_forall_,
+          f_forallt_,
+          f_integral_
       },
       is_not_equal_to));
 }
@@ -866,7 +893,8 @@ TEST_F(SymbolicFormulaTest, IsLessThan) {
           f_or_,
           not_f_or_,
           f_forall_,
-
+          f_forallt_,
+          f_integral_
       },
       is_less_than));
 }
@@ -886,7 +914,8 @@ TEST_F(SymbolicFormulaTest, IsLessThanOrEqualTo) {
           f_or_,
           not_f_or_,
           f_forall_,
-
+          f_forallt_,
+          f_integral_
       },
       is_less_than_or_equal_to));
 }
@@ -906,7 +935,8 @@ TEST_F(SymbolicFormulaTest, IsGreaterThan) {
           f_or_,
           not_f_or_,
           f_forall_,
-
+          f_forallt_,
+          f_integral_
       },
       is_greater_than));
 }
@@ -926,7 +956,8 @@ TEST_F(SymbolicFormulaTest, IsGreaterThanOrEqualTo) {
           f_or_,
           not_f_or_,
           f_forall_,
-
+          f_forallt_,
+          f_integral_
       },
       is_greater_than_or_equal_to));
 }
@@ -942,7 +973,8 @@ TEST_F(SymbolicFormulaTest, IsRelational) {
           f_or_,
           not_f_or_,
           f_forall_,
-
+          f_forallt_,
+          f_integral_
       },
       is_relational));
 }
@@ -962,7 +994,8 @@ TEST_F(SymbolicFormulaTest, IsConjunction) {
           f_or_,
           not_f_or_,
           f_forall_,
-
+          f_forallt_,
+          f_integral_
       },
       is_conjunction));
 }
@@ -982,7 +1015,8 @@ TEST_F(SymbolicFormulaTest, IsDisjunction) {
           f_and_,
           not_f_or_,
           f_forall_,
-
+          f_forallt_,
+          f_integral_
       },
       is_disjunction));
 }
@@ -1001,7 +1035,8 @@ TEST_F(SymbolicFormulaTest, IsNary) {
           f_gte_,
           not_f_or_,
           f_forall_,
-
+          f_forallt_,
+          f_integral_
       },
       is_nary));
 }
@@ -1021,7 +1056,8 @@ TEST_F(SymbolicFormulaTest, IsNegation) {
           f_and_,
           f_or_,
           f_forall_,
-
+          f_forallt_,
+          f_integral_
       },
       is_negation));
 }
@@ -1041,8 +1077,52 @@ TEST_F(SymbolicFormulaTest, IsForall) {
           f_and_,
           f_or_,
           not_f_or_,
+          f_forallt_,
+          f_integral_
       },
       is_forall));
+}
+
+TEST_F(SymbolicFormulaTest, IsForallT) {
+  EXPECT_TRUE(is_forallT(f_forallt_));
+  EXPECT_FALSE(any_of(
+      {
+          tt_,
+          ff_,
+          f_eq_,
+          f_neq_,
+          f_lt_,
+          f_lte_,
+          f_gt_,
+          f_gte_,
+          f_and_,
+          f_or_,
+          not_f_or_,
+          f_forall_,
+          f_integral_
+      },
+      is_forallT));
+}
+
+TEST_F(SymbolicFormulaTest, IsIntegral) {
+  EXPECT_TRUE(is_integral(f_integral_));
+  EXPECT_FALSE(any_of(
+      {
+          tt_,
+          ff_,
+          f_eq_,
+          f_neq_,
+          f_lt_,
+          f_lte_,
+          f_gt_,
+          f_gte_,
+          f_and_,
+          f_or_,
+          not_f_or_,
+          f_forall_,
+          f_forallt_,
+      },
+      is_integral));
 }
 
 TEST_F(SymbolicFormulaTest, GetLhsExpression) {

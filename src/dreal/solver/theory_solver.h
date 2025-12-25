@@ -63,6 +63,8 @@ class TheorySolver {
   Box model_;
   std::set<Formula> explanation_;
   std::unordered_map<Formula, Contractor> contractor_cache_;
+  std::unordered_map<Formula, Contractor> fwd_ode_contractor_cache_;
+  std::unordered_map<Formula, Contractor> bwd_ode_contractor_cache_;
   std::unordered_map<Formula, FormulaEvaluator> formula_evaluator_cache_;
 };
 

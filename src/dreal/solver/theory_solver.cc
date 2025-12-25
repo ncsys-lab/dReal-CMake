@@ -24,6 +24,7 @@
 #include <nlohmann/json.hpp>
 
 #include "dreal/contractor/contractor_forall.h"
+#include "dreal/contractor/odes/contractor_odes.h"
 #include "dreal/solver/context.h"
 #include "dreal/solver/filter_assertion.h"
 #include "dreal/solver/formula_evaluator.h"
@@ -33,6 +34,7 @@
 #include "dreal/util/logging.h"
 #include "dreal/util/stat.h"
 #include "dreal/util/timer.h"
+#include "odes/ode_formula_evaluator.h"
 
 namespace dreal {
 
@@ -146,8 +148,9 @@ optional<Contractor> TheorySolver::BuildContractor(
   }
   DREAL_LOG_TRACE("TheorySolver::BuildContractor: Filtering Assertions\n{}",
                   box);
-  vector<Contractor> ctcs;
+  vector<Contractor> nl_ctcs;
   for (const Formula& f : assertions) {
+    if (f.include_ode()) continue; // deal with these next...
     const auto result = FilterAssertion(f, &box);
     if (!result.filtered && !result.changed) {
       DREAL_LOG_TRACE("TheorySolver::BuildContractor: {} - Not Filtered.", f);
@@ -185,25 +188,77 @@ optional<Contractor> TheorySolver::BuildContractor(
         DREAL_ASSERT(inner_delta < epsilon && epsilon < delta);
         const Contractor ctc{make_contractor_forall<Context>(
             f, box, epsilon, inner_delta, config_)};
-        ctcs.emplace_back(make_contractor_fixpoint(DefaultTerminationCondition,
+        nl_ctcs.emplace_back(make_contractor_fixpoint(DefaultTerminationCondition,
                                                    {ctc}, config_));
       } else {
-        ctcs.emplace_back(make_contractor_ibex_fwdbwd(f, box, config_));
+        nl_ctcs.emplace_back(make_contractor_ibex_fwdbwd(f, box, config_));
       }
       // Add it to the cache.
-      contractor_cache_.emplace_hint(it, f, ctcs.back());
+      contractor_cache_.emplace_hint(it, f, nl_ctcs.back());
     } else {
       // Cache hit!
-      ctcs.emplace_back(it->second);
+      nl_ctcs.emplace_back(it->second);
     }
   }
   // Add integer contractor.
-  ctcs.push_back(make_contractor_integer(box, config_));
+  nl_ctcs.push_back(make_contractor_integer(box, config_));
 
   if (config_.use_polytope()) {
     // Add polytope contractor.
-    ctcs.push_back(make_contractor_ibex_polytope(assertions, box, config_));
+    nl_ctcs.push_back(make_contractor_ibex_polytope(assertions, box, config_));
   }
+
+
+  // ODEs
+  vector<Contractor> ode_capd4_fwd_ctcs;
+  vector<Contractor> ode_capd4_bwd_ctcs;
+  const auto ode_constraints = link_integral_invariants(assertions);
+  for (const auto & ode_constraint : ode_constraints) {
+    const auto f = ode_constraint.first && make_conjunction(ode_constraint.second);
+    {
+      auto &cache = fwd_ode_contractor_cache_;
+      auto dir = ode_direction::FWD;
+      auto &ctcs = ode_capd4_fwd_ctcs;
+
+      auto it = cache.find(f);
+      if (it == cache.end()) {
+        // There is no contractor for `f`, build one.
+        DREAL_LOG_TRACE("TheorySolver::BuildContractor: Turn {} into a ode fwd contractor", f);
+        ctcs.emplace_back(mk_contractor_capd_full(box, ode_constraint, dir, config_, 0.0));
+        cache.emplace_hint(it, f, ctcs.back());
+      } else {
+        ctcs.emplace_back(it->second);
+      }
+    }
+
+    {
+      auto &cache = bwd_ode_contractor_cache_;
+      auto dir = ode_direction::BWD;
+      auto &ctcs = ode_capd4_bwd_ctcs;
+
+      auto it = cache.find(f);
+      if (it == cache.end()) {
+        // There is no contractor for `f`, build one.
+        DREAL_LOG_TRACE("TheorySolver::BuildContractor: Turn {} into a ode bwd contractor", f);
+        ctcs.emplace_back(mk_contractor_capd_full(box, ode_constraint, dir, config_, 0.0));
+        cache.emplace_hint(it, f, ctcs.back());
+      } else {
+        ctcs.emplace_back(it->second);
+      }
+    }
+  }
+
+  vector<Contractor> ctcs;
+  ctcs.insert(ctcs.end(), nl_ctcs.begin(), nl_ctcs.end());
+  for (auto const & ode_ctc : ode_capd4_fwd_ctcs) {
+    ctcs.insert(ctcs.end(), ode_ctc);
+    ctcs.insert(ctcs.end(), nl_ctcs.begin(), nl_ctcs.end());
+  }
+  for (auto const & ode_ctc : ode_capd4_bwd_ctcs) {
+    ctcs.insert(ctcs.end(), ode_ctc);
+    ctcs.insert(ctcs.end(), nl_ctcs.begin(), nl_ctcs.end());
+  }
+
   if (DREAL_LOG_TRACE_ENABLED) {
     for (const auto& ctc : ctcs) {
       DREAL_LOG_TRACE("TheorySolver::BuildContractor: CTC = {}", fmt::streamed(ctc));
@@ -213,8 +268,7 @@ optional<Contractor> TheorySolver::BuildContractor(
     }
   }
   if (config_.use_worklist_fixpoint()) {
-    return make_contractor_worklist_fixpoint(DefaultTerminationCondition, ctcs,
-                                             config_);
+    return make_contractor_worklist_fixpoint(DefaultTerminationCondition, ctcs, config_);
   } else {
     return make_contractor_fixpoint(DefaultTerminationCondition, ctcs, config_);
   }
@@ -236,6 +290,8 @@ vector<FormulaEvaluator> TheorySolver::BuildFormulaEvaluator(
       if (is_forall(f)) {
         formula_evaluators.push_back(make_forall_formula_evaluator(
             f, epsilon, inner_delta, config_.number_of_jobs()));
+      } else if (f.include_ode()) {
+        formula_evaluators.push_back(make_ode_formula_evaluator(f));
       } else {
         formula_evaluators.push_back(make_relational_formula_evaluator(f));
       }

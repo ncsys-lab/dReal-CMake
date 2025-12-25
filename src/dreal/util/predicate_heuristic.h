@@ -44,6 +44,8 @@ namespace dreal
             unsigned disjunction_cntr;
             unsigned negation_cntr;
             unsigned forall_cntr;
+            unsigned forallt_cntr;
+            unsigned integral_cntr;
         } predicate_stats_t;
 
         static std::string predicate_stats_csv_header(const std::string& prefix) {
@@ -75,6 +77,8 @@ namespace dreal
             s << prefix << "disjunction_cntr,";
             s << prefix << "negation_cntr,";
             s << prefix << "forall_cntr";
+            s << prefix << "forallt_cntr";
+            s << prefix << "integral_cntr";
             return s.str();
         }
 
@@ -126,6 +130,8 @@ namespace dreal
         ADD_DECL(VisitDisjunction);
         ADD_DECL(VisitNegation);
         ADD_DECL(VisitForall);
+        ADD_DECL(VisitForallT);
+        ADD_DECL(VisitIntegral);
 #undef VISIT_DECL
 #undef ADD_DECL
 #undef VISIT_AND_ADD_DECL
@@ -181,7 +187,9 @@ namespace dreal
         os << stats.conjunction_cntr << ',';
         os << stats.disjunction_cntr << ',';
         os << stats.negation_cntr << ',';
-        os << stats.forall_cntr;
+        os << stats.forall_cntr << ',';
+        os << stats.forallt_cntr << ',';
+        os << stats.integral_cntr;
         return os;
     }
 
@@ -216,6 +224,8 @@ namespace dreal
         lhs.disjunction_cntr += rhs.disjunction_cntr;
         lhs.negation_cntr += rhs.negation_cntr;
         lhs.forall_cntr += rhs.forall_cntr;
+        lhs.forallt_cntr += rhs.forallt_cntr;
+        lhs.integral_cntr += rhs.integral_cntr;
         return lhs;
     }
 } // namespace dreal

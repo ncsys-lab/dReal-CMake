@@ -65,6 +65,10 @@ class GenericContractorGenerator {
                                   const Config& config);
   static Contractor VisitForall(const Formula&, const Box&,
                                 const Config& config);
+  static Contractor VisitForallT(const Formula&, const Box&,
+                                  const Config& config);
+  static Contractor VisitIntegral(const Formula&, const Box&,
+                                const Config& config);
 
   // Makes VisitFormula a friend of this class so that it can use private
   // methods.

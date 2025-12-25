@@ -5,11 +5,12 @@ include(CMakePrintHelpers)
 set(CMAKE_VERBOSE_MAKEFILE ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_OSX_ARCHITECTURES "x86_64" CACHE INTERNAL "" FORCE)
 
 if (CMAKE_HOST_SYSTEM_NAME MATCHES "Darwin")
     function(find_brew_package package_name variable_name)
         execute_process(
-                COMMAND brew --prefix ${package_name}
+                COMMAND /usr/local/bin/brew --prefix ${package_name}
                 RESULT_VARIABLE BREW_${package_name}
                 OUTPUT_VARIABLE BREW_${package_name}_PREFIX
                 OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -96,6 +97,69 @@ find_library(CADICAL_LIB NAMES libcadical.a HINTS "${CADICAL_ROOT}" PATH_SUFFIXE
 target_include_directories(dreal4_cmake PUBLIC "${CADICAL_INC}")
 target_link_libraries(dreal4_cmake PUBLIC "${CADICAL_LIB}")
 
+set(ROSETTA_PREFIX "")
+if (CMAKE_HOST_SYSTEM_NAME MATCHES "Darwin")
+    set(ROSETTA_PREFIX arch -x86_64)
+endif ()
+
+include(ExternalProject)
+set(SHARED_LIB_CONFIG_COMMAND "--disable-shared")
+set(EXTERNAL_LD_FLAGS "-L${CMAKE_CURRENT_BINARY_DIR}/lib")
+link_directories("${CMAKE_CURRENT_BINARY_DIR}/lib/")
+include_directories("${CMAKE_CURRENT_BINARY_DIR}/include/")
+
+ExternalProject_Add(FILIB
+        PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
+        GIT_REPOSITORY https://github.com/dreal-deps/filibxx.git
+        GIT_TAG d898fe000e157f44e4a84b8f79b4e7556a5d6fb5
+        PATCH_COMMAND autoreconf -if
+        UPDATE_COMMAND ""
+        CONFIGURE_COMMAND ${ROSETTA_PREFIX} ${CMAKE_CURRENT_BINARY_DIR}/external/src/FILIB/configure
+        # CC=${CMAKE_C_COMPILER}
+        # CXX=${CMAKE_CXX_COMPILER}
+        # "CXXFLAGS=${EXTERNAL_CXX_FLAGS}"
+        "CXXFLAGS=-std=c++11 -frounding-math -ffloat-store"
+        "LDFLAGS=${EXTERNAL_LD_FLAGS}"
+        --prefix=${CMAKE_CURRENT_BINARY_DIR}
+        ${SHARED_LIB_CONFIG_COMMAND}
+        BUILD_COMMAND ${ROSETTA_PREFIX} make -j16
+        LOG_DOWNLOAD 1
+        LOG_UPDATE 1
+        LOG_CONFIGURE 1
+        LOG_BUILD 1
+        LOG_TEST 1
+        LOG_INSTALL 1
+        INSTALL_COMMAND ${ROSETTA_PREFIX} make install)
+
+ExternalProject_Add(CAPD4
+        DEPENDS FILIB
+        PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
+        GIT_REPOSITORY https://github.com/ncsys-lab/capdDynSys-4.0.git
+        GIT_TAG 54145cf706031b826d5a49734e933c93b3ab1c03
+        PATCH_COMMAND ${ROSETTA_PREFIX} autoreconf -if
+        UPDATE_COMMAND ""
+        CONFIGURE_COMMAND ${ROSETTA_PREFIX} ${CMAKE_CURRENT_BINARY_DIR}/external/src/CAPD4/configure
+        # CC=${CMAKE_C_COMPILER}
+        # CXX=${CMAKE_CXX_COMPILER}
+        # "CXXFLAGS=${EXTERNAL_CXX_FLAGS}"
+        "CXXFLAGS=-std=c++11 -frounding-math -ffloat-store"
+        "LDFLAGS=${EXTERNAL_LD_FLAGS}"
+        --prefix=${CMAKE_CURRENT_BINARY_DIR}
+        --without-gui
+        --without-boost
+        --with-mpfr=no
+        --with-filib=no
+        --enable-asserts=no
+        ${SHARED_LIB_CONFIG_COMMAND}
+        BUILD_COMMAND ${ROSETTA_PREFIX} make -j16
+        BUILD_IN_SOURCE 1
+        LOG_DOWNLOAD 1
+        LOG_UPDATE 1
+        LOG_CONFIGURE 1
+        LOG_BUILD 1
+        LOG_TEST 1
+        LOG_INSTALL 1
+        INSTALL_COMMAND ${ROSETTA_PREFIX} make install)
 
 # downloaded dependencies
 include(FetchContent)
@@ -109,7 +173,8 @@ include(FetchContent)
 FetchContent_Declare(
         ibex
         GIT_REPOSITORY https://github.com/ncsys-lab/ibex-lib
-        GIT_TAG 33408ed0733da56979ddf797473609d4c39ea1ea)  # Kunal's M1 + namespace fixes
+        GIT_TAG be485777a0ecd5483a564fb1729e7579edf1c1d4)  # Kunal's M1/rosetta + namespace fixes
+#        GIT_TAG 33408ed0733da56979ddf797473609d4c39ea1ea)  # Kunal's M1 + namespace fixes
 FetchContent_MakeAvailable(ibex)
 
 FetchContent_Declare(
@@ -156,6 +221,8 @@ add_dependencies(dreal4_cmake GAOL_HACK)
 target_link_libraries(
         dreal4_cmake PUBLIC ibex nlopt spdlog::spdlog fmt::fmt
 )
+add_dependencies(dreal4_cmake CAPD4)
+target_link_libraries(dreal4_cmake PUBLIC capd prim)
 
 # On some platforms, linking is purely sequential, and the order you specify libraries in matters.
 # I am repeating these libraries from above so that everything gets resolved on Ubuntu

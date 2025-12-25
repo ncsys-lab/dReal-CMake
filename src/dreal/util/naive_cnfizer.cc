@@ -66,6 +66,9 @@ Formula NaiveCnfizer::VisitForall(const Formula& f) const {
   return forall(quantified_variables, Convert(quantified_formula));
 }
 
+Formula NaiveCnfizer::VisitForallT(const Formula& f) const { return f; }
+Formula NaiveCnfizer::VisitIntegral(const Formula& f) const { return f; }
+
 Formula NaiveCnfizer::VisitConjunction(const Formula& f) const {
   const set<Formula> transformed_operands{
       map(get_operands(f),

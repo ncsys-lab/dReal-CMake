@@ -33,11 +33,13 @@
 
 #include <dreal/util/rounding_mode_guard.h>
 
+#include "dreal/contractor/odes/contractor_odes.h"
 #include "dreal/smt2/scanner.h"
 #include "dreal/solver/expression_evaluator.h"
 #include "dreal/symbolic/prefix_printer.h"
 #include "dreal/util/optional.h"
 #include "dreal/util/precision_guard.h"
+#include "nlohmann/json.hpp"
 
 namespace dreal {
 
@@ -53,6 +55,7 @@ using std::runtime_error;
 using std::string;
 using std::stringstream;
 using std::vector;
+using nlohmann::json;
 
 FunctionDefinition::FunctionDefinition(vector<Variable> parameters,
                                        Sort return_type, Term body)
@@ -131,6 +134,42 @@ void Smt2Driver::CheckSat() {
         cout << *model << "\n";
       }
     }
+
+    // --visualize
+    if (context_.config().visualize()) {
+      try {
+        const auto filename = streamname_ + ".json";
+        std::ofstream nra_json_out;
+        nra_json_out.open(filename, std::ofstream::out | std::ofstream::trunc);
+        if (nra_json_out.fail()) {
+          cout << "Cannot create a file: " << filename << std::endl;
+          exit(1);
+        }
+
+        json traces = {};
+        // Need to run ODE pruning operator once again to generate a trace
+        const auto odes = link_integral_invariants(context_.assertions());
+        for (const auto& ctr : odes) {
+          Contractor fwd_full = mk_contractor_capd_full(*model, ctr, ode_direction::FWD, context_.config(), 0.0);
+          ContractorStatus cs(*model);
+          json trace = to_capd(fwd_full)->generate_trace(/*copy*/cs);
+          traces.push_back(trace);
+        }
+        json vis_json;
+        vis_json["traces"] = traces;
+
+        nra_json_out << vis_json.dump() << std::endl;
+      } catch (std::exception const & e) {
+        DREAL_LOG_CRITICAL("The following exception is generated while computing "
+                           "a trace (visualization).");
+        DREAL_LOG_CRITICAL(e.what());
+        DREAL_LOG_CRITICAL("This indicates that this delta-sat result is not "
+                           "properly checked by ODE pruning operators.");
+        DREAL_LOG_CRITICAL("Please try with a smaller precision using the "
+                           "--precision option (current precision = {}).", context_.config().precision());
+      }
+    }
+
   } else {
     cout << "unsat\n";
   }
@@ -294,6 +333,14 @@ void Smt2Driver::DefineFun(const string& name,
   function_definition_map_.insert(name, func);
 }
 
+void Smt2Driver::DefineOde(const std::string& flow_name,
+                           const std::vector<std::pair<Variable, Expression>>& ode_list) {
+  if (ode_definition_map_.count(flow_name) != 0) {
+    throw DREAL_RUNTIME_ERROR("Scoped/shadowed define-ode's are not well supported yet.");
+  }
+  ode_definition_map_.insert(flow_name, std::make_shared<OdeFlow>(flow_name, ode_list));
+}
+
 string Smt2Driver::MakeUniqueName(const string& name) {
   ostringstream oss;
   // The \ character ensures that the name cannot occur in an SMT-LIBv2 file.
@@ -309,6 +356,12 @@ Term Smt2Driver::LookupFunction(const string& name,
   } else {
     throw runtime_error{fmt::format("No function definition for {}.", name)};
   }
+}
+
+const std::shared_ptr<const OdeFlow>& Smt2Driver::LookupOde(const string& name) {
+  const auto it = ode_definition_map_.find(name);
+  if (it != ode_definition_map_.end()) return it->second;
+  throw runtime_error{fmt::format("No ODE definition for {}.", name)};
 }
 
 Variable Smt2Driver::DeclareLocalVariable(const string& name, const Sort sort) {

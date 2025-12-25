@@ -32,6 +32,8 @@ enum class FormulaKind {
   Or,      ///< Disjunction (∨)
   Not,     ///< Negation (¬)
   Forall,  ///< Universal quantification (∀)
+  ForallT,  /// ODE inveriant
+  Integral
 };
 
 // Total ordering between FormulaKinds
@@ -53,6 +55,9 @@ class FormulaNot;             // In symbolic/symbolic_formula_cell.h
 class FormulaAnd;             // In symbolic/symbolic_formula_cell.h
 class FormulaOr;              // In symbolic/symbolic_formula_cell.h
 class FormulaForall;          // In symbolic/symbolic_formula_cell.h
+class FormulaForallT;         // In symbolic/odes/symbolic_odes.h
+class FormulaIntegral;        // In symbolic/odes/symbolic_odes.h
+class OdeFlow;                // In symbolic/odes/OdeFlow.h
 
 /** Represents a symbolic form of a first-order logic formula.
 
@@ -228,6 +233,8 @@ class Formula {
   friend bool is_disjunction(const Formula& f);
   friend bool is_negation(const Formula& f);
   friend bool is_forall(const Formula& f);
+  friend bool is_forallT(const Formula& f);
+  friend bool is_integral(const Formula& f);
 
   // Note that the following cast functions are only for low-level operations
   // and not exposed to the user of symbolic_formula.h. These functions are
@@ -248,6 +255,8 @@ class Formula {
   friend const FormulaOr* to_disjunction(const Formula& f);
   friend const FormulaNot* to_negation(const Formula& f);
   friend const FormulaForall* to_forall(const Formula& f);
+  friend const FormulaForallT* to_forallT(const Formula& f);
+  friend const FormulaIntegral* to_integral(const Formula& f);
 
   // Returns f1 = f1 && f2.
   static Formula make_conjunction(Formula& f1, const Formula& f2);
@@ -256,6 +265,10 @@ class Formula {
 
   friend FormulaCell;
   friend Formula forall(const Variables& vars, const Formula& f);
+  friend Formula forallT(const std::shared_ptr<const OdeFlow>& flow, const Expression& lb, const Expression& ub, const Formula& f);
+  friend Formula integral(const Expression& time_0, const Expression& time_t,
+                                const std::vector<Expression>& vec_0, const std::vector<Expression>& vec_t,
+                                const std::shared_ptr<const OdeFlow>& flow);
   friend Formula make_conjunction(const std::set<Formula>& formulas);
   friend Formula make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::set<Formula> formulas);
   friend Formula make_disjunction(const std::set<Formula>& formulas);
@@ -270,6 +283,7 @@ class Formula {
   /// Returns true if this symbolic formula includes an ITE (If-Then-Else)
   /// expression.
   bool include_ite() const;
+  bool include_ode() const;
 
  private:
   explicit Formula(FormulaCell* ptr);

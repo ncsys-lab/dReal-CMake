@@ -84,6 +84,8 @@ class PrefixPrinter {
   std::ostream& VisitDisjunction(const Formula& f);
   std::ostream& VisitNegation(const Formula& f);
   static std::ostream& VisitForall(const Formula& f);
+  std::ostream& VisitForallT(const Formula& f);
+  std::ostream& VisitIntegral(const Formula& f);
 
   std::ostream& VisitUnaryFunction(const std::string& name,
                                    const Expression& e);
@@ -109,5 +111,7 @@ std::string ToPrefix(const Expression& e);
 
 /// Returns the prefix-string representation of the formula @p e.
 std::string ToPrefix(const Formula& f);
+
+std::string ToPrefix(const OdeFlow& flow);
 
 }  // namespace dreal

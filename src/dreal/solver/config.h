@@ -45,8 +45,12 @@ class Config {
   /// Returns the produce_models option.
   bool produce_models() const;
 
+  bool visualize() const;
+
   /// Returns a mutable OptionValue for 'produce_models'.
   OptionValue<bool>& mutable_produce_models();
+
+  OptionValue<bool>& mutable_visualize();
 
   /// Returns whether it uses polytope contractors or not.
   bool use_polytope() const;
@@ -169,6 +173,7 @@ class Config {
   // specified in dreal/dreal_main.cc.
   OptionValue<double> precision_{kDefaultPrecision};
   OptionValue<bool> produce_models_{false};
+  OptionValue<bool> visualize_{false};
   OptionValue<bool> use_polytope_{false};
   OptionValue<bool> use_polytope_in_forall_{false};
   OptionValue<bool> use_worklist_fixpoint_{false};

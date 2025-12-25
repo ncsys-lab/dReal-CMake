@@ -445,6 +445,7 @@ class Expression {
   friend bool is_min(const Expression& e);
   friend bool is_max(const Expression& e);
   friend bool is_if_then_else(const Expression& e);
+  friend bool is_integral(const Formula& e);
   friend bool is_uninterpreted_function(const Expression& e);
 
   // Note that the following cast functions are only for low-level operations

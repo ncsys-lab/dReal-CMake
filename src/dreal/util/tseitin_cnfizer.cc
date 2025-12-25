@@ -121,6 +121,8 @@ Formula TseitinCnfizer::VisitGreaterThanOrEqualTo(const Formula& f) {
 }
 Formula TseitinCnfizer::VisitLessThan(const Formula& f) { return f; }
 Formula TseitinCnfizer::VisitLessThanOrEqualTo(const Formula& f) { return f; }
+Formula TseitinCnfizer::VisitForallT(const Formula& f) { return f; }
+Formula TseitinCnfizer::VisitIntegral(const Formula& f) { return f; }
 Formula TseitinCnfizer::VisitForall(const Formula& f) {
   // Given: f := ∀y. φ(x, y), this process CNFizes φ(x, y) and push the
   // universal quantifier over conjunctions:
@@ -214,6 +216,10 @@ void Cnfize(const Variable& b, const Formula& f, vector<Formula>* clauses) {
     case FormulaKind::Leq:
       DREAL_UNREACHABLE();
     case FormulaKind::Forall:
+      DREAL_UNREACHABLE();
+    case FormulaKind::ForallT:
+      DREAL_UNREACHABLE();
+    case FormulaKind::Integral:
       DREAL_UNREACHABLE();
     case FormulaKind::And:
       return CnfizeConjunction(b, f, clauses);

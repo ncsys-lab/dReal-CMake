@@ -20,6 +20,8 @@
 #include <stdexcept>
 #include <dreal/util/rounding_mode_guard.h>
 
+#include "dreal/symbolic/odes/symbolic_odes_cell.h"
+
 using std::ostream;
 using std::ostringstream;
 using std::runtime_error;
@@ -305,6 +307,42 @@ ostream& PrefixPrinter::VisitForall(const Formula&) {
   throw runtime_error("Not implemented.");
 }
 
+ostream& PrefixPrinter::VisitForallT(const Formula& f) {
+  const auto* const fc = to_forallT(f);
+
+  // keep semantics compatible with dReal3
+  auto flow_id = fc->get_flow()->name;
+  const std::string prefix = "flow_";
+  if (flow_id.rfind(prefix, 0) == 0) flow_id.erase(0, prefix.size());
+
+  os_ << "(forall_t " << flow_id << " [";
+  Print(fc->get_lb());
+  os_ << ' ';
+  Print(fc->get_ub());
+  os_ << "] ";
+  Print(fc->get_bound_f());
+  return os_ << ')';
+}
+
+ostream& PrefixPrinter::VisitIntegral(const Formula& f) {
+  const auto *const ic = to_integral(f);
+  os_ << "(= [";
+  for (const auto& v : ic->get_vec_t()) {
+    Print(v);
+    os_ << ' ';
+  }
+  os_ << "] (integral ";
+  Print(ic->get_time_0());
+  os_ << ' ';
+  Print(ic->get_time_t());
+  os_ << " [";
+  for (const auto& v : ic->get_vec_0()) {
+    Print(v);
+    os_ << ' ';
+  }
+  return os_ << "] " << ic->get_flow()->name << "))";
+}
+
 string ToPrefix(const Expression& e) {
   ostringstream oss;
   PrefixPrinter pp{oss};
@@ -316,6 +354,24 @@ string ToPrefix(const Formula& f) {
   ostringstream oss;
   PrefixPrinter pp{oss};
   pp.Print(f);
+  return oss.str();
+}
+
+string ToPrefix(const OdeFlow& f) {
+  ostringstream oss;
+  PrefixPrinter pp{oss};
+  /*
+  (define-ode flow_1 (
+                      (= d/dt[x] 1.0)
+                      (= d/dt[P] (* (/ 1.0 (^ (* 2.0 3.14159265359) 0.5)) (exp (/ (- 0.0 (^ (- x 0.0) 2.0)) 2.0))))))
+   */
+  oss << "(define-ode " << f.name << " (\n";
+  for (const auto& [ode_var, ode_rhs] : f.ode_list) {
+    oss << "\t(= d/dt[" << ode_var << "] ";
+    pp.Print(ode_rhs);
+    oss << ")\n";
+  }
+  oss << "))";
   return oss.str();
 }
 

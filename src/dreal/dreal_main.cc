@@ -99,6 +99,11 @@ void MainProgram::AddOptions() {
   opt_.add("false" /* Default */, false /* Required? */,
            0 /* Number of args expected. */,
            0 /* Delimiter if expecting multiple args. */,
+           "Output visualization file (.json)\n", "--visualize", "--vis");
+
+  opt_.add("false" /* Default */, false /* Required? */,
+           0 /* Number of args expected. */,
+           0 /* Delimiter if expecting multiple args. */,
            "Strictly follow the smtlib2 standard.\n", "--smtlib2-compliant");
 
   opt_.add("false" /* Default */, false /* Required? */,
@@ -309,6 +314,12 @@ void MainProgram::ExtractOptions() {
     config_.mutable_produce_models().set_from_command_line(true);
     DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --produce-models = {}",
                     config_.produce_models());
+  }
+
+  if (opt_.isSet("--visualize")) {
+    config_.mutable_visualize().set_from_command_line(true);
+    DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --visualize = {}",
+                    config_.visualize());
   }
 
   // --smt2-compliant

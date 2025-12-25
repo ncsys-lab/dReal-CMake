@@ -16,7 +16,7 @@ template <class T>
 size_t hash_combine(size_t seed, const T& v);
 
 template <class T, class... Rest>
-size_t hash_combine(size_t seed, const T& v, Rest... rest) {
+size_t hash_combine(size_t seed, const T& v, const Rest&... rest) {
   return hash_combine(hash_combine(seed, v), rest...);
 }
 

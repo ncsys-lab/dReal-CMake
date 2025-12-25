@@ -21,6 +21,7 @@
 #include <limits>
 #include <utility>
 
+#include "rounding_mode_guard.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"
@@ -147,10 +148,11 @@ const Box::IntervalVector& Box::interval_vector() const { return values_; }
 Box::IntervalVector& Box::mutable_interval_vector() { return values_; }
 
 pair<double, int> Box::MaxDiam() const {
+  RoundingModeGuard g(FE_UPWARD);
   double max_diam{0.0};
   int idx{-1};
   for (size_t i{0}; i < variables_->size(); ++i) {
-    const double diam_i{values_[i].diam()};
+    const double diam_i{values_[i].diam()}; // .diam() corrupts the FPU env.
     if (diam_i > max_diam && values_[i].is_bisectable()) {
       max_diam = diam_i;
       idx = i;
@@ -233,7 +235,10 @@ Box& Box::InplaceUnion(const Box& b) {
 ostream& operator<<(ostream& os, const Box& box) {
   PrecisionGuard precision_guard(&os, numeric_limits<double>::max_digits10);
   int i{0};
-  for (const Variable& var : *(box.variables_)) {
+
+  std::vector<Variable> sorted_vars = *(box.variables_);
+  std::sort(sorted_vars.begin(), sorted_vars.end(), [](const Variable& a, const Variable& b) { return a.get_name() < b.get_name(); });
+  for (const Variable& var : sorted_vars) {
     const Box::Interval interval(box.values_[i++]);
     os << var << " : ";
     switch (var.get_type()) {
