@@ -21,7 +21,7 @@
 
 namespace dreal
 {
-    std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, PatternMatchingTrie::matching_stats_t>
+    std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, matching_stats_t>
     PredicateNormalizer::FindSimilar(
         const std::vector<Formula>& ordered_clause, const Box &box,
         const std::chrono::duration<uint64_t, std::micro> timeout

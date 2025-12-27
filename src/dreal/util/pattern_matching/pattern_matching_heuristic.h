@@ -6,7 +6,7 @@
 #define PATTERN_MATCHING_HEURISTIC_H
 #include <dreal/util/predicate_heuristic.h>
 
-#include "pattern_matching_trie.h"
+#include "matching_stats_t.h"
 
 namespace dreal
 {
@@ -31,7 +31,7 @@ namespace dreal
             PredicateHeuristic::predicate_stats_t smallest_literal_stats;
             uint64_t estimated_matching_cost;
             double pattern_match_ms;
-            PatternMatchingTrie::matching_stats_t pattern_matching_stats;
+            matching_stats_t pattern_matching_stats;
         };
 
         // todo: I have no idea why, but passing const ref instead of copying BREAKS it?!?!?!

@@ -73,7 +73,7 @@ class SatSolver : public CaDiCaL::Learner {
 
   // void AddLearnedClause(PredicateNormalizer& pn, const std::vector<Formula>& conflicting_conjunction, const Box& box);
 
-  PatternMatchingTrie::matching_stats_t AddLearnedClausePattern(
+  matching_stats_t AddLearnedClausePattern(
       PredicateNormalizer& pn,
       const std::vector<Formula>& base_conflict,
       const Box& base_box, std::chrono::duration<uint64_t, std::micro> timeout);

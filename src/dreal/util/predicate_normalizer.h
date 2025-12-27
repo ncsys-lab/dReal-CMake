@@ -17,7 +17,7 @@
 
 #include <unordered_map>
 #include <vector>
-#include <dreal/util/pattern_matching/pattern_matching_trie.h>
+#include "pattern_matching/trie_based/pattern_matching_trie.h"
 
 #include "predicate_heuristic.h"
 #include "dreal/symbolic/symbolic.h"
@@ -30,10 +30,8 @@ namespace dreal
         Formula Convert(const Formula& f);
 
         [[nodiscard]] std::pair<
-            std::vector<std::pair<std::vector<Formula>, substitutions_map>>, PatternMatchingTrie::
-            matching_stats_t
-        >
-        FindSimilar(
+            std::vector<std::pair<std::vector<Formula>, substitutions_map>>, matching_stats_t
+        > FindSimilar(
             const std::vector<Formula>& ordered_clause,
             const Box& b, std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
         ) const;
