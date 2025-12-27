@@ -286,7 +286,16 @@ namespace dreal
 
         // Special Case: Time = [0, 0]
         // Intersect X_0 and X_t and return
-        if (cs->mutable_box()[get_variable(icc->get_time_t())].ub() == 0.0) {
+
+        // dReal3:
+        //      if (cs->mutable_box()[get_variable(icc->get_time_t())].ub() == 0.0) {
+        // Kunal Fix:
+        const auto &icct = icc->get_time_t();
+        if (
+            (is_variable(icct) && cs->mutable_box()[get_variable(icct)].ub() == 0.0) ||
+            is_constant(icct, 0.0)
+        ) {
+
             for (unsigned i = 0; i < m_vars_0.size(); ++i) {
                 auto& iv_0_i = cs->mutable_box()[m_vars_0[i]];
                 auto& iv_t_i = cs->mutable_box()[m_vars_t[i]];
@@ -324,8 +333,23 @@ namespace dreal
             }
             capd::IVector X_0 = extract_ivector(cs->mutable_box(), m_vars_0);
             capd::IVector X_t = extract_ivector(cs->mutable_box(), m_vars_t);
-            ibex::Interval const& ibex_T = cs->mutable_box()[get_variable(icc->get_time_t())];
-            capd::interval T(ibex_T.lb(), ibex_T.ub());
+
+            // dReal3 code:
+            //          ibex::Interval const& ibex_T =
+            //              is_constant(icc->get_time_t())
+            //              cs->mutable_box()[get_variable(icc->get_time_t())];
+            //          capd::interval T(ibex_T.lb(), ibex_T.ub());
+            // Kunal's Fix:
+            capd::interval T;
+            const auto& icct = icc->get_time_t();
+            if (is_variable(icct)) {
+                const auto& iv = cs->box()[get_variable(icct)];
+                T = capd::interval(iv.lb(), iv.ub());
+            }
+            else if (is_real_constant(icct)) T = capd::interval(get_lb_of_real_constant(icct), get_ub_of_real_constant(icct));
+            else if (is_constant(icct)) T = capd::interval(get_constant_value(icct));
+            else DREAL_UNREACHABLE();
+
             // DREAL_LOG_INFO("X_0 : ", X_0);
             // DREAL_LOG_INFO("X_t : ", X_t);
             // DREAL_LOG_INFO("T   : ", T);
@@ -408,7 +432,8 @@ namespace dreal
                 // SAT
                 update_box_with_ivector(cs->mutable_box(), m_vars_t, X_t);
                 // TODO(soonhok): Here we still assume that time_0 = zero.
-                cs->mutable_box()[get_variable(icc->get_time_t())] = ibex::Interval(T.leftBound(), T.rightBound());
+                if (is_variable(icct))
+                    cs->mutable_box()[get_variable(icc->get_time_t())] = ibex::Interval(T.leftBound(), T.rightBound());
                 DREAL_LOG_DEBUG("contractor_capd_full::prune: get non-empty set after filtering");
             }
             else {
@@ -539,8 +564,21 @@ namespace dreal
                 (m_dir == ode_direction::FWD) ? icc->get_pars_0() : icc->get_pars_t();
             capd::IVector X_0 = extract_ivector(b, vars_0);
             capd::IVector X_t = extract_ivector(b, vars_t);
-            ibex::Interval const& ibex_T = b[get_variable(icc->get_time_t())];
-            capd::interval T(ibex_T.lb(), ibex_T.ub());
+
+            // dReal3 code:
+            // ibex::Interval const& ibex_T = b[get_variable(icc->get_time_t())];
+            // capd::interval T(ibex_T.lb(), ibex_T.ub());
+            // Kunal's Fix:
+            capd::interval T;
+            const auto& icct = icc->get_time_t();
+            if (is_variable(icct)) {
+                const auto& iv = b[get_variable(icct)];
+                T = capd::interval(iv.lb(), iv.ub());
+            }
+            else if (is_real_constant(icct)) T = capd::interval(get_lb_of_real_constant(icct), get_ub_of_real_constant(icct));
+            else if (is_constant(icct)) T = capd::interval(get_constant_value(icct));
+            else DREAL_UNREACHABLE();
+
             Rect2Set rs(X_0);
             (*m_timeMap)(0.0, rs); // Rewind to 0.0
             m_timeMap->stopAfterStep(true);
