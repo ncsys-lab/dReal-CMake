@@ -31,6 +31,7 @@
 
 #include <fmt/format.h>
 
+#include "dreal/version.h"
 #include "dreal/solver/auditor.h"
 #include "dreal/solver/filter_assertion.h"
 #include "dreal/util/assert.h"
@@ -38,7 +39,6 @@
 #include "dreal/util/if_then_else_eliminator.h"
 #include "dreal/util/interrupt.h"
 #include "dreal/util/logging.h"
-#include "dreal/version.h"
 
 namespace dreal {
 
@@ -230,22 +230,15 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
     }
 #endif
 
-#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
-    static_assert(partial_model_mode == 0);
-    constexpr bool request_fully_constrained = true;
-#endif
-#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_PARTIAL_CONSTRAINTS
-    static_assert(partial_model_mode == 1);
-    const bool request_fully_constrained = recent_under_constrained_deltasat > 0;
-#endif
+    const bool request_fully_constrained =
+      DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS ||
+      recent_under_constrained_deltasat > 0;
 
     const auto optional_model_and_fully_constrained = sat_solver->CheckSat(request_fully_constrained);
     if (optional_model_and_fully_constrained) {
       const auto& [optional_model, is_full_constrained] = *optional_model_and_fully_constrained;
       if (request_fully_constrained) DREAL_ASSERT(is_full_constrained);
-#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
-      DREAL_ASSERT(request_fully_constrained && is_full_constrained);
-#endif
+      if (DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS) DREAL_ASSERT(request_fully_constrained && is_full_constrained);
 
       const vector<pair<Variable, bool>>& boolean_model{optional_model.first};
       const vector<pair<Variable, bool>>& theory_model{optional_model.second};

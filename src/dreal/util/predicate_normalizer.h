@@ -19,6 +19,7 @@
 #include <vector>
 #include "pattern_matching/trie_based/pattern_matching_trie.h"
 
+#include <dreal/version.h>
 #include "predicate_heuristic.h"
 #include "dreal/symbolic/symbolic.h"
 #include "pattern_matching/map_based/DeBruijnCanonicalizer.h"
@@ -60,7 +61,13 @@ namespace dreal
         Formula VisitIntegral(const Formula& f);
 
         std::unordered_map<Formula, Formula> cache;
+
+#ifdef DREAL_EXPERIMENTAL_PM_USE_TRIE_IMPL
         PatternMatchingTrie trie;
+#endif
+#ifdef DREAL_EXPERIMENTAL_PM_USE_MAP_IMPL
+        DeBruijnCanonicalizer<Formula> trie;
+#endif
 
         friend Formula drake::symbolic::VisitFormula<
             Formula, PredicateNormalizer>(PredicateNormalizer*, const Formula&);

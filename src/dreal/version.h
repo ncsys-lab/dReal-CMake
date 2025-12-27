@@ -8,8 +8,10 @@
 #define DREAL_VERSION_MINOR    00
 #define DREAL_VERSION_REVISION  1
 
-#define DREAL_EXPERIMENTAL_SAT_MODEL_PARTIAL_CONSTRAINTS
-// #define DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
+#define DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS false
+
+// #define DREAL_EXPERIMENTAL_PM_USE_TRIE_IMPL
+#define DREAL_EXPERIMENTAL_PM_USE_MAP_IMPL
 
 #define DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED  false
 #define DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED   false
@@ -18,15 +20,11 @@
 // #define DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
 
 // check that options are required and mutually exclusive
-#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_PARTIAL_CONSTRAINTS
-constexpr int partial_model_mode = 1;
+#ifdef DREAL_EXPERIMENTAL_PM_USE_TRIE_IMPL
+constexpr int pm_impl_mode = 0;
 #endif
-#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
-constexpr int partial_model_mode = 0;
-#endif
-
-#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
-static_assert(pattern_matching_mode == 2);
+#ifdef DREAL_EXPERIMENTAL_PM_USE_MAP_IMPL
+constexpr int pm_impl_mode = 1;
 #endif
 
 #endif //VERSION_H

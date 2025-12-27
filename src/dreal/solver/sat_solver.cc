@@ -17,11 +17,11 @@
 
 #include <ostream>
 #include <utility>
-#include <dreal/version.h>
 #include <dreal/symbolic/symbolic_formula_cell.h>
 #include <dreal/util/predicate_normalizer.h>
 
 #include "auditor.h"
+#include "dreal/version.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"

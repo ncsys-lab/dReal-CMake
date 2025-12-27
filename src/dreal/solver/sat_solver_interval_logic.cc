@@ -4,11 +4,11 @@
 
 #include <float.h>
 #include <dreal/util/logging.h>
-#include <dreal/version.h>
 
 #include "auditor.h"
 #include "filter_assertion.h"
 #include "sat_solver.h"
+#include "dreal/version.h"
 
 namespace dreal
 {
