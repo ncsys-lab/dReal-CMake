@@ -321,7 +321,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           // ordering the literals like this makes pattern matching fast.
           // todo: abstract this away better. should not happen at the top-level like it is now.
           std::sort(explanation.begin(), explanation.end(), [](const Formula &a, const Formula &b) {
-              return a.GetFreeVariables().size() < b.GetFreeVariables().size(); // descending
+              return a.GetFreeVariables().size() > b.GetFreeVariables().size(); // descending
           });
 
           ////////////////////////////////////////////////////////////////////////////////
