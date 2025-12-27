@@ -120,13 +120,11 @@ string Context::version() {
   oss << DREAL_VERSION_MINOR << '.';
   oss << DREAL_VERSION_REVISION << '.';
 
-  oss << "patmat" << pattern_matching_mode << '.';
   oss << "parmod" << partial_model_mode << '.';
 
-  oss << "audit" <<
-    static_cast<int>(DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED) <<
-    static_cast<int>(DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) <<
-    static_cast<int>(DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED);
+  oss << "audit_pm_dump" << (DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED ? 1 : 0) << '.';
+  oss << "audit_theory" << (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED ? 1 : 0) << '.';
+  oss << "audit_sat" << (DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED ? 1 : 0);
 
 #ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
   oss << ".GENERATE_CSV";
