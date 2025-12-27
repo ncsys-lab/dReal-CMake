@@ -204,11 +204,6 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 #endif
   ////////////////////////////////////////////////////////////////////////////////
 
-// #ifndef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
-//   static_assert(pattern_matching_mode != 0);
-//   sat_solver->AddBox(pn_, box);
-// #endif
-
   ////////////////////////////////////////////////////////////////////////////////
   for (const auto & variable : box.variables()) {
     if (variable.get_type() == Variable::Type::CONTINUOUS) kunal_paper_data.box_continuous_count++;
@@ -339,22 +334,11 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           const std::chrono::duration<double, std::milli> ranking_elapsed2 = ranking_end2 - ranking_start2;
 #endif
 
-#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_ALL
-          static_assert(pattern_matching_mode == 2);
           if (true
             // && explanation.size() < 384 /* stack overflows around size=960 on x86 */
             // && tscs_elapsed > std::chrono::milliseconds(3)
             && explanation.size() < config().drpm_max_size() /* stack overflows around size=960 on x86 */
             ) {
-#endif
-#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_SOME
-          static_assert(pattern_matching_mode == 1);
-          if (predicted_is_worth_it >= 0.5 && explanation.size() < 96) {
-#endif
-#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
-          static_assert(pattern_matching_mode == 0);
-          if (false) {
-#endif
             const auto alcp_start = std::chrono::high_resolution_clock::now();
             const auto alcp_result = sat_solver->AddLearnedClausePattern(
               pn_, explanation, box,
