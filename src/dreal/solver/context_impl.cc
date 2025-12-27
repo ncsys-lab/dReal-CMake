@@ -344,8 +344,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           if (true
             // && explanation.size() < 384 /* stack overflows around size=960 on x86 */
             // && tscs_elapsed > std::chrono::milliseconds(3)
-            && explanation.size() < DREAL_EXPERIMENTAL_PATTERN_MATCH_SIZE_THRESH /* stack overflows around size=960 on x86 */
-            // && tscs_elapsed > std::chrono::milliseconds(3)
+            && explanation.size() < config().drpm_max_size() /* stack overflows around size=960 on x86 */
             ) {
 #endif
 #ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_SOME
@@ -364,7 +363,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 #else
               std::min( // based on i̶n̶f̶o̶r̶m̶a̶t̶i̶o̶n̶ ̶f̶r̶o̶m̶ ̶W̶O̶R̶T̶H̶_̶I̶T̶_̶r̶e̶g̶r̶e̶s̶s̶i̶o̶n̶_̶4̶.̶i̶p̶y̶n̶b̶  vibes
                 std::chrono::duration_cast<std::chrono::microseconds>(100 * tscs_elapsed),
-                std::chrono::duration_cast<std::chrono::microseconds>(DREAL_EXPERIMENTAL_PATTERN_MATCH_TIMEOUT)
+                std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::duration<double, std::chrono::seconds::period>(config().drpm_max_time()))
               )
 #endif
             );

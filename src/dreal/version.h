@@ -12,8 +12,6 @@
 // #define DREAL_EXPERIMENTAL_PATTERN_MATCH_SOME
 // #define DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
 
-#define DREAL_EXPERIMENTAL_PATTERN_MATCH_SIZE_THRESH 16
-
 #define DREAL_EXPERIMENTAL_SAT_MODEL_PARTIAL_CONSTRAINTS
 // #define DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
 
@@ -22,10 +20,6 @@
 #define DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED     false
 
 // #define DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
-
-// this is an *upper* limit for calculated timeout, 100 * TSCS
-// should be taken from data reflected in WORTH_IT_regression_*.ipynb
-#define DREAL_EXPERIMENTAL_PATTERN_MATCH_TIMEOUT (std::chrono::milliseconds(222))
 
 // check that options are required and mutually exclusive
 #ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_ALL
