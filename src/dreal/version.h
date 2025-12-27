@@ -8,10 +8,6 @@
 #define DREAL_VERSION_MINOR    00
 #define DREAL_VERSION_REVISION  1
 
-#define DREAL_EXPERIMENTAL_PATTERN_MATCH_ALL
-// #define DREAL_EXPERIMENTAL_PATTERN_MATCH_SOME
-// #define DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
-
 #define DREAL_EXPERIMENTAL_SAT_MODEL_PARTIAL_CONSTRAINTS
 // #define DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
 
@@ -22,16 +18,6 @@
 // #define DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
 
 // check that options are required and mutually exclusive
-#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_ALL
-constexpr int pattern_matching_mode = 2;
-#endif
-#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_SOME
-constexpr int pattern_matching_mode = 1;
-#endif
-#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
-constexpr int pattern_matching_mode = 0;
-#endif
-
 #ifdef DREAL_EXPERIMENTAL_SAT_MODEL_PARTIAL_CONSTRAINTS
 constexpr int partial_model_mode = 1;
 #endif
