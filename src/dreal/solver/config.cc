@@ -124,6 +124,14 @@ uint32_t Config::random_seed() const { return random_seed_.get(); }
 
 OptionValue<uint32_t>& Config::mutable_random_seed() { return random_seed_; }
 
+int Config::drpm_max_size() const { return drpm_max_size_.get(); }
+
+OptionValue<int>& Config::mutable_drpm_max_size() { return drpm_max_size_; }
+
+double Config::drpm_max_time() const { return drpm_max_time_.get(); }
+
+OptionValue<double>& Config::mutable_drpm_max_time() { return drpm_max_time_; }
+
 std::ostream& operator<<(std::ostream& os,
                          const Config::SatDefaultPhase& sat_default_phase) {
   switch (sat_default_phase) {

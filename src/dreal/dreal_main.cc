@@ -234,6 +234,18 @@ void MainProgram::AddOptions() {
            1 /* Number of args expected. */,
            0 /* Delimiter if expecting multiple args. */,
            "Set a seed for the random number generator.", "--random-seed");
+
+  opt_.add("0" /* Default */, false /* Required? */,
+           1 /* Number of args expected. */,
+           0 /* Delimiter if expecting multiple args. */,
+           "Set maximum lemma size to pattern match. (default = 0)", "--drpm-max-size", positive_int_option_validator);
+
+  const string kDefaultDrpmMaxTime{fmt::format("{}", Config::kDefaultDrpmMaxTime)};
+  opt_.add(kDefaultDrpmMaxTime.c_str() /* Default */, false /* Required? */,
+           1 /* Number of args expected. */,
+           0 /* Delimiter if expecting multiple args. */,
+           fmt::format("Set pattern matching timeout in seconds. (default = {})", kDefaultDrpmMaxTime).c_str(),
+           "--drpm-max-time", positive_double_option_validator);
 }
 
 bool MainProgram::ValidateOptions() {
@@ -430,6 +442,21 @@ void MainProgram::ExtractOptions() {
     config_.mutable_random_seed().set_from_command_line(random_seed);
     DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --random-seed = {}",
                     config_.random_seed());
+  }
+
+  if (opt_.isSet("--drpm-max-size")) {
+    int drpm{0};
+    opt_.get("--drpm-max-size")->getInt(drpm);
+    config_.mutable_drpm_max_size().set_from_command_line(drpm);
+    DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --drpm-max-size= {}",
+                    config_.drpm_max_size());
+  }
+  if (opt_.isSet("--drpm-max-time")) {
+    double drpm{0};
+    opt_.get("--drpm-max-time")->getDouble(drpm);
+    config_.mutable_drpm_max_time().set_from_command_line(drpm);
+    DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --drpm-max-time = {}",
+                    config_.drpm_max_time());
   }
 }
 
