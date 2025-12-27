@@ -372,9 +372,12 @@ void DeBruijnCanonicalizer<T>::name ( \
                 // stats.partial_matches++;
                 if (it2 == iend) {
                     DREAL_ASSERT(matches_vec.size() == literals.size());
-                    if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED)
-                        for (const auto& lit : matches_vec)
-                            DREAL_ASSERT(std::find(literals.begin(), literals.end(), substitutions_map::apply_substitution(lit, s2, false)) != literals.end());
+                    if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
+                        for (int i = 0; i < literals.size(); ++i) {
+                            const auto& subs_lit = substitutions_map::apply_substitution(matches_vec[i], s2, false);
+                            DREAL_ASSERT(literals[i].EqualTo(subs_lit));
+                        }
+                    }
                     ++stats.matches;
                     result.emplace_back(matches_vec, s2);
                 }
