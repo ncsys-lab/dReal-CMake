@@ -64,9 +64,11 @@ namespace dreal
 
 #ifdef DREAL_EXPERIMENTAL_PM_USE_TRIE_IMPL
         PatternMatchingTrie trie;
+        static_assert(pm_impl_mode == 0);
 #endif
 #ifdef DREAL_EXPERIMENTAL_PM_USE_MAP_IMPL
         DeBruijnCanonicalizer<Formula> trie;
+        static_assert(pm_impl_mode == 1);
 #endif
 
         friend Formula drake::symbolic::VisitFormula<
