@@ -186,7 +186,7 @@ Formula FormulaFalse::Substitute(const ExpressionSubstitution&,
 ostream& FormulaFalse::Display(ostream& os) const { return os << "False"; }
 
 FormulaVar::FormulaVar(const Variable& v)
-    : FormulaCell{FormulaKind::Var, hash_value<Variable>{}(v), 41, false, false, {v}},
+    : FormulaCell{FormulaKind::Var, hash_value<Variable>{}(v), hash_combine(41, v.get_type()), false, false, {v}},
       var_{v} {
   // Dummy symbolic variable (ID = 0) should not be used in constructing
   // symbolic formulas.
