@@ -153,7 +153,11 @@ void DeBruijnCanonicalizer<T>::name ( \
     INSERT_DECL(VisitNegation) { RECURSEF(get_operand(f)); }
 
     INSERT_DECL(VisitForall) {
-        throw DREAL_RUNTIME_ERROR("DeBruin Canonicalization not implemented for quantifiers yet.");
+        // todo: not sure if this is right... investigate later.
+        // throw DREAL_RUNTIME_ERROR("DeBruin Canonicalization not implemented for quantifiers yet.");
+        const auto& a = to_forall(f);
+        for (const auto & v : a->get_quantified_variables()) RECURSE(v);
+        RECURSEF(a->get_quantified_formula());
     }
 
     INSERT_DECL(VisitForallT) {
