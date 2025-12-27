@@ -17,10 +17,10 @@
 
 #include <utility>
 
+#include "dreal/version.h"
 #include "dreal/solver/context_impl.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"
-#include "dreal/version.h"
 
 using std::make_unique;
 using std::string;
@@ -120,7 +120,7 @@ string Context::version() {
   oss << DREAL_VERSION_MINOR << '.';
   oss << DREAL_VERSION_REVISION << '.';
 
-  oss << "parmod" << partial_model_mode << '.';
+  oss << "full_models" << (DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS ? 1 : 0) << '.';
 
   oss << "audit_pm_dump" << (DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED ? 1 : 0) << '.';
   oss << "audit_theory" << (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED ? 1 : 0) << '.';

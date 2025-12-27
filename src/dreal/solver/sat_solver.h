@@ -24,6 +24,7 @@
 #include <dreal/util/predicate_normalizer.h>
 
 #include "cadical.hpp"
+#include "dreal/version.h"
 
 #include "dreal/solver/config.h"
 #include "dreal/symbolic/symbolic.h"
@@ -32,7 +33,6 @@
 #include "dreal/util/scoped_unordered_map.h"
 #include "dreal/util/scoped_unordered_set.h"
 #include "dreal/util/tseitin_cnfizer.h"
-#include "dreal/version.h"
 
 namespace dreal {
 
@@ -88,12 +88,7 @@ class SatSolver : public CaDiCaL::Learner {
   /// @returns a witness, satisfying model if the problem is satisfiable.
   /// @returns nullopt if UNSAT.
   optional<std::pair<Model, bool>> CheckSat(
-#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
-    bool request_fully_constrained = true
-#endif
-#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_PARTIAL_CONSTRAINTS
-    bool request_fully_constrained = false
-#endif
+    bool request_fully_constrained = DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
   );
 
   // TODO(soonho): Push/Pop cnfizer and predicate_abstractor?
