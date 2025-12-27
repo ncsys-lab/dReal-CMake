@@ -77,10 +77,9 @@ bool RelationalFormulaCell::Less(const FormulaCell& f) const {
 }
 
 size_t alpha_hash_set(const set<Formula> &set) {
-  size_t seed{};
-  for (const auto& v : set)
-    seed = hash_combine(seed, v.get_al_hash());
-  return seed;
+  std::multiset<size_t> hashes;
+  for (const auto&k : set) hashes.insert(k.get_al_hash());
+  return hash_range(hashes.cbegin(), hashes.cend());
 }
 
 NaryFormulaCell::NaryFormulaCell(const FormulaKind k, set<Formula> formulas)
