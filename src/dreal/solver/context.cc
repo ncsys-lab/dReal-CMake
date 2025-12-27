@@ -120,6 +120,13 @@ string Context::version() {
   oss << DREAL_VERSION_MINOR << '.';
   oss << DREAL_VERSION_REVISION << '.';
 
+#ifdef DREAL_EXPERIMENTAL_PM_USE_TRIE_IMPL
+  oss << "PM_trie.";
+#endif
+#ifdef DREAL_EXPERIMENTAL_PM_USE_MAP_IMPL
+  oss << "PM_map.";
+#endif
+
   oss << "full_models" << (DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS ? 1 : 0) << '.';
 
   oss << "audit_pm_dump" << (DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED ? 1 : 0) << '.';
