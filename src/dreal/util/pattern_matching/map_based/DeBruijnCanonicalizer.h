@@ -22,7 +22,8 @@ namespace dreal
         using DeBruijnEquivalenceClass = std::map<std::vector<Variable>, T>;
 
         std::unordered_map<T, std::tuple<T, DeBruijnIndices, std::vector<Variable>>> canonicalization_cache;
-        std::unordered_map<T, std::map<DeBruijnIndices, DeBruijnEquivalenceClass>> structure_to_indices_to_concrete;
+        // std::unordered_map<T, std::map<DeBruijnIndices, DeBruijnEquivalenceClass>> structure_to_indices_to_concrete;
+        std::unordered_map<T, DeBruijnEquivalenceClass> structure_to_concrete;
 
         std::tuple<T, DeBruijnIndices, std::vector<Variable>>
         canonicalize_atom(const T& atom) const;

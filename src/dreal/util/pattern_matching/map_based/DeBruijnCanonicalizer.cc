@@ -61,8 +61,8 @@ void DeBruijnCanonicalizer<T>::name ( \
 
     INSERT_DECL(VisitVariable) { add_variable_to_seq(get_variable(e), canon_var_seq); }
 
-    INSERT_DECL(VisitConstant) { DREAL_ASSERT(e.GetVariables().size() == 0); }
-    INSERT_DECL(VisitRealConstant) { DREAL_ASSERT(e.GetVariables().size() == 0); }
+    INSERT_DECL(VisitConstant) { DREAL_ASSERT(e.GetVariables().empty()); }
+    INSERT_DECL(VisitRealConstant) { DREAL_ASSERT(e.GetVariables().empty()); }
 
     INSERT_DECL(VisitAddition) {
         const auto& a = to_addition(e);
@@ -137,8 +137,8 @@ void DeBruijnCanonicalizer<T>::name ( \
     std::vector<Variable>& canon_var_seq \
 ) const
 
-    INSERT_DECL(VisitFalse) { DREAL_ASSERT(f.GetFreeVariables().size() == 0); }
-    INSERT_DECL(VisitTrue) { DREAL_ASSERT(f.GetFreeVariables().size() == 0); }
+    INSERT_DECL(VisitFalse) { DREAL_ASSERT(f.GetFreeVariables().empty()); }
+    INSERT_DECL(VisitTrue) { DREAL_ASSERT(f.GetFreeVariables().empty()); }
 
     INSERT_DECL(VisitVariable) { add_variable_to_seq(get_variable(f), canon_var_seq); }
 
@@ -229,11 +229,13 @@ void DeBruijnCanonicalizer<T>::name ( \
     template <typename T>
     void DeBruijnCanonicalizer<T>::insert(const T& atom) {
         auto [structure, indices, concrete_vars] = canonicalize_atom(atom);
-        const auto [it, _] = structure_to_indices_to_concrete.try_emplace(std::move(structure));
+        // const auto [it, _] = structure_to_indices_to_concrete.try_emplace(std::move(structure));
+        const auto [it, _] = structure_to_concrete.try_emplace(std::move(structure));
         const auto& canon_structure = it->first; // canonicalizes underlying FormulaCell ptr if it already existed in the map.
 
-        DeBruijnEquivalenceClass& concretes = it->second[indices];
-        DREAL_ASSERT(it->second.size() == 1); // We shouldn't need this middle layer... indices should be baked into the dummy variable names. todo: remove.
+        // DeBruijnEquivalenceClass& concretes = it->second[indices];
+        DeBruijnEquivalenceClass& concretes = it->second;
+        // DREAL_ASSERT(it->second.size() == 1); // We shouldn't need this middle layer... indices should be baked into the dummy variable names. odot: remove.
 
         auto [concrete_it, was_inserted] = concretes.try_emplace(concrete_vars, atom);
 
@@ -259,11 +261,14 @@ void DeBruijnCanonicalizer<T>::name ( \
             cache_it == canonicalization_cache.cend() ? canonicalize_atom(atom) : cache_it->second
         );
 
-        const auto indices_to_concrete_it = structure_to_indices_to_concrete.find(structure);
-        if (indices_to_concrete_it == structure_to_indices_to_concrete.cend()) return misses(substitutions_map::STRUCTURE_MISS);
-        const auto& indices_to_concrete = indices_to_concrete_it->second;
-        const auto concrete_it = indices_to_concrete.find(indices);
-        if (concrete_it == indices_to_concrete.cend()) return misses(substitutions_map::INDICES_MISS);
+        // const auto indices_to_concrete_it = structure_to_indices_to_concrete.find(structure);
+        // if (indices_to_concrete_it == structure_to_indices_to_concrete.cend()) return misses(substitutions_map::STRUCTURE_MISS);
+        // const auto& indices_to_concrete = indices_to_concrete_it->second;
+        // const auto concrete_it = indices_to_concrete.find(indices);
+        // if (concrete_it == indices_to_concrete.cend()) return misses(substitutions_map::INDICES_MISS);
+        // const auto& concrete = concrete_it->second;
+        const auto concrete_it = structure_to_concrete.find(structure);
+        if (concrete_it == structure_to_concrete.cend()) return misses(substitutions_map::STRUCTURE_MISS);
         const auto& concrete = concrete_it->second;
 
         for (const auto& [match_vars, match] : concrete /*structure_to_indices_to_concrete[structure][indices]*/) {
@@ -353,7 +358,7 @@ void DeBruijnCanonicalizer<T>::name ( \
 
                 // avoid re-finding 1000s of permutations of the same clause on fedor_13.smt2, etc.
                 // copy required. do NOT modify matches_vec... that needs to be a pure stack
-                std::set matches_vec_set(matches_vec.begin(), matches_vec.end());
+                // std::set matches_vec_set(matches_vec.begin(), matches_vec.end());
                 // const auto [_, successful_emplace] = seen_truncateds.emplace(
                 // make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(matches_vec_set))
                 // );
@@ -392,7 +397,8 @@ void DeBruijnCanonicalizer<T>::name ( \
     template <typename T>
     DeBruijnCanonicalizer<T>::DeBruijnCanonicalizer() {
         canonicalization_cache.max_load_factor(0.25);
-        structure_to_indices_to_concrete.max_load_factor(0.25);
+        // structure_to_indices_to_concrete.max_load_factor(0.25);
+        structure_to_concrete.max_load_factor(0.25);
     }
 
     // Force template code generation into this translation unit.
