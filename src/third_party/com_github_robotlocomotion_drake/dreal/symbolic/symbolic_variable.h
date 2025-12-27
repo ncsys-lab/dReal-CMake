@@ -15,7 +15,7 @@ namespace symbolic {
 /** Represents a symbolic variable. */
 class Variable {
  public:
-  typedef size_t Id;
+  typedef int Id;
 
   /** Supported types of symbolic variables. */
   // TODO(soonho-tri): refines the following descriptions.
@@ -48,6 +48,10 @@ class Variable {
   /** Constructs a variable with a string. If not specified, it has CONTINUOUS
    * type by default.*/
   explicit Variable(std::string name, Type type = Type::CONTINUOUS);
+
+  /** Constructs a dummy variable with an ID. If not specified, it has CONTINUOUS
+   * type by default.*/
+  explicit Variable(Id dummy_id, Type type = Type::CONTINUOUS);
 
   /** Constructs a variable with @p name and @p type. @p model_variable is
    * ignored. */
