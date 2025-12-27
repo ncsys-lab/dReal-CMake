@@ -21,6 +21,7 @@
 
 #include "predicate_heuristic.h"
 #include "dreal/symbolic/symbolic.h"
+#include "pattern_matching/map_based/DeBruijnCanonicalizer.h"
 
 namespace dreal
 {

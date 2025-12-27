@@ -55,7 +55,7 @@ namespace dreal
 
         typedef enum
         {
-            SUCCESS, TYPE_MISS, BOX_MISS, BIJ_MISS, CONST_MISS
+            SUCCESS, STRUCTURE_MISS, INDICES_MISS, TYPE_MISS, BOX_MISS, BIJ_MISS, CONST_MISS
         } substitution_status;
 
         substitution_status attempt_substitution(const Variable& a, const Variable& aP);
