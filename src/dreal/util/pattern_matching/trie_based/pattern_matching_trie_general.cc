@@ -12,10 +12,12 @@
 #include <dreal/util/logging.h>
 #include <cmath>
 
+#include "dreal/util/pattern_matching/matching_stats_t.h"
+
 namespace dreal
 {
     void handle_misses_reason(
-        PatternMatchingTrie::matching_stats_t& stats,
+        matching_stats_t& stats,
         const substitutions_map::substitution_status& status
     ) {
         // TYPE_MISS, BOX_MISS, BIJ_MISS, CONST_MISS
@@ -25,7 +27,7 @@ namespace dreal
         if (status == substitutions_map::CONST_MISS) stats.misses.bc_const++;
     }
 
-    std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, PatternMatchingTrie::matching_stats_t>
+    std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, matching_stats_t>
     PatternMatchingTrie::find_matches(
         const std::vector<Formula>& literals, const Box& box,
         const std::chrono::duration<uint64_t, std::micro> timeout
@@ -111,7 +113,7 @@ namespace dreal
         return {result, stats};
     }
 
-    std::pair<std::vector<std::pair<Formula, substitutions_map>>, PatternMatchingTrie::matching_stats_t>
+    std::pair<std::vector<std::pair<Formula, substitutions_map>>, matching_stats_t>
     PatternMatchingTrie::find_matches(
         const Formula& f,
         substitutions_map& substitutions
@@ -136,7 +138,7 @@ namespace dreal
         return {match_vec, stats};
     }
 
-    std::pair<std::vector<std::pair<Expression, substitutions_map>>, PatternMatchingTrie::matching_stats_t>
+    std::pair<std::vector<std::pair<Expression, substitutions_map>>, matching_stats_t>
     PatternMatchingTrie::find_matches(
         const Expression& e,
         substitutions_map& substitutions

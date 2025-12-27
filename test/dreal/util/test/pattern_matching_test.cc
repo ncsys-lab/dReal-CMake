@@ -14,12 +14,9 @@
    limitations under the License.
 */
 #include <dreal/util/pattern_matching/pattern_matching_trie.h>
+#include <dreal/util/pattern_matching/trie_based/pattern_matching_trie.h>
 #include <dreal/symbolic/symbolic_formula_cell.h>
-
-#include "dreal/solver/filter_assertion.h"
-
 #include <gtest/gtest.h>
-
 #include "dreal/symbolic/symbolic.h"
 
 namespace dreal

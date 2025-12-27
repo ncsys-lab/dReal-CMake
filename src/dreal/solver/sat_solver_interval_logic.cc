@@ -136,7 +136,7 @@ namespace dreal
         }
     }*/
 
-    PatternMatchingTrie::matching_stats_t SatSolver::AddLearnedClausePattern(
+    matching_stats_t SatSolver::AddLearnedClausePattern(
         PredicateNormalizer& pn,
         const std::vector<Formula>& base_conflict, const Box& base_box,
         const std::chrono::duration<uint64_t, std::micro> timeout

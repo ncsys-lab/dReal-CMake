@@ -11,26 +11,13 @@
 
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/box.h"
+#include "dreal/util/pattern_matching/matching_stats_t.h"
 
 namespace dreal
 {
     class PatternMatchingTrie
     {
     public:
-        typedef struct
-        {
-            struct
-            {
-                unsigned bc_type;
-                unsigned bc_box;
-                unsigned bc_bij;
-                unsigned bc_const;
-            } misses;
-
-            unsigned partial_matches;
-            unsigned matches;
-        } matching_stats_t;
-
         static std::string matching_stats_csv_header(const std::string& prefix) {
             std::ostringstream s;
             s << prefix << "misses,";
@@ -367,7 +354,7 @@ namespace dreal
         );
     };
 
-    // inline std::ostream& operator<<(std::ostream& os, const PatternMatchingTrie::matching_stats_t& stats) {
+    // inline std::ostream& operator<<(std::ostream& os, const matching_stats_t& stats) {
     //     os << "matching_stats_t {\n"
     //        << "  misses {\n"
     //        << "    bc_type: " << stats.misses.bc_type << ",\n"

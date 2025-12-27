@@ -16,7 +16,7 @@ namespace dreal
         std::unordered_map<Variable, Variable> fwd;
         std::unordered_map<Variable, Variable> bwd;
         std::vector<std::vector<std::pair<Variable, Variable>>> insertion_stack{1};
-        const Box &box;
+        const Box& box;
 
     public:
         const std::unordered_map<Variable, Variable>& get_map() const { return fwd; }
@@ -25,7 +25,7 @@ namespace dreal
         // substitutions_map();
         // explicit substitutions_map(Box b);
         // explicit substitutions_map(size_t reserve);
-        substitutions_map(const Box &b, size_t reserved_size);
+        substitutions_map(const Box& b, size_t reserved_size);
 
         // "forward" takes the matched and maps it to original
         // "backward" takes original and maps it to matched
@@ -46,7 +46,7 @@ namespace dreal
         }
 
         // [[nodiscard]] static Box apply_substitution(
-            // const Box& b, const substitutions_map& subs, bool backward = false
+        // const Box& b, const substitutions_map& subs, bool backward = false
         // );
 
         void push();
