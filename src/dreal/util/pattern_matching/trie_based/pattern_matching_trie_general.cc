@@ -12,6 +12,7 @@
 #include <dreal/util/logging.h>
 #include <cmath>
 
+#include "dreal/util/exception.h"
 #include "dreal/util/pattern_matching/matching_stats_t.h"
 
 namespace dreal
