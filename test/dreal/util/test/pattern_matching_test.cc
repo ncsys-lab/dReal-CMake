@@ -428,8 +428,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, ComplicatedMultiplicationExpression) {
-            GTEST_SKIP(); // broken after adding alpha hashing due to order of construction
-
             std::vector es{
                 tanh(4 * x1 + 3),
                 atan2((y2 - y1), (x2 - x1)),
