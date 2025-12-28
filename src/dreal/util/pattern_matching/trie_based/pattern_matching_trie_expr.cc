@@ -9,6 +9,8 @@
 #include <dreal/util/assert.h>
 #include <dreal/util/logging.h>
 
+#include "dreal/util/exception.h"
+
 namespace dreal
 {
 #define VISIT_DECL(name) \

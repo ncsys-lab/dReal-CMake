@@ -21,7 +21,7 @@ namespace dreal
     private:
         using DeBruijnIndices = std::vector<int>;
         // using DeBruijnEquivalenceClass = std::map<std::vector<Variable>, T>;
-        using DeBruijnEquivalenceClass = substitution_tree<T, Variable>;
+        using DeBruijnEquivalenceClass = substitution_tree<T>;
 
         std::unordered_map<T, std::tuple<T, DeBruijnIndices, std::vector<Variable>>> canonicalization_cache;
         // std::unordered_map<T, std::map<DeBruijnIndices, DeBruijnEquivalenceClass>> structure_to_indices_to_concrete;
