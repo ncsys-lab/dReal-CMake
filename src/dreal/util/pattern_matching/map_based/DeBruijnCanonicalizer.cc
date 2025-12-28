@@ -156,7 +156,8 @@ void DeBruijnCanonicalizer<T>::name ( \
         // todo: not sure if this is right... investigate later.
         // throw DREAL_RUNTIME_ERROR("DeBruin Canonicalization not implemented for quantifiers yet.");
         const auto& a = to_forall(f);
-        for (const auto & v : a->get_quantified_variables()) RECURSE(v);
+        for (const auto& v : a->get_quantified_variables())
+            RECURSE(v);
         RECURSEF(a->get_quantified_formula());
     }
 
@@ -237,15 +238,7 @@ void DeBruijnCanonicalizer<T>::name ( \
         DeBruijnEquivalenceClass& concretes = it->second;
         // DREAL_ASSERT(it->second.size() == 1); // We shouldn't need this middle layer... indices should be baked into the dummy variable names. odot: remove.
 
-        auto [concrete_it, was_inserted] = concretes.try_emplace(concrete_vars, atom);
-
-        if (!was_inserted) {
-            DREAL_ASSERT(atom.EqualTo(concrete_it->second));
-            // throw DREAL_RUNTIME_ERROR(
-            //     "DeBruijn concrete instantiation already exists: {} <-> {}",
-            //     atom.to_string(), canon_structure.to_string()
-            // );
-        }
+        concretes.insert(concrete_vars, atom);
 
         canonicalization_cache.try_emplace(atom, canon_structure, std::move(indices), std::move(concrete_vars));
     }
@@ -271,22 +264,7 @@ void DeBruijnCanonicalizer<T>::name ( \
         if (concrete_it == structure_to_concrete.cend()) return misses(substitutions_map::STRUCTURE_MISS);
         const auto& concrete = concrete_it->second;
 
-        for (const auto& [match_vars, match] : concrete /*structure_to_indices_to_concrete[structure][indices]*/) {
-            subs.push();
-
-            auto status = substitutions_map::SUCCESS;
-            DREAL_ASSERT(concrete_vars.size() == match_vars.size());
-            for (int i = 0; i < concrete_vars.size(); ++i) {
-                status = subs.attempt_substitution(match_vars[i], concrete_vars[i]);
-                if (status != substitutions_map::SUCCESS) {
-                    misses(status);
-                    break;
-                }
-            }
-            if (status == substitutions_map::SUCCESS) matches(match, subs);
-
-            subs.pop();
-        }
+        concrete.find_matches(concrete_vars, subs, matches, misses);
 
         DREAL_ASSERT(subs.size() == init_size);
         return;

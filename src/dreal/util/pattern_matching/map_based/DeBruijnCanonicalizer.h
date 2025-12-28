@@ -11,6 +11,7 @@
 #include "dreal/util/exception.h"
 #include "dreal/util/pattern_matching/matching_stats_t.h"
 #include "dreal/util/pattern_matching/substitutions_map.h"
+#include "dreal/util/pattern_matching/substitution_tree/substitution_tree.h"
 
 namespace dreal
 {
@@ -19,7 +20,8 @@ namespace dreal
     {
     private:
         using DeBruijnIndices = std::vector<int>;
-        using DeBruijnEquivalenceClass = std::map<std::vector<Variable>, T>;
+        // using DeBruijnEquivalenceClass = std::map<std::vector<Variable>, T>;
+        using DeBruijnEquivalenceClass = substitution_tree<T, Variable>;
 
         std::unordered_map<T, std::tuple<T, DeBruijnIndices, std::vector<Variable>>> canonicalization_cache;
         // std::unordered_map<T, std::map<DeBruijnIndices, DeBruijnEquivalenceClass>> structure_to_indices_to_concrete;

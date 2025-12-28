@@ -111,17 +111,6 @@ struct less<dreal::drake::symbolic::Variable> {
   }
 };
 
-/* Provides std::less<dreal::drake::symbolic::Variable>. */
-template <>
-struct less<vector<dreal::drake::symbolic::Variable>> {
-  bool operator()(const vector<dreal::drake::symbolic::Variable>& vars1,
-                  const vector<dreal::drake::symbolic::Variable>& vars2) const {
-    return std::lexicographical_compare(vars1.begin(), vars1.end(),
-                                        vars2.begin(), vars2.end(),
-                                        std::less<dreal::drake::symbolic::Variable>{});
-  }
-};
-
 /* Provides std::equal_to<dreal::drake::symbolic::Variable>. */
 template <>
 struct equal_to<dreal::drake::symbolic::Variable> {
