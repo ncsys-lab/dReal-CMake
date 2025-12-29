@@ -137,7 +137,7 @@ namespace dreal
 
     void pm_dump_all(
         const std::vector<Formula>& base_conflict,
-        const std::vector<std::pair<std::vector<Formula>, substitutions_map>>& all_matches
+        const std::vector<std::pair<std::vector<Formula>, std::optional<substitutions_map>>>& all_matches
     ) {
         DREAL_ASSERT(DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED);
 
@@ -160,7 +160,7 @@ namespace dreal
             for (const auto& a : match_conflict) match_conflict_str.emplace_back(a.to_string());
 
             std::map<std::string, std::string> subs_strs;
-            for (const auto& [a,b] : subs.get_map()) subs_strs[a.get_name()] = b.get_name();
+            for (const auto& [a,b] : subs->get_map()) subs_strs[a.get_name()] = b.get_name();
 
             all_matches_json.emplace_back(match_conflict_str, subs_strs);
         }

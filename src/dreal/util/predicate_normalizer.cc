@@ -21,17 +21,17 @@
 
 namespace dreal
 {
-    std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, matching_stats_t>
+    std::pair<std::vector<std::pair<std::vector<Formula>, std::optional<substitutions_map>>>, matching_stats_t>
     PredicateNormalizer::FindSimilar(
-        const std::vector<Formula>& ordered_clause, const Box &box,
+        const std::vector<Formula>& ordered_clause, const Box& box, const bool return_subs_maps,
         const std::chrono::duration<uint64_t, std::micro> timeout
-        ) const {
+    ) const {
         if (DREAL_LOG_DEBUG_ENABLED) {
-           std::ostringstream s;
-           s << "!(";
-           for (const auto& lit : ordered_clause) s << '(' << lit << ") and ";
-           s << ")";
-           DREAL_LOG_DEBUG("Finding matches for: {}", s.str());
+            std::ostringstream s;
+            s << "!(";
+            for (const auto& lit : ordered_clause) s << '(' << lit << ") and ";
+            s << ")";
+            DREAL_LOG_DEBUG("Finding matches for: {}", s.str());
         }
         // todo `std::reverse()` and compare performance.
 
@@ -42,15 +42,8 @@ namespace dreal
                 is_equal_to(atom) || is_less_than(atom) || is_less_than_or_equal_to(atom) || is_forall(atom) ||
                 is_integral(atom) || is_forallT(atom));
         }
-        return trie.find_matches(ordered_clause, box, timeout);
+        return trie.find_matches(ordered_clause, box, return_subs_maps, timeout);
     }
-
-    // ended up being completely friggen useless lol :(
-    // uint64_t PredicateNormalizer::EstimateMatchingCost(const std::set<Formula>& f) {
-        // uint64_t branches = 1;
-        // for (const auto & lit : f) branches += trie.estimate_branches(lit);
-        // return branches;
-    // }
 
     Formula PredicateNormalizer::Convert(const Formula& f) {
         const auto it = cache.find(f);
@@ -103,7 +96,7 @@ namespace dreal
         trie.insert(!f);
         heuristic.collect_statistics(f);
         heuristic.collect_statistics(!f);
-        const auto *const fa = to_forallT(f);
+        const auto* const fa = to_forallT(f);
         return forallT(fa->get_flow(), fa->get_lb(), fa->get_ub(), Convert(fa->get_bound_f()));
     }
 

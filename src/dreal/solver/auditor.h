@@ -26,7 +26,7 @@ namespace dreal
 
     void pm_dump_all(
         const std::vector<Formula>& base_conflict,
-        const std::vector<std::pair<std::vector<Formula>, substitutions_map>>& all_matches
+        const std::vector<std::pair<std::vector<Formula>, std::optional<substitutions_map>>>& all_matches
     );
 }
 

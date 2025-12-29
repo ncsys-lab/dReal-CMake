@@ -287,17 +287,20 @@ void DeBruijnCanonicalizer<T>::name ( \
     }
 
     template <typename T>
-    std::pair<std::vector<std::pair<T, substitutions_map>>, matching_stats_t> DeBruijnCanonicalizer<T>::find_matches(const T& f, const Box& box) {
+    std::pair<std::vector<std::pair<T, std::optional<substitutions_map>>>, matching_stats_t> DeBruijnCanonicalizer<T>::find_matches(
+        const T& f, const Box& box, const bool return_subs_maps
+    ) const {
         substitutions_map s(box, GetVars(f).size());
 
         matching_stats_t stats = {0};
-        std::vector<std::pair<T, substitutions_map>> match_vec;
+        std::vector<std::pair<T, std::optional<substitutions_map>>> match_vec;
 
         find_matches(
             f, s,
             [&](const auto& m, const auto& s) {
                 ++stats.matches;
-                match_vec.emplace_back(m, s);
+                if (return_subs_maps) match_vec.emplace_back(m, s);
+                else match_vec.emplace_back(m, std::nullopt);
             },
             [&](const auto& reason) { handle_misses_reason<T>(stats, reason); }
         );
@@ -306,11 +309,12 @@ void DeBruijnCanonicalizer<T>::name ( \
     }
 
     template <typename T>
-    std::pair<std::vector<std::pair<std::vector<T>, substitutions_map>>, matching_stats_t> DeBruijnCanonicalizer<T>::find_matches(
-        const std::vector<T>& literals, const Box& box, std::chrono::duration<uint64_t, std::micro> timeout) const {
+    std::pair<std::vector<std::pair<std::vector<T>, std::optional<substitutions_map>>>, matching_stats_t> DeBruijnCanonicalizer<T>::find_matches(
+        const std::vector<T>& literals, const Box& box, const bool return_subs_maps, std::chrono::duration<uint64_t, std::micro> timeout
+    ) const {
         matching_stats_t stats = {0};
         std::vector<T> matches_vec;
-        std::vector<std::pair<std::vector<T>, substitutions_map>> result;
+        std::vector<std::pair<std::vector<T>, std::optional<substitutions_map>>> result;
         matches_vec.reserve(literals.size());
 
         const auto start_time = std::chrono::steady_clock::now();
@@ -357,7 +361,8 @@ void DeBruijnCanonicalizer<T>::name ( \
                         }
                     }
                     ++stats.matches;
-                    result.emplace_back(matches_vec, s2);
+                    if (return_subs_maps) result.emplace_back(matches_vec, s2);
+                    else result.emplace_back(matches_vec, std::nullopt);
                 }
                 else find_matches(*it2, s2, match_next_literal(it2), misses);
                 matches_vec.pop_back();

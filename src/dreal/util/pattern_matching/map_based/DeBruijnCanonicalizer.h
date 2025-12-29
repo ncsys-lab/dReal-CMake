@@ -41,16 +41,16 @@ namespace dreal
 
         void insert(const T& atom);
 
-        [[nodiscard]] std::pair<std::vector<std::pair<std::vector<T>, substitutions_map>>, matching_stats_t>
+        [[nodiscard]] std::pair<std::vector<std::pair<std::vector<T>, std::optional<substitutions_map>>>, matching_stats_t>
         find_matches(
-            const std::vector<T>& literals,
-            const Box& b, std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
+            const std::vector<T>& literals, const Box& b, bool return_subs_maps,
+            std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
         ) const;
 
 
-        [[nodiscard]] std::pair<std::vector<std::pair<T, substitutions_map>>, matching_stats_t> find_matches(
-            const T& f, const Box& box
-        );
+        [[nodiscard]] std::pair<std::vector<std::pair<T, std::optional<substitutions_map>>>, matching_stats_t> find_matches(
+            const T& f, const Box& box, bool return_subs_maps
+        ) const;
 
 
 #define INSERT_DECL(name) void name ( \
