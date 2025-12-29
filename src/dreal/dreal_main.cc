@@ -525,11 +525,12 @@ int main(int argc, const char* argv[]) {
   rl.rlim_cur = 0;
   getrlimit(RLIMIT_STACK, &rl);
   if (rl.rlim_cur < desired_stack_size) {
+    // `DREAL_LOG_*` functions have not been initialized yet.
     std::cerr << "Failed to configure desired stack size limit. Exiting." << std::endl;
     std::cerr << "\tCurrent Size = " << rl.rlim_cur << std::endl;
     std::cerr << "\tMaximum Size = " << rl.rlim_max << std::endl;
     std::cerr << "\tDesired Size = " << desired_stack_size << std::endl;
-    exit(-1);
+    // exit(-1);
   }
 
   std::signal(SIGINT, HandleSigInt);
