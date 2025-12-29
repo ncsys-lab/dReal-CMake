@@ -32,14 +32,11 @@ namespace dreal
         Formula Convert(const Formula& f);
 
         [[nodiscard]] std::pair<
-            std::vector<std::pair<std::vector<Formula>, substitutions_map>>, matching_stats_t
+            std::vector<std::pair<std::vector<Formula>, std::optional<substitutions_map>>>, matching_stats_t
         > FindSimilar(
-            const std::vector<Formula>& ordered_clause,
-            const Box& b, std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
+            const std::vector<Formula>& ordered_clause, const Box& b,
+            bool return_subs_maps, std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
         ) const;
-
-        // useless heuristic
-        // uint64_t EstimateMatchingCost(const std::set<Formula>& f);
 
         PredicateHeuristic heuristic; // todo: make private?
 

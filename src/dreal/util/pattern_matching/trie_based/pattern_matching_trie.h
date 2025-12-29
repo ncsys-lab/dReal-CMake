@@ -29,34 +29,32 @@ namespace dreal
         using e_matches_vec = std::function<void(const Expression& e, substitutions_map& s)>;
         using f_matches_vec = std::function<void(const Formula& f, substitutions_map& s)>;
 
-        [[nodiscard]] std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, matching_stats_t>
+        [[nodiscard]] std::pair<std::vector<std::pair<std::vector<Formula>, std::optional<substitutions_map>>>, matching_stats_t>
         find_matches(
-            const std::vector<Formula>& literals,
-            const Box& b, std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
+            const std::vector<Formula>& literals, const Box& b, bool return_subs_maps,
+            std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
         ) const;
 
-        [[nodiscard]] std::pair<std::vector<std::pair<Formula, substitutions_map>>, matching_stats_t> find_matches(
-            const Formula& f,
-            substitutions_map& substitutions
+        [[nodiscard]] std::pair<std::vector<std::pair<Formula, std::optional<substitutions_map>>>, matching_stats_t> find_matches(
+            const Formula& f, substitutions_map& substitutions, bool return_subs_maps
         ) const;
 
-        [[nodiscard]] std::pair<std::vector<std::pair<Formula, substitutions_map>>, matching_stats_t> find_matches(
-            const Formula& f, const Box& box
+        [[nodiscard]] std::pair<std::vector<std::pair<Formula, std::optional<substitutions_map>>>, matching_stats_t> find_matches(
+            const Formula& f, const Box& box, bool return_subs_maps
         ) const {
             substitutions_map s(box, f.GetFreeVariables().size());
-            return find_matches(f, s);
+            return find_matches(f, s, return_subs_maps);
         }
 
-        [[nodiscard]] std::pair<std::vector<std::pair<Expression, substitutions_map>>, matching_stats_t> find_matches(
-            const Expression& e,
-            substitutions_map& substitutions
+        [[nodiscard]] std::pair<std::vector<std::pair<Expression, std::optional<substitutions_map>>>, matching_stats_t> find_matches(
+            const Expression& e, substitutions_map& substitutions, bool return_subs_maps
         ) const;
 
-        [[nodiscard]] std::pair<std::vector<std::pair<Expression, substitutions_map>>, matching_stats_t> find_matches(
-            const Expression& e, const Box& b
+        [[nodiscard]] std::pair<std::vector<std::pair<Expression, std::optional<substitutions_map>>>, matching_stats_t> find_matches(
+            const Expression& e, const Box& b, bool return_subs_maps
         ) const {
             substitutions_map s(b, e.GetVariables().size());
-            return find_matches(e, s);
+            return find_matches(e, s, return_subs_maps);
         }
 
         // ended up being completely useless :(
@@ -80,12 +78,12 @@ namespace dreal
         class TrieNode
         {
         public:
-            TrieNode(): id{init_id()}, children{4} {}
+            TrieNode() : id{init_id()}, children{4} {}
 
             explicit TrieNode(
                 const std::optional<This>& leaf,
                 const std::optional<This>& terminal_expression = {}
-            ): leaf{leaf}, terminal_expression{terminal_expression}, id{init_id()}, children{4} {}
+            ) : leaf{leaf}, terminal_expression{terminal_expression}, id{init_id()}, children{4} {}
 
             TrieNode(const TrieNode& other) = delete; // these should never be copied.
 

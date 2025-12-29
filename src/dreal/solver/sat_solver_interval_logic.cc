@@ -146,7 +146,7 @@ namespace dreal
         const auto [
             all_related_conflicts,
             match_statistics
-        ] = pn.FindSimilar(base_conflict, base_box, timeout);
+        ] = pn.FindSimilar(base_conflict, base_box, DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED, timeout);
         if (all_related_conflicts.empty()) {
             DREAL_LOG_INFO("Clause did not match with itself... Adding regularly.");
             return match_statistics;
