@@ -6,6 +6,7 @@
 #define pattern_matching_trie_H
 
 #include <vector>
+#include <optional>
 #include <dreal/util/assert.h>
 #include <dreal/util/pattern_matching/substitutions_map.h>
 

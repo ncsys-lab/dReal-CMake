@@ -5,6 +5,8 @@
 #ifndef DREAL4_CMAKE_SUBSTITUTION_TREE_H
 #define DREAL4_CMAKE_SUBSTITUTION_TREE_H
 #include <vector>
+#include <variant>
+#include <optional>
 
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/pattern_matching/substitutions_map.h"
