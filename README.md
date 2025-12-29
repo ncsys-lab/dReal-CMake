@@ -7,7 +7,7 @@ In this directory, run:
 docker build --platform linux/amd64 -t dreal/my_dreal_image:1.0 -f Dockerfile.dreal_ubuntu .
 ```
 
-This will probably take 20+ minutes.
+This takes 30–40 minutes on my M4 MacBook Pro (cold start).
 
 ### Execute
 ```
