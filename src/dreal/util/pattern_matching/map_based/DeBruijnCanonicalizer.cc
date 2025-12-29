@@ -229,6 +229,8 @@ void DeBruijnCanonicalizer<T>::name ( \
 
     template <typename T>
     void DeBruijnCanonicalizer<T>::insert(const T& atom) {
+        if (canonicalization_cache.count(atom) > 0) return;
+
         auto [structure, indices, concrete_vars] = canonicalize_atom(atom);
         // const auto [it, _] = structure_to_indices_to_concrete.try_emplace(std::move(structure));
         const auto [it, _] = structure_to_concrete.try_emplace(std::move(structure));
@@ -239,7 +241,6 @@ void DeBruijnCanonicalizer<T>::name ( \
         // DREAL_ASSERT(it->second.size() == 1); // We shouldn't need this middle layer... indices should be baked into the dummy variable names. odot: remove.
 
         concretes.insert(concrete_vars, atom);
-
         canonicalization_cache.try_emplace(atom, canon_structure, std::move(indices), std::move(concrete_vars));
     }
 
