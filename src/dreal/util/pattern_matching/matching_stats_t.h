@@ -9,12 +9,13 @@
 
 namespace dreal
 {
-    using matching_stats_t = struct
+    typedef struct
     {
         std::array<unsigned, substitutions_map::LEN_substitution_statuses> misses_bc;
         unsigned partial_matches;
         unsigned matches;
-    };
+    } matching_stats_t;
 } // namespace dreal
 
 #endif //DREAL4_CMAKE_MATCHING_STATS_T_H
+
