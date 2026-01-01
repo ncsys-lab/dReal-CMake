@@ -133,10 +133,6 @@ string Context::version() {
   oss << "audit_theory" << (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED ? 1 : 0) << '.';
   oss << "audit_sat" << (DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED ? 1 : 0);
 
-#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
-  oss << ".GENERATE_CSV";
-#endif
-
 #ifdef CAV26_FILTER_SYMMETRIES
 #define STRINGIFY(x) #x
 #define STR(x) STRINGIFY(x)

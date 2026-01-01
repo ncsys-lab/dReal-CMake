@@ -25,8 +25,6 @@
 static_assert(!(CAV26_MATCH_ACROSS_TIME_ONLY && CAV26_MATCH_ACROSS_LOGIC_ONLY));
 #endif
 
-#define DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
-
 // check that options are required and mutually exclusive
 #ifdef DREAL_EXPERIMENTAL_PM_USE_TRIE_IMPL
 constexpr int pm_impl_mode = 0;
