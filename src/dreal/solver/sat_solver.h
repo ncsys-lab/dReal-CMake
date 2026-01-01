@@ -33,6 +33,8 @@
 #include "dreal/util/scoped_unordered_map.h"
 #include "dreal/util/scoped_unordered_set.h"
 #include "dreal/util/tseitin_cnfizer.h"
+#include "dreal/util/pattern_matching/matching_stats_t.h"
+
 
 namespace dreal {
 
