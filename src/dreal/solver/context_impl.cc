@@ -25,7 +25,6 @@
 #include <utility>
 #include <dreal/symbolic/prefix_printer.h>
 #include <dreal/symbolic/symbolic_formula_cell.h>
-#include <dreal/util/pattern_matching/pattern_matching_heuristic.h>
 
 #include <fmt/format.h>
 
