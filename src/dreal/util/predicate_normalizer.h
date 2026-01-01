@@ -20,7 +20,6 @@
 #include "pattern_matching/trie_based/pattern_matching_trie.h"
 
 #include <dreal/version.h>
-#include "predicate_heuristic.h"
 #include "dreal/symbolic/symbolic.h"
 #include "pattern_matching/map_based/DeBruijnCanonicalizer.h"
 
@@ -37,8 +36,6 @@ namespace dreal
             const std::vector<Formula>& ordered_clause, const Box& b,
             bool return_subs_maps, std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
         ) const;
-
-        PredicateHeuristic heuristic; // todo: make private?
 
     private:
         Formula VisitFalse(const Formula& f);

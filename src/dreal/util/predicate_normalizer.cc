@@ -62,40 +62,30 @@ namespace dreal
     Formula PredicateNormalizer::VisitEqualTo(const Formula& f) {
         trie.insert(f);
         trie.insert(!f);
-        heuristic.collect_statistics(f);
-        heuristic.collect_statistics(!f);
         return f;
     }
 
     Formula PredicateNormalizer::VisitLessThan(const Formula& f) {
         trie.insert(f);
         trie.insert(!f);
-        heuristic.collect_statistics(f);
-        heuristic.collect_statistics(!f);
         return f;
     }
 
     Formula PredicateNormalizer::VisitLessThanOrEqualTo(const Formula& f) {
         trie.insert(f);
         trie.insert(!f);
-        heuristic.collect_statistics(f);
-        heuristic.collect_statistics(!f);
         return f;
     }
 
     Formula PredicateNormalizer::VisitForall(const Formula& f) {
         trie.insert(f);
         trie.insert(!f);
-        heuristic.collect_statistics(f);
-        heuristic.collect_statistics(!f);
         return f;
     }
 
     Formula PredicateNormalizer::VisitForallT(const Formula& f) {
         trie.insert(f);
         trie.insert(!f);
-        heuristic.collect_statistics(f);
-        heuristic.collect_statistics(!f);
         const auto* const fa = to_forallT(f);
         return forallT(fa->get_flow(), fa->get_lb(), fa->get_ub(), Convert(fa->get_bound_f()));
     }
@@ -103,8 +93,6 @@ namespace dreal
     Formula PredicateNormalizer::VisitIntegral(const Formula& f) {
         trie.insert(f);
         trie.insert(!f);
-        heuristic.collect_statistics(f);
-        heuristic.collect_statistics(!f);
         return f;
     }
 

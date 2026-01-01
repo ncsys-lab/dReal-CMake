@@ -138,7 +138,7 @@ namespace dreal
             const auto [related_clauses, stats] = trie.find_matches(
                 {y1 == sin(x1), y1 == atan(x1)}, Box{}, false
             );
-            EXPECT_EQ(stats.misses.bc_bij, 2);
+            EXPECT_EQ(stats.misses_bc.at(substitutions_map::substitution_status::BIJ_MISS), 2);
             EXPECT_EQ(stats.matches, 2);
             EXPECT_EQ(related_clauses.size(), 2);
             EXPECT_EQ(related_clauses[0].second, std::nullopt);  // trie.find_matches(..., return_subs_maps=false)
