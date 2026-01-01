@@ -32,7 +32,11 @@ namespace dreal
 
         typedef enum
         {
-            SUCCESS, STRUCTURE_MISS, INDICES_MISS, TYPE_MISS, BOX_MISS, BIJ_MISS, CONST_MISS
+            SUCCESS, STRUCTURE_MISS, INDICES_MISS, TYPE_MISS, BOX_MISS, BIJ_MISS, CONST_MISS,
+#ifdef CAV26_FILTER_SYMMETRIES
+            CAV26_NOT_PURE_TIME, CAV26_NOT_PURE_LOGIC,
+#endif
+            LEN_substitution_statuses
         } substitution_status;
 
         substitution_status attempt_substitution(const Variable& a, const Variable& aP);

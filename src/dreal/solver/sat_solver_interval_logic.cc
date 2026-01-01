@@ -6,6 +6,7 @@
 #include <dreal/util/logging.h>
 
 #include "auditor.h"
+#include "dreal/util/pattern_matching/substitutions_map.h"
 #include "filter_assertion.h"
 #include "sat_solver.h"
 #include "dreal/version.h"
@@ -151,8 +152,6 @@ namespace dreal
             DREAL_LOG_INFO("Clause did not match with itself... Adding regularly.");
             return match_statistics;
         }
-        if (match_statistics.misses.bc_box)
-            DREAL_LOG_INFO("Rejected {} matches due to box-missmatch.", match_statistics.misses.bc_box);
 
         if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
             std::set s(base_conflict.begin(), base_conflict.end());
