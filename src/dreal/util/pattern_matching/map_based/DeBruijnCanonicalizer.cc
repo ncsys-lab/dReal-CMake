@@ -11,6 +11,7 @@
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"
+#include <functional>
 
 namespace dreal
 {
@@ -272,22 +273,6 @@ void DeBruijnCanonicalizer<T>::name ( \
     }
 
     template <typename T>
-    void handle_misses_reason(
-        matching_stats_t& stats,
-        const substitutions_map::substitution_status& status
-    ) {
-        // TYPE_MISS, BOX_MISS, BIJ_MISS, CONST_MISS
-        if (status == substitutions_map::STRUCTURE_MISS) ++stats.misses.bc_structure;
-        else if (status == substitutions_map::INDICES_MISS) ++stats.misses.bc_indices;
-        else if (status == substitutions_map::TYPE_MISS) ++stats.misses.bc_type;
-        else if (status == substitutions_map::BOX_MISS) ++stats.misses.bc_box;
-        else if (status == substitutions_map::BIJ_MISS) ++stats.misses.bc_bij;
-        else if (status == substitutions_map::CONST_MISS) ++stats.misses.bc_const;
-        else
-            DREAL_UNREACHABLE();
-    }
-
-    template <typename T>
     std::pair<std::vector<std::pair<T, std::optional<substitutions_map>>>, matching_stats_t> DeBruijnCanonicalizer<T>::find_matches(
         const T& f, const Box& box, const bool return_subs_maps
     ) const {
@@ -298,12 +283,12 @@ void DeBruijnCanonicalizer<T>::name ( \
 
         find_matches(
             f, s,
-            [&](const auto& m, const auto& s) {
+            [&](const auto& m, const auto& s) -> auto {
                 ++stats.matches;
                 if (return_subs_maps) match_vec.emplace_back(m, s);
                 else match_vec.emplace_back(m, std::nullopt);
             },
-            [&](const auto& reason) { handle_misses_reason<T>(stats, reason); }
+            [&](const auto& reason) { ++stats.misses_bc.at(reason); }
         );
 
         return {std::move(match_vec), std::move(stats)};
@@ -320,7 +305,7 @@ void DeBruijnCanonicalizer<T>::name ( \
 
         const auto start_time = std::chrono::steady_clock::now();
 
-        const misses_vec misses = [&](const auto& reason) { handle_misses_reason<T>(stats, reason); };
+        const misses_vec misses = [&](const auto& reason) { ++stats.misses_bc.at(reason); };
 
         bool did_time_out = false;
 
@@ -329,7 +314,7 @@ void DeBruijnCanonicalizer<T>::name ( \
         // std::unordered_set<Formula> seen_truncateds; // lexo-compare for nary goes one by one...
         // seen_truncateds.reserve(1024 * literals.size());
         std::function<
-            std::function<void(const T& f, substitutions_map& s)>(typeof(ibegin))
+            std::function<void(const T& f, substitutions_map& s)> (typeof(ibegin))
         > match_next_literal = [&](const auto& it1) {
             return [&, /*copy*/ it1](const auto& f, auto& s2) {
                 if (did_time_out || std::chrono::steady_clock::now() - start_time > timeout) {

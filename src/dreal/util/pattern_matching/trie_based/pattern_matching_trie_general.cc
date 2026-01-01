@@ -17,17 +17,6 @@
 
 namespace dreal
 {
-    void handle_misses_reason(
-        matching_stats_t& stats,
-        const substitutions_map::substitution_status& status
-    ) {
-        // TYPE_MISS, BOX_MISS, BIJ_MISS, CONST_MISS
-        if (status == substitutions_map::TYPE_MISS) stats.misses.bc_type++;
-        if (status == substitutions_map::BOX_MISS) stats.misses.bc_box++;
-        if (status == substitutions_map::BIJ_MISS) stats.misses.bc_bij++;
-        if (status == substitutions_map::CONST_MISS) stats.misses.bc_const++;
-    }
-
     std::pair<std::vector<std::pair<std::vector<Formula>, std::optional<substitutions_map>>>, matching_stats_t>
     PatternMatchingTrie::find_matches(
         const std::vector<Formula>& literals, const Box& box, const bool return_subs_maps,
@@ -40,8 +29,9 @@ namespace dreal
 
         const auto start_time = std::chrono::steady_clock::now();
 
-        const f_misses_vec misses = [&](const auto& reason) { handle_misses_reason(stats, reason); };
-        const f_partial_matches_vec partial_matches = PM_CONT_LAMBDA(n, s) {
+        const f_misses_vec misses = [&](const auto& reason) { ++stats.misses_bc.at(reason); };
+        const f_partial_matches_vec partial_matches = PM_CONT_LAMBDA(n, s)
+        {
             DREAL_LOG_ERROR("Unterminated partial matching?");
             DREAL_UNREACHABLE(); // everything should AT LEAST match itself !?!?!
         };
@@ -53,7 +43,7 @@ namespace dreal
         std::unordered_set<Formula> seen_truncateds; // lexo-compare for nary goes one by one...
         seen_truncateds.reserve(1024 * literals.size());
         std::function<
-            std::function<void(const Formula& f, substitutions_map& s)>(typeof(ibegin))
+            std::function<void(const Formula& f, substitutions_map& s)> (typeof(ibegin))
         > match_next_literal = [&](const auto& it1) {
             return [&, /*copy*/ it1](const auto& f, auto& s2) {
                 if (did_time_out || std::chrono::steady_clock::now() - start_time > timeout) {
@@ -134,7 +124,7 @@ namespace dreal
                 stats.partial_matches++;
                 DREAL_LOG_ERROR("Unterminated partial matching? Not sure if this should ever be reachable.");
             },
-            [&](const auto& reason) { handle_misses_reason(stats, reason); }
+            [&](const auto& reason) { ++stats.misses_bc.at(reason); }
         );
         DREAL_ASSERT(substitutions.size() == init_size);
         return {match_vec, stats};
@@ -159,7 +149,7 @@ namespace dreal
                 stats.partial_matches++;
                 DREAL_LOG_ERROR("Unterminated partial matching? Not sure if this should ever be reachable.");
             },
-            [&](const auto& reason) { handle_misses_reason(stats, reason); }
+            [&](const auto& reason) { ++stats.misses_bc.at(reason); }
         );
         DREAL_ASSERT(substitutions.size() == init_size);
         return {match_vec, stats};
