@@ -4,8 +4,12 @@
 
 #ifndef substitutions_mapH
 #define substitutions_mapH
+#include "dreal/symbolic/symbolic_variable.h"
 #include <dreal/symbolic/symbolic.h>
 #include <dreal/util/box.h>
+#include <dreal/version.h> // NOLINT(*-include-cleaner)
+#include <utility>
+#include <vector>
 
 namespace dreal
 {
@@ -15,6 +19,10 @@ namespace dreal
         std::vector<std::pair<Variable, Variable>> mapping;
         std::vector<size_t> index_stack;
         const Box& box;
+
+#ifdef CAV26_FILTER_SYMMETRIES
+        std::vector<int> CAV26_delta_times;
+#endif
 
     public:
         [[nodiscard]] const std::vector<std::pair<Variable, Variable>>& get_map() const { return mapping; }

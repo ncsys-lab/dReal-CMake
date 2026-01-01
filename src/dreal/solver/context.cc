@@ -137,6 +137,19 @@ string Context::version() {
   oss << ".GENERATE_CSV";
 #endif
 
+#ifdef CAV26_FILTER_SYMMETRIES
+#define STRINGIFY(x) #x
+#define STR(x) STRINGIFY(x)
+  oss << ".CAV26_FILTER_";
+  static_assert(!(CAV26_MATCH_ACROSS_TIME_ONLY && CAV26_MATCH_ACROSS_LOGIC_ONLY));
+  if (CAV26_MATCH_ACROSS_TIME_ONLY) oss << "TIME_ONLY";
+  else if (CAV26_MATCH_ACROSS_LOGIC_ONLY) oss << "LOGIC_ONLY";
+  else oss << "NONE";
+  oss << "_using_" STR(CAV26_VARNAME_PARSER);
+#undef STR
+#undef STRINGIFY
+#endif
+
   return oss.str();
 }
 
