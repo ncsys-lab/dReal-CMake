@@ -9,9 +9,6 @@
 #include <dreal/util/assert.h>
 #include <dreal/util/logging.h>
 
-#include "CAV26_varname_parser.h" // NOLINT(*-include-cleaner)
-#include "dreal/version.h" // NOLINT(*-include-cleaner)
-
 namespace dreal
 {
     substitutions_map::substitutions_map(const Box& b, const size_t reserved_size) : box(b) {
@@ -26,9 +23,6 @@ namespace dreal
         DREAL_ASSERT(!index_stack.empty());
         DREAL_ASSERT(index_stack.back() <= mapping.size());
         mapping.resize(index_stack.back());
-#ifdef CAV26_FILTER_SYMMETRIES
-        CAV26_delta_times.resize(index_stack.back());
-#endif
         index_stack.pop_back();
     }
 
@@ -49,24 +43,6 @@ namespace dreal
                 return BIJ_MISS;
             }
         }
-
-#ifdef CAV26_FILTER_SYMMETRIES
-        const auto [pA,tA] = CAV26_VARNAME_PARSER(a.get_name());
-        const auto [pAP,tAP] = CAV26_VARNAME_PARSER(aP.get_name());
-
-        static_assert(!(CAV26_MATCH_ACROSS_TIME_ONLY && CAV26_MATCH_ACROSS_LOGIC_ONLY));
-
-        const auto delta_time = tAP - tA;
-        if (CAV26_MATCH_ACROSS_TIME_ONLY) {
-            if (pA != pAP) return CAV26_NOT_PURE_TIME;
-            if (!CAV26_delta_times.empty() && delta_time != CAV26_delta_times.back()) return CAV26_NOT_PURE_TIME;
-        }
-        if (CAV26_MATCH_ACROSS_LOGIC_ONLY) {
-            if (tA != tAP) return CAV26_NOT_PURE_LOGIC;
-        }
-
-        CAV26_delta_times.emplace_back(delta_time);
-#endif
 
         mapping.emplace_back(a, aP);
         return SUCCESS;

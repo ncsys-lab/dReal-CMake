@@ -20,10 +20,6 @@ namespace dreal
         std::vector<size_t> index_stack;
         const Box& box;
 
-#ifdef CAV26_FILTER_SYMMETRIES
-        std::vector<int> CAV26_delta_times;
-#endif
-
     public:
         [[nodiscard]] const std::vector<std::pair<Variable, Variable>>& get_map() const { return mapping; }
 
