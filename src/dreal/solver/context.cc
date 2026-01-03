@@ -133,15 +133,14 @@ string Context::version() {
   oss << "audit_theory" << (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED ? 1 : 0) << '.';
   oss << "audit_sat" << (DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED ? 1 : 0);
 
-#ifdef CAV26_FILTER_SYMMETRIES
+#if CAV26_FILTER_SYMMETRIES
 #define STRINGIFY(x) #x
 #define STR(x) STRINGIFY(x)
-  oss << ".CAV26_FILTER_";
-  static_assert(!(CAV26_MATCH_ACROSS_TIME_ONLY && CAV26_MATCH_ACROSS_LOGIC_ONLY));
-  if (CAV26_MATCH_ACROSS_TIME_ONLY) oss << "TIME_ONLY";
-  else if (CAV26_MATCH_ACROSS_LOGIC_ONLY) oss << "LOGIC_ONLY";
+  oss << ".CAV26_FILT_";
+  if (CAV26_MATCH_PURE_TIME_SYM) oss << "TIME_";
+  if (CAV26_MATCH_PURE_LOGIC_SYM) oss << "LOGIC_";
   else oss << "NONE";
-  oss << "_using_" STR(CAV26_VARNAME_PARSER);
+  oss << "using_" STR(CAV26_VARNAME_PARSER);
 #undef STR
 #undef STRINGIFY
 #endif

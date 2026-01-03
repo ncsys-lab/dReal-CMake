@@ -37,8 +37,8 @@ namespace dreal
         typedef enum
         {
             SUCCESS, STRUCTURE_MISS, INDICES_MISS, TYPE_MISS, BOX_MISS, BIJ_MISS, CONST_MISS,
-#ifdef CAV26_FILTER_SYMMETRIES
-            CAV26_NOT_PURE_TIME, CAV26_NOT_PURE_LOGIC,
+#if CAV26_FILTER_SYMMETRIES
+            CAV26_NOT_PURE_TIME, CAV26_NOT_PURE_LOGIC, CAV26_NOT_PURE_ANY,
 #endif
             LEN_substitution_statuses
         } substitution_status;
