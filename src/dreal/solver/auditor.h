@@ -9,6 +9,7 @@
 #include <dreal/util/predicate_abstractor.h>
 #include <optional>
 #include <dreal/util/pattern_matching/substitutions_map.h>
+#include <string_view>
 
 namespace dreal
 {
@@ -26,7 +27,8 @@ namespace dreal
 
     void pm_dump_all(
         const std::vector<Formula>& base_conflict,
-        const std::vector<std::pair<std::vector<Formula>, std::optional<substitutions_map>>>& all_matches
+        const std::vector<std::pair<std::vector<Formula>, std::optional<substitutions_map>>>& all_matches,
+        const std::vector<std::string_view>& metadata_tags, const std::vector<bool>& was_not_added
     );
 }
 
