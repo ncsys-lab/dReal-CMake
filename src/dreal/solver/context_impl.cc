@@ -143,9 +143,10 @@ void drpm_benchmark_log(
   const char mode,
   const double pm_elapsed_ms,
   const unsigned num_pm,
-#ifdef CAV26_FILTER_SYMMETRIES
+#if CAV26_FILTER_SYMMETRIES
   const unsigned CAV26_pm_num_not_pure_time,
   const unsigned CAV26_pm_num_not_pure_logic,
+  const unsigned CAV26_pm_num_not_pure_any,
 #endif
   std::ostream& out
 ) {
@@ -159,10 +160,11 @@ void drpm_benchmark_log(
   out << "\t";
   out << " PM.ms " << pm_elapsed_ms;
   out << " PM " << num_pm;
-#ifdef CAV26_FILTER_SYMMETRIES
+#if CAV26_FILTER_SYMMETRIES
   out << '\t';
   out << " C26.npT " << CAV26_pm_num_not_pure_time;
   out << " C26.npL " << CAV26_pm_num_not_pure_logic;
+  out << " C26.np* " << CAV26_pm_num_not_pure_any;
 #endif
   out << '\n';
 }
@@ -241,6 +243,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           // or, we get a fully constrained deltasat, in which case we are done :)
           recent_under_constrained_deltasat = recent_under_constrained_deltasat_limit;
           DREAL_LOG_WARN("ContextImpl::CheckSatCore() - Underconstrained Theory Check = delta-SAT. Exponential Backoff = {}", recent_under_constrained_deltasat_limit);
+          // todo: log scs_elapsed_ms, tcs_elapsed_ms
           recent_under_constrained_deltasat_limit *= 2; // exponential backoff
           return CheckSatCore(stack, std::move(box), sat_solver);
         } else if (tscs_result && is_full_constrained) {
@@ -286,23 +289,25 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
               is_full_constrained, scs_elapsed_ms.count(), tcs_elapsed_ms.count(), explanation.size(),
               'M',
               pm_elapsed.count(), pm_result.matches,
-#ifdef CAV26_FILTER_SYMMETRIES
+#if CAV26_FILTER_SYMMETRIES
               pm_result.misses_bc.at(substitutions_map::substitution_status::CAV26_NOT_PURE_TIME),
-                pm_result.misses_bc.at(substitutions_map::substitution_status::CAV26_NOT_PURE_LOGIC),
+              pm_result.misses_bc.at(substitutions_map::substitution_status::CAV26_NOT_PURE_LOGIC),
+              pm_result.misses_bc.at(substitutions_map::substitution_status::CAV26_NOT_PURE_ANY),
 #endif
               std::cerr
             );
           }
           else {
-            if (DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED) pm_dump_all(explanation, {});
+            if (DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED) pm_dump_all(explanation, {}, {}, {});
             sat_solver->AddLearnedClauseDirect(explanation, box);
             drpm_benchmark_log(
               is_full_constrained, scs_elapsed_ms.count(), tcs_elapsed_ms.count(), explanation.size(),
               'A',
               0 /*pm_elapsed.count()*/, 0 /*pm_result.matches*/,
-#ifdef CAV26_FILTER_SYMMETRIES
+#if CAV26_FILTER_SYMMETRIES
               0 /*pm_result.misses_bc.at(substitutions_map::substitution_status::CAV26_NOT_PURE_TIME)*/,
-                0 /*pm_result.misses_bc.at(substitutions_map::substitution_status::CAV26_NOT_PURE_LOGIC)*/,
+              0 /*pm_result.misses_bc.at(substitutions_map::substitution_status::CAV26_NOT_PURE_LOGIC)*/,
+              0 /*pm_result.misses_bc.at(substitutions_map::substitution_status::CAV26_NOT_PURE_ANY)*/,
 #endif
               std::cerr
             );
