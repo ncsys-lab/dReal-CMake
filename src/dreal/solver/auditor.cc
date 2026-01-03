@@ -169,7 +169,7 @@ namespace dreal
             std::map<std::string, std::string> subs_strs;
             for (const auto& [a,b] : subs->get_map()) subs_strs[a.get_name()] = b.get_name();
 
-            const auto& tag = metadata_tags.empty() ? "" : metadata_tags.at(i);
+            const auto& tag = metadata_tags.empty() ? "?" : metadata_tags.at(i);
             const auto& wna = was_not_added.empty() ? false : was_not_added.at(i);
 
             all_matches_json.emplace_back(match_conflict_str, subs_strs, tag, wna);
