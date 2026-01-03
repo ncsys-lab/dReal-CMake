@@ -7,15 +7,14 @@
 
 #include <dreal/version.h> // NOLINT(*-include-cleaner)
 
-#ifdef CAV26_FILTER_SYMMETRIES
+#if CAV26_FILTER_SYMMETRIES
 
-#include <cassert>
-#include <iostream>
+#include <optional>
+#include <unordered_map>
 #include <regex>
 #include <string>
 #include <utility>
 
-#include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"
 
@@ -25,6 +24,10 @@ namespace dreal
     static const std::regex DRH_VARIABLE_RE{R"(^(.+)_(\d+)(_t|_0)?$)"};
 
     static std::pair<std::string, std::optional<int>> const& CAV26_SAR_PARSER(const std::string& name) {
+        static std::unordered_map<std::string, std::pair<std::string, std::optional<int>>> cache;
+        const auto cache_it = cache.find(name);
+        if (cache_it != cache.end()) return cache_it->second;
+
         std::string prefix{};
         std::optional<int> t{};
 
@@ -40,17 +43,21 @@ namespace dreal
         }
         else throw DREAL_RUNTIME_ERROR("Invalid SAR variable name: {}", name);
 
-        return {std::move(prefix), t};
+        return cache.try_emplace(name, std::move(prefix), t).first->second;
     }
 
     static auto CAV26_DRH_PARSER(const std::string& name) -> std::pair<std::string, std::optional<int>> {
+        static std::unordered_map<std::string, std::pair<std::string, std::optional<int>>> cache;
+        const auto cache_it = cache.find(name);
+        if (cache_it != cache.end()) return cache_it->second;
+
         if (std::smatch m; std::regex_search(name, m, DRH_VARIABLE_RE)) {
             const int mag = std::stoi(m[2].str());
             const auto step = m[3].matched ? m[3].str() : std::string{};
 
             auto prefix = m[1].str();
-            return {std::move(prefix), t};
             const int t = (2 * mag) + (step == "_t" ? 1 : 0);
+            return cache.try_emplace(name, std::move(prefix), t).first->second;
         }
         throw DREAL_RUNTIME_ERROR("Invalid DRH variable name: {}", name);
     }
