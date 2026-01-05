@@ -136,11 +136,12 @@ string Context::version() {
 #if CAV26_FILTER_SYMMETRIES
 #define STRINGIFY(x) #x
 #define STR(x) STRINGIFY(x)
-  oss << ".CAV26_FILT_";
-  if (CAV26_MATCH_PURE_TIME_SYM) oss << "TIME_";
-  if (CAV26_MATCH_PURE_LOGIC_SYM) oss << "LOGIC_";
-  else oss << "NONE";
-  oss << "using_" STR(CAV26_VARNAME_PARSER);
+  oss << ".CAV26_";
+  if (CAV26_MATCH_PURE_TIME_SYM && CAV26_MATCH_PURE_LOGIC_SYM) oss << "PURE";
+  if (CAV26_MATCH_PURE_TIME_SYM && !CAV26_MATCH_PURE_LOGIC_SYM) oss << "TIME";
+  if (!CAV26_MATCH_PURE_TIME_SYM && CAV26_MATCH_PURE_LOGIC_SYM) oss << "LOGIC";
+  if (!CAV26_MATCH_PURE_TIME_SYM && !CAV26_MATCH_PURE_LOGIC_SYM) oss << "MIXED";
+  oss << "_SYM_using_" STR(CAV26_VARNAME_PARSER);
 #undef STR
 #undef STRINGIFY
 #endif
