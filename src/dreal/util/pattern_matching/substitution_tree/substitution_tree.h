@@ -21,32 +21,34 @@ namespace dreal
         class Node
         {
         public:
-            Node() : next(std::map<Variable, Node>{}) {}
+            Node() : next(std::vector<std::pair<Variable, Node>>{}) {}
             explicit Node(const Leaf& leaf) : next(leaf) {}
 
-            Node(const Node& other) = delete;
-            Node(Node&& other) noexcept = delete;
+            // needs to be moveable and copyable for use inside std::vector.
+            // Node(const Node& other) = delete;
+            // Node(Node&& other) noexcept = delete;
 
             std::variant<
-                std::map<Variable, Node>,
+                std::vector<std::pair<Variable, Node>>,
                 const Leaf> next;
         };
 
         std::optional<Node> root;
 
         template <class It>
-        static void insert(const It& begin, const It& end, std::map<Variable, Node>& parents_next, const Leaf& leaf);
+        static void insert(const It& begin, const It& end, std::vector<std::pair<Variable, Node>>& parents_next, const Leaf& leaf);
 
         using matches_vec = std::function<void(const Leaf& e, substitutions_map& s)>;
         using misses_vec = std::function<void(const substitutions_map::substitution_status& s)>;
 
+        template <class It>
+        void find_matches(const It& begin, const It& end, substitutions_map& subs, const Node& parent,
+                          const matches_vec& matches, const misses_vec& misses, const unsigned starting_offset) const;
+
     public:
         void insert(const std::vector<Variable>& concrete_vars, const Leaf& leaf);
 
-        template <class It>
-        void find_matches(const It& begin, const It& end, substitutions_map& subs, const Node& parent,
-                          const matches_vec& matches, const misses_vec& misses) const;
-        void find_matches(const std::vector<Variable>& concrete_vars, substitutions_map& subs, const matches_vec& matches, const misses_vec& misses) const;
+        void find_matches(const std::vector<Variable>& concrete_vars, substitutions_map& subs, const matches_vec& matches, const misses_vec& misses, uint64_t &random_state) const;
     };
 }
 

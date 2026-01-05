@@ -87,13 +87,14 @@ namespace dreal
         ) {
             // PatternMatchingTrie trie;
             // PatternMatchingTrie &trie2 = trie;
+            uint64_t random_state = 0;
             DeBruijnCanonicalizer<T1> trie;
             DeBruijnCanonicalizer<T2> trie2;
             for (const auto& match : matches) trie.insert(match);
             for (const auto& miss : misses1) trie.insert(miss);
             for (const auto& miss : misses2) trie2.insert(miss);
             std::set<T1> found;
-            for (const auto& [form, op_subs] : trie.find_matches(pattern, Box{}, true).first) {
+            for (const auto& [form, op_subs] : trie.find_matches(pattern, Box{}, true, random_state).first) {
                 EXPECT_TRUE(op_subs.has_value()); // trie.find_matches(..., return_subs_maps=true)
                 const auto& subs = *op_subs;
                 // check substitutions are correct and injective:
@@ -608,6 +609,7 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, BinaryAndUnaryOpsComplete) {
+            uint64_t random_state = 0;
             DeBruijnCanonicalizer<Expression> trie;
             std::vector es{ // for coverage... make sure we didn't mess up call of the unary/binary op helper functions.
                 x1 / x2, log(x1), abs(x1), exp(x1), sqrt(x1), pow(x1, x2), sin(x1), cos(x1), tan(x1), asin(x1),
@@ -626,13 +628,13 @@ namespace dreal
                     pattern.Substitute({{x1, p1}, {x2, p2}}),
                 };
                 for (const auto& match : matches) {
-                    const auto found = trie.find_matches(match, Box{}, false).first;
+                    const auto found = trie.find_matches(match, Box{}, false, random_state).first;
                     EXPECT_EQ(found.size(), 1);
                     EXPECT_EQ(found[0].second, std::nullopt); // trie.find_matches(..., return_subs_maps=false)
                     std::cout << pattern << " MATCHES " << match << std::endl;
                 }
                 for (const auto& miss : misses) {
-                    const auto found = trie.find_matches(miss, Box{}, false).first;
+                    const auto found = trie.find_matches(miss, Box{}, false, random_state).first;
                     EXPECT_EQ(found.size(), 0);
                     std::cout << pattern << " MISSES " << miss << std::endl;
                 }

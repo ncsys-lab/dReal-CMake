@@ -247,7 +247,7 @@ void DeBruijnCanonicalizer<T>::name ( \
 
     template <typename T>
     void DeBruijnCanonicalizer<T>::find_matches(
-        const T& atom, substitutions_map& subs, const matches_vec& matches, const misses_vec& misses
+        const T& atom, substitutions_map& subs, const matches_vec& matches, const misses_vec& misses, uint64_t &random_state
     ) const {
         const auto init_size = subs.size();
 
@@ -256,17 +256,11 @@ void DeBruijnCanonicalizer<T>::name ( \
             cache_it == canonicalization_cache.cend() ? canonicalize_atom(atom) : cache_it->second
         );
 
-        // const auto indices_to_concrete_it = structure_to_indices_to_concrete.find(structure);
-        // if (indices_to_concrete_it == structure_to_indices_to_concrete.cend()) return misses(substitutions_map::STRUCTURE_MISS);
-        // const auto& indices_to_concrete = indices_to_concrete_it->second;
-        // const auto concrete_it = indices_to_concrete.find(indices);
-        // if (concrete_it == indices_to_concrete.cend()) return misses(substitutions_map::INDICES_MISS);
-        // const auto& concrete = concrete_it->second;
         const auto concrete_it = structure_to_concrete.find(structure);
         if (concrete_it == structure_to_concrete.cend()) return misses(substitutions_map::STRUCTURE_MISS);
         const auto& concrete = concrete_it->second;
 
-        concrete.find_matches(concrete_vars, subs, matches, misses);
+        concrete.find_matches(concrete_vars, subs, matches, misses, random_state);
 
         DREAL_ASSERT(subs.size() == init_size);
         return;
@@ -274,7 +268,7 @@ void DeBruijnCanonicalizer<T>::name ( \
 
     template <typename T>
     std::pair<std::vector<std::pair<T, std::optional<substitutions_map>>>, matching_stats_t> DeBruijnCanonicalizer<T>::find_matches(
-        const T& f, const Box& box, const bool return_subs_maps
+        const T& f, const Box& box, const bool return_subs_maps, uint64_t &random_state
     ) const {
         substitutions_map s(box, GetVars(f).size());
 
@@ -288,7 +282,8 @@ void DeBruijnCanonicalizer<T>::name ( \
                 if (return_subs_maps) match_vec.emplace_back(m, s);
                 else match_vec.emplace_back(m, std::nullopt);
             },
-            [&](const auto& reason) { ++stats.misses_bc.at(reason); }
+            [&](const auto& reason) -> auto { ++stats.misses_bc.at(reason); },
+            random_state
         );
 
         return {std::move(match_vec), std::move(stats)};
@@ -296,14 +291,15 @@ void DeBruijnCanonicalizer<T>::name ( \
 
     template <typename T>
     std::pair<std::vector<std::pair<std::vector<T>, std::optional<substitutions_map>>>, matching_stats_t> DeBruijnCanonicalizer<T>::find_matches(
-        const std::vector<T>& literals, const Box& box, const bool return_subs_maps, std::chrono::duration<uint64_t, std::micro> timeout
+        const std::vector<T>& literals, const Box& box, const bool return_subs_maps, const std::chrono::duration<uint64_t, std::micro> timeout
     ) const {
+        const auto start_time = std::chrono::steady_clock::now();
+        uint64_t random_state = timeout.count() == -1 ? 0 : start_time.time_since_epoch().count();
+
         matching_stats_t stats = {0};
         std::vector<T> matches_vec;
         std::vector<std::pair<std::vector<T>, std::optional<substitutions_map>>> result;
         matches_vec.reserve(literals.size());
-
-        const auto start_time = std::chrono::steady_clock::now();
 
         const misses_vec misses = [&](const auto& reason) { ++stats.misses_bc.at(reason); };
 
@@ -350,7 +346,7 @@ void DeBruijnCanonicalizer<T>::name ( \
                     if (return_subs_maps) result.emplace_back(matches_vec, s2);
                     else result.emplace_back(matches_vec, std::nullopt);
                 }
-                else find_matches(*it2, s2, match_next_literal(it2), misses);
+                else find_matches(*it2, s2, match_next_literal(it2), misses, random_state);
                 matches_vec.pop_back();
             };
         };
@@ -358,7 +354,7 @@ void DeBruijnCanonicalizer<T>::name ( \
         size_t sub_preallocations = 0;
         for (const auto& literal : literals) sub_preallocations += GetVars(literal).size();
         substitutions_map substitutions(box, sub_preallocations);
-        find_matches(*ibegin, substitutions, match_next_literal(ibegin), misses);
+        find_matches(*ibegin, substitutions, match_next_literal(ibegin), misses, random_state);
 
         DREAL_ASSERT(result.size() == stats.matches);
         if (did_time_out)

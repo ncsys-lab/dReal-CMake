@@ -12,6 +12,9 @@
 #include "dreal/util/pattern_matching/matching_stats_t.h"
 #include "dreal/util/pattern_matching/substitutions_map.h"
 #include "dreal/util/pattern_matching/substitution_tree/substitution_tree.h"
+#include <cstdint>
+#include <unordered_map>
+#include <vector>
 
 namespace dreal
 {
@@ -33,7 +36,7 @@ namespace dreal
         using matches_vec = std::function<void(const T& e, substitutions_map& s)>;
         using misses_vec = std::function<void(const substitutions_map::substitution_status& s)>;
         void find_matches(
-            const T& f, substitutions_map& substitutions, const matches_vec& matches, const misses_vec& misses
+            const T& f, substitutions_map& substitutions, const matches_vec& matches, const misses_vec& misses, uint64_t &random_state
         ) const;
 
     public:
@@ -44,12 +47,12 @@ namespace dreal
         [[nodiscard]] std::pair<std::vector<std::pair<std::vector<T>, std::optional<substitutions_map>>>, matching_stats_t>
         find_matches(
             const std::vector<T>& literals, const Box& b, bool return_subs_maps,
-            std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
+            const std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
         ) const;
 
 
         [[nodiscard]] std::pair<std::vector<std::pair<T, std::optional<substitutions_map>>>, matching_stats_t> find_matches(
-            const T& f, const Box& box, bool return_subs_maps
+            const T& f, const Box& box, bool return_subs_maps, uint64_t &random_state
         ) const;
 
 
