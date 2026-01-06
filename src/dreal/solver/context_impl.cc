@@ -272,12 +272,14 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
             /*&& explanation.size() < 384 /* stack overflows around size=960 on x86 #1#
             && tscs_elapsed > std::chrono::milliseconds(3)*/) {
             /* ################################ START MEASURING TIME ################################ */
-            const auto pm_start = std::chrono::high_resolution_clock::now();
-            const auto pm_result = sat_solver->AddLearnedClausePattern(
-              pn_, explanation, box,
-              std::min(std::chrono::duration_cast<std::chrono::microseconds>(100 * tcs_elapsed_ms),
-                       std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::duration<double, std::chrono::seconds::period>(config().drpm_max_time())))
+#define TO_MICROS(x) ( std::chrono::duration_cast<std::chrono::microseconds>((x)) )
+            auto pm_timeout = TO_MICROS(scs_elapsed_ms + tcs_elapsed_ms);
+            pm_timeout += std::min( // for edge-case of very, very long-running lemmas. try HARD to match those.
+              99 * pm_timeout, // `+=`, so 100
+              TO_MICROS(config().drpm_max_time())
             );
+            const auto pm_start = std::chrono::high_resolution_clock::now();
+            const auto pm_result = sat_solver->AddLearnedClausePattern(pn_, explanation, box, pm_timeout);
             const auto pm_end = std::chrono::high_resolution_clock::now();
             const std::chrono::duration<double, std::milli> pm_elapsed = pm_end - pm_start;
             /* ################################ STOP MEASURING TIME ################################ */
