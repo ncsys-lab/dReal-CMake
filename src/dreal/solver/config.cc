@@ -128,7 +128,9 @@ int Config::drpm_max_size() const { return drpm_max_size_.get(); }
 
 OptionValue<int>& Config::mutable_drpm_max_size() { return drpm_max_size_; }
 
-double Config::drpm_max_time() const { return drpm_max_time_.get(); }
+std::chrono::duration<double, std::chrono::seconds::period> Config::drpm_max_time() const {
+  return std::chrono::duration<double, std::chrono::seconds::period>(drpm_max_time_.get());
+}
 
 OptionValue<double>& Config::mutable_drpm_max_time() { return drpm_max_time_; }
 

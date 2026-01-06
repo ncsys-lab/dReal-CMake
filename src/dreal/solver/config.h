@@ -156,7 +156,7 @@ class Config {
 
   int drpm_max_size() const;
   OptionValue<int>& mutable_drpm_max_size();
-  double drpm_max_time() const;
+  std::chrono::duration<double, std::chrono::seconds::period> drpm_max_time() const;
   OptionValue<double>& mutable_drpm_max_time();
 
   /// Returns if it's smtlib2_compliant mode.
