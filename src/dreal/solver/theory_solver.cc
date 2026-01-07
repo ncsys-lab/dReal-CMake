@@ -23,6 +23,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "dreal/version.h"
 #include "dreal/contractor/contractor_forall.h"
 #include "dreal/contractor/odes/contractor_odes.h"
 #include "dreal/solver/context.h"
@@ -57,7 +58,7 @@ namespace {
 bool DefaultTerminationCondition(const Box::IntervalVector& old_iv,
                                  const Box::IntervalVector& new_iv) {
   DREAL_ASSERT(!new_iv.is_empty());
-  constexpr double kThreshold{0.01};
+  constexpr double kThreshold{DREAL_EXPERIMENTAL_THEORY_FIXEDPT_THRESHOLD};
   // If there is a dimension which is improved more than
   // threshold, we continue the current fixed-point computation
   // (return false).
