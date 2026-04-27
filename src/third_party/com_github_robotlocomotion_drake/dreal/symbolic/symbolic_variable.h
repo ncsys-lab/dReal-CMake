@@ -64,7 +64,7 @@ class Variable {
   [[nodiscard]] inline Id get_id() const { return id_; }
   Type get_type() const;
   size_t get_hash() const { return std::hash<Id>{}(id_); }
-  std::string get_name() const;
+  std::string get_name() const; // todo: use `string_view` ?
   std::string to_string() const;
 
   /// Checks the equality of two variables based on their ID values.

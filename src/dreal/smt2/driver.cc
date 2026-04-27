@@ -150,9 +150,9 @@ void Smt2Driver::CheckSat() {
         // Need to run ODE pruning operator once again to generate a trace
         const auto odes = link_integral_invariants(context_.assertions());
         for (const auto& ctr : odes) {
-          Contractor fwd_full = mk_contractor_capd_full(*model, ctr, ode_direction::FWD, context_.config(), 0.0);
+          Contractor fwd_full = mk_contractor_ode_lohner(*model, ctr, ode_direction::FWD, context_.config(), 0.0);
           ContractorStatus cs(*model);
-          json trace = to_capd(fwd_full)->generate_trace(/*copy*/cs);
+          json trace = to_ode_lohner(fwd_full)->generate_trace(/*copy*/cs);
           traces.push_back(trace);
         }
         json vis_json;

@@ -102,9 +102,9 @@ shared_ptr<ContractorJoin> to_join(const Contractor& contractor) {
   DREAL_ASSERT(is_join(contractor));
   return static_pointer_cast<ContractorJoin>(contractor.ptr_);
 }
-shared_ptr<contractor_capd_full> to_capd(const Contractor& contractor) {
-  DREAL_ASSERT(is_capd(contractor));
-  return static_pointer_cast<contractor_capd_full>(contractor.ptr_);
+shared_ptr<contractor_ode_lohner> to_ode_lohner(const Contractor& contractor) {
+  DREAL_ASSERT(is_ode_lohner(contractor));
+  return static_pointer_cast<contractor_ode_lohner>(contractor.ptr_);
 }
 
 }  // namespace dreal
