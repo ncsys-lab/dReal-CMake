@@ -211,21 +211,21 @@ optional<Contractor> TheorySolver::BuildContractor(
 
 
   // ODEs
-  vector<Contractor> ode_capd4_fwd_ctcs;
-  vector<Contractor> ode_capd4_bwd_ctcs;
+  vector<Contractor> ode_fwd_ctcs;
+  vector<Contractor> ode_bwd_ctcs;
   const auto ode_constraints = link_integral_invariants(assertions);
   for (const auto & ode_constraint : ode_constraints) {
     const auto f = ode_constraint.first && make_conjunction(ode_constraint.second);
     {
       auto &cache = fwd_ode_contractor_cache_;
       auto dir = ode_direction::FWD;
-      auto &ctcs = ode_capd4_fwd_ctcs;
+      auto &ctcs = ode_fwd_ctcs;
 
       auto it = cache.find(f);
       if (it == cache.end()) {
         // There is no contractor for `f`, build one.
         DREAL_LOG_TRACE("TheorySolver::BuildContractor: Turn {} into a ode fwd contractor", f);
-        ctcs.emplace_back(mk_contractor_capd_full(box, ode_constraint, dir, config_, 0.0));
+        ctcs.emplace_back(mk_contractor_ode_lohner(box, ode_constraint, dir, config_, 0.0));
         cache.emplace_hint(it, f, ctcs.back());
       } else {
         ctcs.emplace_back(it->second);
@@ -235,13 +235,13 @@ optional<Contractor> TheorySolver::BuildContractor(
     {
       auto &cache = bwd_ode_contractor_cache_;
       auto dir = ode_direction::BWD;
-      auto &ctcs = ode_capd4_bwd_ctcs;
+      auto &ctcs = ode_bwd_ctcs;
 
       auto it = cache.find(f);
       if (it == cache.end()) {
         // There is no contractor for `f`, build one.
         DREAL_LOG_TRACE("TheorySolver::BuildContractor: Turn {} into a ode bwd contractor", f);
-        ctcs.emplace_back(mk_contractor_capd_full(box, ode_constraint, dir, config_, 0.0));
+        ctcs.emplace_back(mk_contractor_ode_lohner(box, ode_constraint, dir, config_, 0.0));
         cache.emplace_hint(it, f, ctcs.back());
       } else {
         ctcs.emplace_back(it->second);
@@ -251,11 +251,11 @@ optional<Contractor> TheorySolver::BuildContractor(
 
   vector<Contractor> ctcs;
   ctcs.insert(ctcs.end(), nl_ctcs.begin(), nl_ctcs.end());
-  for (auto const & ode_ctc : ode_capd4_fwd_ctcs) {
+  for (auto const & ode_ctc : ode_fwd_ctcs) {
     ctcs.insert(ctcs.end(), ode_ctc);
     ctcs.insert(ctcs.end(), nl_ctcs.begin(), nl_ctcs.end());
   }
-  for (auto const & ode_ctc : ode_capd4_bwd_ctcs) {
+  for (auto const & ode_ctc : ode_bwd_ctcs) {
     ctcs.insert(ctcs.end(), ode_ctc);
     ctcs.insert(ctcs.end(), nl_ctcs.begin(), nl_ctcs.end());
   }

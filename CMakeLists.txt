@@ -5,26 +5,40 @@ include(CMakePrintHelpers)
 set(CMAKE_VERBOSE_MAKEFILE ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_OSX_ARCHITECTURES "x86_64" CACHE INTERNAL "" FORCE)
+
+# NOTE: CMAKE_OSX_ARCHITECTURES is no longer forced to x86_64.
+# CAPD (the original x86-only ODE library) has been replaced with Codac, which
+# supports ARM64 natively. If you need to override (e.g. for cross-compilation),
+# pass -DCMAKE_OSX_ARCHITECTURES=x86_64 on the cmake command line.
 
 if (CMAKE_HOST_SYSTEM_NAME MATCHES "Darwin")
     function(find_brew_package package_name variable_name)
-        execute_process(
-                COMMAND /usr/local/bin/brew --prefix ${package_name}
-                RESULT_VARIABLE BREW_${package_name}
-                OUTPUT_VARIABLE BREW_${package_name}_PREFIX
-                OUTPUT_STRIP_TRAILING_WHITESPACE
-        )
-        if (NOT DEFINED ${variable_name} AND BREW_${package_name} EQUAL 0 AND EXISTS "${BREW_${package_name}_PREFIX}")
-            message(STATUS "Found ${package_name} keg installed by Homebrew at ${BREW_${package_name}_PREFIX}")
-            set(${variable_name} "${BREW_${package_name}_PREFIX}" PARENT_SCOPE)
-        endif()
+        # Try ARM homebrew first, then x86 homebrew
+        foreach(BREW_EXEC /opt/homebrew/bin/brew /usr/local/bin/brew)
+            if (EXISTS "${BREW_EXEC}")
+                execute_process(
+                        COMMAND "${BREW_EXEC}" --prefix ${package_name}
+                        RESULT_VARIABLE BREW_RESULT
+                        OUTPUT_VARIABLE BREW_PREFIX
+                        OUTPUT_STRIP_TRAILING_WHITESPACE
+                        ERROR_QUIET
+                )
+                if (BREW_RESULT EQUAL 0 AND EXISTS "${BREW_PREFIX}")
+                    message(STATUS "Found ${package_name} via Homebrew at ${BREW_PREFIX}")
+                    if (NOT DEFINED ${variable_name})
+                        set(${variable_name} "${BREW_PREFIX}" PARENT_SCOPE)
+                    endif()
+                    return()
+                endif()
+            endif()
+        endforeach()
     endfunction()
 
     find_brew_package(bison BISON_ROOT)
     find_brew_package(flex FLEX_ROOT)
     find_brew_package(gmp GMP_ROOT)
     find_brew_package(cadical CADICAL_ROOT)
+    find_brew_package(eigen EIGEN3_ROOT)
 endif ()
 
 
@@ -33,12 +47,12 @@ find_package(BISON REQUIRED)
 find_package(FLEX REQUIRED)
 
 set(PARSERS_HOME "${CMAKE_CURRENT_BINARY_DIR}/parsers/")
-file(MAKE_DIRECTORY "${PARSERS_HOME}/dreal/smt2/")  # flex crashes on x86 macos if this dir doesn't already exist
+file(MAKE_DIRECTORY "${PARSERS_HOME}/dreal/smt2/")
 FLEX_TARGET(smt2_scanner "${PROJECT_SOURCE_DIR}/src/dreal/smt2/scanner.ll" "${PARSERS_HOME}/dreal/smt2/scanner.ll.cc")
 BISON_TARGET(smt2_parser "${PROJECT_SOURCE_DIR}/src/dreal/smt2/parser.yy" "${PARSERS_HOME}/dreal/smt2/parser.yy.cc")
 ADD_FLEX_BISON_DEPENDENCY(smt2_scanner smt2_parser)
 
-file(MAKE_DIRECTORY "${PARSERS_HOME}/dreal/dr/")  # flex crashes on x86 macos if this dir doesn't already exist
+file(MAKE_DIRECTORY "${PARSERS_HOME}/dreal/dr/")
 FLEX_TARGET(dr_scanner "${PROJECT_SOURCE_DIR}/src/dreal/dr/scanner.ll" "${PARSERS_HOME}/dreal/dr/scanner.ll.cc")
 BISON_TARGET(dr_parser "${PROJECT_SOURCE_DIR}/src/dreal/dr/parser.yy" "${PARSERS_HOME}/dreal/dr/parser.yy.cc")
 ADD_FLEX_BISON_DEPENDENCY(dr_scanner dr_parser)
@@ -97,85 +111,130 @@ find_library(CADICAL_LIB NAMES libcadical.a HINTS "${CADICAL_ROOT}" PATH_SUFFIXE
 target_include_directories(dreal4_cmake PUBLIC "${CADICAL_INC}")
 target_link_libraries(dreal4_cmake PUBLIC "${CADICAL_LIB}")
 
-set(ROSETTA_PREFIX "")
-if (CMAKE_HOST_SYSTEM_NAME MATCHES "Darwin")
-    set(ROSETTA_PREFIX arch -x86_64)
-endif ()
+# Eigen3 (required by Codac)
+find_package(Eigen3 QUIET NO_MODULE HINTS "${EIGEN3_ROOT}")
+if (NOT Eigen3_FOUND)
+    # Fall back to searching standard system paths
+    find_package(Eigen3 REQUIRED NO_MODULE)
+endif()
 
+# ---------------------------------------------------------------------------
+# IBEX + Codac via ExternalProject
+#
+# We use lebarsfa/ibex-lib (the fork that Codac is designed to work with),
+# replacing our old ncsys-lab/ibex-lib fork.  Codac is then built on top of
+# IBEX and replaces both the old IBEX FetchContent block and the old CAPD4 +
+# FILIB ExternalProject blocks.
+#
+# Build order:  ibex_external → codac_external → dreal4_cmake
+#
+# NOTE: Because ExternalProject targets build at build-time (not configure-
+# time), we create IMPORTED library targets that point at the paths where the
+# installs will land.  These are listed as link libraries and cmake will set
+# up the correct build ordering via add_dependencies.
+# ---------------------------------------------------------------------------
 include(ExternalProject)
-set(SHARED_LIB_CONFIG_COMMAND "--disable-shared")
-set(EXTERNAL_LD_FLAGS "-L${CMAKE_CURRENT_BINARY_DIR}/lib")
-link_directories("${CMAKE_CURRENT_BINARY_DIR}/lib/")
-include_directories("${CMAKE_CURRENT_BINARY_DIR}/include/")
 
-ExternalProject_Add(FILIB
-        PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
-        GIT_REPOSITORY https://github.com/dreal-deps/filibxx.git
-        GIT_TAG d898fe000e157f44e4a84b8f79b4e7556a5d6fb5
-        PATCH_COMMAND autoreconf -if
-        UPDATE_COMMAND ""
-        CONFIGURE_COMMAND ${ROSETTA_PREFIX} ${CMAKE_CURRENT_BINARY_DIR}/external/src/FILIB/configure
-        # CC=${CMAKE_C_COMPILER}
-        # CXX=${CMAKE_CXX_COMPILER}
-        # "CXXFLAGS=${EXTERNAL_CXX_FLAGS}"
-        "CXXFLAGS=-std=c++11 -frounding-math -ffloat-store"
-        "LDFLAGS=${EXTERNAL_LD_FLAGS}"
-        --prefix=${CMAKE_CURRENT_BINARY_DIR}
-        ${SHARED_LIB_CONFIG_COMMAND}
-        BUILD_COMMAND ${ROSETTA_PREFIX} make -j16
-        LOG_DOWNLOAD 1
-        LOG_UPDATE 1
-        LOG_CONFIGURE 1
-        LOG_BUILD 1
-        LOG_TEST 1
-        LOG_INSTALL 1
-        INSTALL_COMMAND ${ROSETTA_PREFIX} make install)
+set(IBEX_INSTALL_DIR  "${CMAKE_BINARY_DIR}/ibex-install")
+set(CODAC_INSTALL_DIR "${CMAKE_BINARY_DIR}/codac-install")
 
-ExternalProject_Add(CAPD4
-        DEPENDS FILIB
-        PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
-        GIT_REPOSITORY https://github.com/ncsys-lab/capdDynSys-4.0.git
-        GIT_TAG 54145cf706031b826d5a49734e933c93b3ab1c03
-        PATCH_COMMAND ${ROSETTA_PREFIX} autoreconf -if
-        UPDATE_COMMAND ""
-        CONFIGURE_COMMAND ${ROSETTA_PREFIX} ${CMAKE_CURRENT_BINARY_DIR}/external/src/CAPD4/configure
-        # CC=${CMAKE_C_COMPILER}
-        # CXX=${CMAKE_CXX_COMPILER}
-        # "CXXFLAGS=${EXTERNAL_CXX_FLAGS}"
-        "CXXFLAGS=-std=c++11 -frounding-math -ffloat-store"
-        "LDFLAGS=${EXTERNAL_LD_FLAGS}"
-        --prefix=${CMAKE_CURRENT_BINARY_DIR}
-        --without-gui
-        --without-boost
-        --with-mpfr=no
-        --with-filib=no
-        --enable-asserts=no
-        ${SHARED_LIB_CONFIG_COMMAND}
-        BUILD_COMMAND ${ROSETTA_PREFIX} make -j16
-        BUILD_IN_SOURCE 1
-        LOG_DOWNLOAD 1
-        LOG_UPDATE 1
-        LOG_CONFIGURE 1
-        LOG_BUILD 1
-        LOG_TEST 1
-        LOG_INSTALL 1
-        INSTALL_COMMAND ${ROSETTA_PREFIX} make install)
+# Propagate the host architecture to child projects so that ARM64 mac builds
+# work end-to-end without manually passing flags.
+set(EP_ARCH_ARGS "")
+if (DEFINED CMAKE_OSX_ARCHITECTURES)
+    list(APPEND EP_ARCH_ARGS "-DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}")
+endif()
 
-# downloaded dependencies
+# ---- IBEX (lebarsfa fork, CMake-native) ----
+# The lebarsfa fork already has cmake support and ARM64 fixes; no custom patches needed.
+ExternalProject_Add(ibex_external
+    GIT_REPOSITORY "https://github.com/lebarsfa/ibex-lib.git"
+    GIT_TAG        "ibex-2.8.9.1"          # last release tag; pin to commit hash after first successful build
+    GIT_SHALLOW    TRUE
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX:PATH=${IBEX_INSTALL_DIR}
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_CXX_STANDARD=17
+        -DINTERVAL_LIB=gaol               # use gaol backend (same as before)
+        -DCMAKE_PREFIX_PATH=${GMP_ROOT}   # point at system GMP
+        ${EP_ARCH_ARGS}
+    BUILD_COMMAND   cmake --build <BINARY_DIR> -j8
+    INSTALL_COMMAND cmake --install <BINARY_DIR>
+    LOG_DOWNLOAD  TRUE
+    LOG_CONFIGURE TRUE
+    LOG_BUILD     TRUE
+    LOG_INSTALL   TRUE
+)
+
+# ---- Codac (replaces CAPD + old IBEX FetchContent) ----
+# Codac provides CtcFunction (HC4 forward-backward) and CtcLohner (ODE integration).
+# WITH_CAPD=OFF: Codac has its own rigorous ODE integrator (Lohner method) that does
+# not require a separate CAPD installation.
+ExternalProject_Add(codac_external
+    DEPENDS        ibex_external
+    GIT_REPOSITORY "https://github.com/codac-team/codac.git"
+    GIT_TAG        "v2.0.2"
+    GIT_SHALLOW    TRUE
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX:PATH=${CODAC_INSTALL_DIR}
+        -DCMAKE_PREFIX_PATH=${IBEX_INSTALL_DIR}
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_CXX_STANDARD=17
+        -DWITH_CAPD=OFF
+        -DBUILD_TESTS=OFF
+        ${EP_ARCH_ARGS}
+    BUILD_COMMAND   cmake --build <BINARY_DIR> -j8
+    INSTALL_COMMAND cmake --install <BINARY_DIR>
+    LOG_DOWNLOAD  TRUE
+    LOG_CONFIGURE TRUE
+    LOG_BUILD     TRUE
+    LOG_INSTALL   TRUE
+)
+
+# ---- IMPORTED targets for IBEX ----
+# IBEX installs libibex.a plus the gaol/mathlib sub-libraries.
+add_library(ibex_imported STATIC IMPORTED GLOBAL)
+set_target_properties(ibex_imported PROPERTIES
+    IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/libibex.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${IBEX_INSTALL_DIR}/include"
+)
+add_dependencies(ibex_imported ibex_external)
+
+# Gaol and mathlib (ultim) are IBEX's internal interval arithmetic backends.
+# They are installed alongside IBEX and must be linked transitively.
+add_library(ibex_gaol   STATIC IMPORTED GLOBAL)
+add_library(ibex_ultim  STATIC IMPORTED GLOBAL)
+set_target_properties(ibex_gaol  PROPERTIES IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/libgaol.a")
+set_target_properties(ibex_ultim PROPERTIES IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/libultim.a")
+add_dependencies(ibex_gaol  ibex_external)
+add_dependencies(ibex_ultim ibex_external)
+
+# ---- IMPORTED target for Codac ----
+add_library(codac_imported STATIC IMPORTED GLOBAL)
+set_target_properties(codac_imported PROPERTIES
+    IMPORTED_LOCATION "${CODAC_INSTALL_DIR}/lib/libcodac.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${CODAC_INSTALL_DIR}/include"
+)
+add_dependencies(codac_imported codac_external)
+
+# Wire dreal4_cmake against Codac + IBEX (order matters for static linking)
+add_dependencies(dreal4_cmake codac_external ibex_external)
+target_include_directories(dreal4_cmake PUBLIC
+    "${IBEX_INSTALL_DIR}/include"
+    "${CODAC_INSTALL_DIR}/include"
+)
+target_link_libraries(dreal4_cmake PUBLIC
+    codac_imported
+    ibex_imported
+    ibex_gaol
+    ibex_ultim
+    Eigen3::Eigen
+)
+
+# ---------------------------------------------------------------------------
+# FetchContent dependencies (unchanged from before)
+# ---------------------------------------------------------------------------
 include(FetchContent)
-
-#FetchContent_Declare(
-#        fmt
-#        GIT_REPOSITORY https://github.com/fmtlib/fmt
-#        GIT_TAG 11.1.1)
-#FetchContent_MakeAvailable(fmt)
-
-FetchContent_Declare(
-        ibex
-        GIT_REPOSITORY https://github.com/ncsys-lab/ibex-lib
-        GIT_TAG be485777a0ecd5483a564fb1729e7579edf1c1d4)  # Kunal's M1/rosetta + namespace fixes
-#        GIT_TAG 33408ed0733da56979ddf797473609d4c39ea1ea)  # Kunal's M1 + namespace fixes
-FetchContent_MakeAvailable(ibex)
 
 FetchContent_Declare(
         fmt
@@ -198,34 +257,9 @@ FetchContent_Declare(
         GIT_TAG v2.9.1)
 FetchContent_MakeAvailable(nlopt)
 
-#FetchContent_Declare(
-#        pybind11
-#        GIT_REPOSITORY https://github.com/pybind/pybind11
-#        GIT_TAG        v2.13.6)
-#FetchContent_MakeAvailable(pybind11)
-#if(NOT pybind11_POPULATED)
-#    # https://stackoverflow.com/questions/47027741/smart-way-to-cmake-a-project-using-pybind11-by-externalproject-add
-#    add_subdirectory(${pybind11_SOURCE_DIR} ${pybind11_BINARY_DIR})
-#endif()
+target_link_libraries(dreal4_cmake PUBLIC nlopt spdlog::spdlog fmt::fmt)
 
-# ibex's CMake build is a bit flaky... dependency tree isn't correctly set up. This forces it.
-add_custom_target(
-        GAOL_HACK
-        BYPRODUCTS
-        "${CMAKE_BINARY_DIR}/_deps/ibex-build/interval_lib_wrapper/gaol/mathlib-2.1.1/lib/libultim.a"
-        "${CMAKE_BINARY_DIR}/_deps/ibex-build/interval_lib_wrapper/gaol/gaol-4.2.3/lib/libgaol.a"
-        COMMAND exit # no-op
-        DEPENDS libultim_3rd libgaol_3rd
-)
-add_dependencies(dreal4_cmake GAOL_HACK)
-target_link_libraries(
-        dreal4_cmake PUBLIC ibex nlopt spdlog::spdlog fmt::fmt
-)
-add_dependencies(dreal4_cmake CAPD4)
-target_link_libraries(dreal4_cmake PUBLIC capd prim)
-
-# On some platforms, linking is purely sequential, and the order you specify libraries in matters.
-# I am repeating these libraries from above so that everything gets resolved on Ubuntu
+# On some platforms, linking is purely sequential; repeat GMP so it resolves on Ubuntu.
 target_link_libraries(dreal4_cmake PUBLIC "${GMP_C_LIB}" "${GMP_CXX_LIB}")
 
 # executable
@@ -238,7 +272,7 @@ FetchContent_Declare(
         googletest
         URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
 )
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE) # For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 enable_testing()
 
@@ -247,7 +281,7 @@ file(GLOB_RECURSE DREAL_TESTS
         "${PROJECT_SOURCE_DIR}/test/dreal/**.cc"
         "${DRAKE_TEST_HOME}/**.cc"
 )
-list(REMOVE_ITEM DREAL_TESTS "${PROJECT_SOURCE_DIR}/test/dreal/api/test/cav19_benchmark.cc")  # main function interferes with gtest
+list(REMOVE_ITEM DREAL_TESTS "${PROJECT_SOURCE_DIR}/test/dreal/api/test/cav19_benchmark.cc")
 add_executable(dreal4_cmake_test ${DREAL_TESTS})
 target_include_directories(dreal4_cmake_test PRIVATE
         "${PROJECT_SOURCE_DIR}/test/"

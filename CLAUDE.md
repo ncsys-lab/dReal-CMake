@@ -8,9 +8,9 @@ dReal4 is a delta-complete SMT solver for nonlinear arithmetic over the reals. I
 
 ## Build
 
-**Prerequisites** (macOS via x86 Homebrew at `/usr/local/bin/brew`):
-- bison 3.8.2, flex 2.6.4, gmp 6.3.0, cadical 2.2.0
-- On macOS: all tooling must run under Rosetta (x86_64) because CAPD is x86-only
+**Prerequisites** (macOS — ARM or x86 Homebrew; Rosetta no longer required):
+- bison, flex, gmp, cadical, eigen (install via `/opt/homebrew/bin/brew` on Apple Silicon)
+- CMake fetches and builds IBEX (`lebarsfa/ibex-lib`) and Codac (`codac-team/codac`) automatically
 
 **Full build** (first time — creates `gcc_build/`):
 ```bash
@@ -24,9 +24,9 @@ dReal4 is a delta-complete SMT solver for nonlinear arithmetic over the reals. I
 
 Both scripts build target `dreal4` with `-j8`. The binary is at `gcc_build/dreal4`.
 
-**macOS note**: CMakeLists.txt forces `CMAKE_OSX_ARCHITECTURES=x86_64`. Use x86 Homebrew (`/usr/local/bin/brew`), not ARM Homebrew. The `rosetta_cmake.sh` and `rosetta_lldb.sh` wrappers invoke tools under `arch -x86_64`.
+**macOS note**: The Codac migration (see `CODAC_MIGRATION.md`) removed the x86/Rosetta requirement. CMakeLists.txt now detects ARM or x86 Homebrew automatically. The old `rosetta_cmake.sh`/`rosetta_lldb.sh` wrappers are still present but no longer needed for builds that don't use the old CAPD/FILIB dependencies.
 
-**Docker** (avoids macOS native setup complexity):
+**Docker** (avoids local dependency setup):
 ```bash
 docker build --platform linux/amd64 -t dreal/my_dreal_image:1.0 -f Dockerfile.dreal_ubuntu .
 cat query.smt2 | docker run --platform linux/amd64 --rm -i dreal/my_dreal_image:1.0 ./dreal4 --in --model
@@ -71,7 +71,7 @@ Key flags: `--precision <delta>`, `--produce-models`, `--logic <QF_NRA|QF_NRA_OD
    - `contractor_ibex_polytope`: Polytope relaxation
    - `contractor_fixpoint`: Runs a contractor to fixpoint
    - `contractor_seq` / `contractor_join`: Sequential and disjunctive composition
-   - `contractor_capd_*`: ODE contractors (CAPD library)
+   - `contractor_ode_lohner`: ODE contractors (Codac/IBEX-based, replaces old CAPD contractor)
 
 6. **Pattern Matching / Lemma Generation** (`src/dreal/util/pattern_matching/`): CAV26 feature — generates lemmas from previously solved subproblems to prune future search via `substitution_tree` and `lemma_generator`. Randomization in `substitution_tree.cc` iteration is a recent optimization.
 
@@ -90,9 +90,16 @@ Do not modify these unless necessary — they are external projects vendored in:
 - `com_github_pinam45_dynamic_bitset/`: Bitset for variable index sets
 - `com_github_dreal-deps_picosat/`: PicoSAT (legacy, mostly unused)
 
-### Auto-downloaded Dependencies (FetchContent)
+### Auto-downloaded Dependencies
 
-CMake fetches and builds at configure time: IBEX (from `ncsys-lab/ibex-lib` fork), FILIB, CAPD4, fmt, spdlog, nlopt, GTest.
+CMake fetches and builds at configure time:
+- **IBEX** (`lebarsfa/ibex-lib@ibex-2.8.9.1`): Built via ExternalProject into `gcc_build/ibex-install/`
+- **Codac** (`codac-team/codac@v2.0.2`, `WITH_CAPD=OFF`): Built via ExternalProject into `gcc_build/codac-install/`
+- **fmt**, **spdlog**, **nlopt**: Via FetchContent
+- **GTest**: Via FetchContent
+
+The old `ncsys-lab/ibex-lib`, `ncsys-lab/capdDynSys-4.0`, and FILIB have been replaced.
+See `CODAC_MIGRATION.md` for the full migration plan and current status.
 
 ### Vendored PicoSAT
 

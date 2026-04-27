@@ -106,7 +106,7 @@ namespace dreal
             const auto ic = MakeIntegralConstraint();
 
             // Create the CAPD contractor (forward)
-            const auto ctc = mk_contractor_capd_full(
+            const auto ctc = mk_contractor_ode_lohner(
                 box_, {ic, {}}, ode_direction::FWD, config, 0.0
             );
 
@@ -161,7 +161,7 @@ namespace dreal
             const auto ic = MakeIntegralConstraint();
 
             // Create the CAPD contractor (backward)
-            const auto ctc = mk_contractor_capd_full(
+            const auto ctc = mk_contractor_ode_lohner(
                 box_, {ic, {}}, ode_direction::BWD, config, 0.0
             );
 
