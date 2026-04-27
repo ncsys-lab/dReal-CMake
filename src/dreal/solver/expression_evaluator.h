@@ -17,7 +17,7 @@
 
 #include <ostream>
 
-#include "./ibex.h"
+#include "ibex.h"
 
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/box.h"

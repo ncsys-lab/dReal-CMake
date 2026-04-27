@@ -17,7 +17,7 @@
 
 #include <ostream>
 
-#include "./ibex.h"
+#include "ibex.h"
 
 #include "dreal/solver/expression_evaluator.h"
 #include "dreal/solver/formula_evaluator.h"
