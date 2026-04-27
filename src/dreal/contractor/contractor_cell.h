@@ -19,7 +19,7 @@
 #include <memory>
 #include <vector>
 
-#include "./ibex.h"
+#include "ibex.h"
 
 #include "dreal/contractor/contractor.h"
 #include "dreal/contractor/contractor_status.h"

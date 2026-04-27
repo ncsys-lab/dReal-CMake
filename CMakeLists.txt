@@ -201,15 +201,20 @@ set_target_properties(ibex_imported PROPERTIES
 add_dependencies(ibex_imported ibex_external)
 
 # Gaol and mathlib (ultim) are IBEX's internal interval arithmetic backends.
-# They are installed alongside IBEX and must be linked transitively.
+# They are installed alongside IBEX under lib/ibex/3rd/ (ibex convention for
+# bundled third-party libs; verified against ncsys-lab ibex cmake_install.cmake).
 add_library(ibex_gaol   STATIC IMPORTED GLOBAL)
 add_library(ibex_ultim  STATIC IMPORTED GLOBAL)
-set_target_properties(ibex_gaol  PROPERTIES IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/libgaol.a")
-set_target_properties(ibex_ultim PROPERTIES IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/libultim.a")
+set_target_properties(ibex_gaol  PROPERTIES IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/ibex/3rd/libgaol.a")
+set_target_properties(ibex_ultim PROPERTIES IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/ibex/3rd/libultim.a")
 add_dependencies(ibex_gaol  ibex_external)
 add_dependencies(ibex_ultim ibex_external)
 
 # ---- IMPORTED target for Codac ----
+# NOTE: Codac is built but not yet linked. The full CtcLohner-based ODE
+# integration (Phase 4) is a documented TODO in contractor_odes.cc. Once
+# implemented, add codac_imported back to target_link_libraries and add
+# "#include <codac.h>" (or specific codac headers) to contractor_odes.h.
 add_library(codac_imported STATIC IMPORTED GLOBAL)
 set_target_properties(codac_imported PROPERTIES
     IMPORTED_LOCATION "${CODAC_INSTALL_DIR}/lib/libcodac.a"
@@ -217,14 +222,15 @@ set_target_properties(codac_imported PROPERTIES
 )
 add_dependencies(codac_imported codac_external)
 
-# Wire dreal4_cmake against Codac + IBEX (order matters for static linking)
-add_dependencies(dreal4_cmake codac_external ibex_external)
+# Wire dreal4_cmake against IBEX only (order matters for static linking).
+# Codac ExternalProject still builds so it is available for Phase 4 work.
+add_dependencies(dreal4_cmake ibex_external)
 target_include_directories(dreal4_cmake PUBLIC
-    "${IBEX_INSTALL_DIR}/include"
-    "${CODAC_INSTALL_DIR}/include"
+    "${IBEX_INSTALL_DIR}/include"          # ibex.h (generated umbrella header)
+    "${IBEX_INSTALL_DIR}/include/ibex"     # ibex sub-headers (ibex_Setting.h, etc.)
+    "${IBEX_INSTALL_DIR}/include/ibex/3rd" # gaol / mathlib headers (included by ibex_IntervalLibWrapper.h)
 )
 target_link_libraries(dreal4_cmake PUBLIC
-    codac_imported
     ibex_imported
     ibex_gaol
     ibex_ultim
