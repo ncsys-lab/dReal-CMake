@@ -1,0 +1,5 @@
+if(EXISTS "/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/gcc_build/dreal4_cmake_test[1]_tests.cmake")
+  include("/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/gcc_build/dreal4_cmake_test[1]_tests.cmake")
+else()
+  add_test(dreal4_cmake_test_NOT_BUILT dreal4_cmake_test_NOT_BUILT)
+endif()
