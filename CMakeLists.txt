@@ -119,24 +119,24 @@ if (NOT Eigen3_FOUND)
 endif()
 
 # ---------------------------------------------------------------------------
-# IBEX + Codac via ExternalProject
+# Codac via ExternalProject (brings in IBEX automatically)
 #
-# We use lebarsfa/ibex-lib (the fork that Codac is designed to work with),
-# replacing our old ncsys-lab/ibex-lib fork.  Codac is then built on top of
-# IBEX and replaces both the old IBEX FetchContent block and the old CAPD4 +
-# FILIB ExternalProject blocks.
-#
-# Build order:  ibex_external → codac_external → dreal4_cmake
+# Codac is built as an ExternalProject. It will download and build IBEX
+# (lebarsfa/ibex-lib) internally as part of its build process. We only need
+# to point Codac at system dependencies (GMP, Eigen3).
 #
 # NOTE: Because ExternalProject targets build at build-time (not configure-
 # time), we create IMPORTED library targets that point at the paths where the
-# installs will land.  These are listed as link libraries and cmake will set
+# installs will land. These are listed as link libraries and cmake will set
 # up the correct build ordering via add_dependencies.
 # ---------------------------------------------------------------------------
 include(ExternalProject)
 
-set(IBEX_INSTALL_DIR  "${CMAKE_BINARY_DIR}/ibex-install")
 set(CODAC_INSTALL_DIR "${CMAKE_BINARY_DIR}/codac-install")
+
+# Create the install directory before setting IMPORTED target properties.
+file(MAKE_DIRECTORY "${CODAC_INSTALL_DIR}/include")
+file(MAKE_DIRECTORY "${CODAC_INSTALL_DIR}/lib")
 
 # Propagate the host architecture to child projects so that ARM64 mac builds
 # work end-to-end without manually passing flags.
@@ -145,43 +145,21 @@ if (DEFINED CMAKE_OSX_ARCHITECTURES)
     list(APPEND EP_ARCH_ARGS "-DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}")
 endif()
 
-# ---- IBEX (lebarsfa fork, CMake-native) ----
-# The lebarsfa fork already has cmake support and ARM64 fixes; no custom patches needed.
-ExternalProject_Add(ibex_external
-    GIT_REPOSITORY "https://github.com/lebarsfa/ibex-lib.git"
-    GIT_TAG        "ibex-2.8.9.1"          # last release tag; pin to commit hash after first successful build
-    GIT_SHALLOW    TRUE
-    CMAKE_ARGS
-        -DCMAKE_INSTALL_PREFIX:PATH=${IBEX_INSTALL_DIR}
-        -DCMAKE_BUILD_TYPE=Release
-        -DCMAKE_CXX_STANDARD=17
-        -DINTERVAL_LIB=gaol               # use gaol backend (same as before)
-        -DCMAKE_PREFIX_PATH=${GMP_ROOT}   # point at system GMP
-        ${EP_ARCH_ARGS}
-    BUILD_COMMAND   cmake --build <BINARY_DIR> -j8
-    INSTALL_COMMAND cmake --install <BINARY_DIR>
-    LOG_DOWNLOAD  TRUE
-    LOG_CONFIGURE TRUE
-    LOG_BUILD     TRUE
-    LOG_INSTALL   TRUE
-)
-
-# ---- Codac (replaces CAPD + old IBEX FetchContent) ----
+# ---- Codac (handles IBEX internally) ----
 # Codac provides CtcFunction (HC4 forward-backward) and CtcLohner (ODE integration).
 # WITH_CAPD=OFF: Codac has its own rigorous ODE integrator (Lohner method) that does
 # not require a separate CAPD installation.
 ExternalProject_Add(codac_external
-    DEPENDS        ibex_external
     GIT_REPOSITORY "https://github.com/codac-team/codac.git"
     GIT_TAG        "v2.0.2"
     GIT_SHALLOW    TRUE
     CMAKE_ARGS
         -DCMAKE_INSTALL_PREFIX:PATH=${CODAC_INSTALL_DIR}
-        -DCMAKE_PREFIX_PATH=${IBEX_INSTALL_DIR}
         -DCMAKE_BUILD_TYPE=Release
         -DCMAKE_CXX_STANDARD=17
         -DWITH_CAPD=OFF
         -DBUILD_TESTS=OFF
+        -DCMAKE_PREFIX_PATH="${GMP_ROOT};${EIGEN3_ROOT}"
         ${EP_ARCH_ARGS}
     BUILD_COMMAND   cmake --build <BINARY_DIR> -j8
     INSTALL_COMMAND cmake --install <BINARY_DIR>
@@ -191,30 +169,7 @@ ExternalProject_Add(codac_external
     LOG_INSTALL   TRUE
 )
 
-# ---- IMPORTED targets for IBEX ----
-# IBEX installs libibex.a plus the gaol/mathlib sub-libraries.
-add_library(ibex_imported STATIC IMPORTED GLOBAL)
-set_target_properties(ibex_imported PROPERTIES
-    IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/libibex.a"
-    INTERFACE_INCLUDE_DIRECTORIES "${IBEX_INSTALL_DIR}/include"
-)
-add_dependencies(ibex_imported ibex_external)
-
-# Gaol and mathlib (ultim) are IBEX's internal interval arithmetic backends.
-# They are installed alongside IBEX under lib/ibex/3rd/ (ibex convention for
-# bundled third-party libs; verified against ncsys-lab ibex cmake_install.cmake).
-add_library(ibex_gaol   STATIC IMPORTED GLOBAL)
-add_library(ibex_ultim  STATIC IMPORTED GLOBAL)
-set_target_properties(ibex_gaol  PROPERTIES IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/ibex/3rd/libgaol.a")
-set_target_properties(ibex_ultim PROPERTIES IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/ibex/3rd/libultim.a")
-add_dependencies(ibex_gaol  ibex_external)
-add_dependencies(ibex_ultim ibex_external)
-
-# ---- IMPORTED target for Codac ----
-# NOTE: Codac is built but not yet linked. The full CtcLohner-based ODE
-# integration (Phase 4) is a documented TODO in contractor_odes.cc. Once
-# implemented, add codac_imported back to target_link_libraries and add
-# "#include <codac.h>" (or specific codac headers) to contractor_odes.h.
+# ---- IMPORTED target for Codac (and IBEX via Codac) ----
 add_library(codac_imported STATIC IMPORTED GLOBAL)
 set_target_properties(codac_imported PROPERTIES
     IMPORTED_LOCATION "${CODAC_INSTALL_DIR}/lib/libcodac.a"
@@ -222,18 +177,13 @@ set_target_properties(codac_imported PROPERTIES
 )
 add_dependencies(codac_imported codac_external)
 
-# Wire dreal4_cmake against IBEX only (order matters for static linking).
-# Codac ExternalProject still builds so it is available for Phase 4 work.
-add_dependencies(dreal4_cmake ibex_external)
+# Wire dreal4_cmake against Codac (which brings in IBEX).
+add_dependencies(dreal4_cmake codac_external)
 target_include_directories(dreal4_cmake PUBLIC
-    "${IBEX_INSTALL_DIR}/include"          # ibex.h (generated umbrella header)
-    "${IBEX_INSTALL_DIR}/include/ibex"     # ibex sub-headers (ibex_Setting.h, etc.)
-    "${IBEX_INSTALL_DIR}/include/ibex/3rd" # gaol / mathlib headers (included by ibex_IntervalLibWrapper.h)
+    "${CODAC_INSTALL_DIR}/include"         # codac headers (which include ibex.h)
 )
 target_link_libraries(dreal4_cmake PUBLIC
-    ibex_imported
-    ibex_gaol
-    ibex_ultim
+    codac_imported
     Eigen3::Eigen
 )
 
