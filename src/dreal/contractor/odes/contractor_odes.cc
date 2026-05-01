@@ -272,7 +272,7 @@ namespace dreal
     // ---------------------------------------------------------------------------
 
     std::ostream& contractor_ode_lohner::display(std::ostream& out) const {
-        out << "contractor_ode_lohner(" << m_dir << ", " << m_ctr << ")";
+        out << "contractor_ode_lohner(" << m_dir << ", " << m_ctr.first << ")";
         return out;
     }
 

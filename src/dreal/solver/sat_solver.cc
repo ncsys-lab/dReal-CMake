@@ -255,6 +255,8 @@ void SatSolver::MakeSatVar(const Variable& var) {
   }
   // It's not in the maps, let's make one and add it.
   const int sat_var{cadical_next_var++};
+  // CaDiCaL 3.0+ requires variables to be declared before use when factor/BVA is on.
+  cadical->resize(sat_var);
   // std::cout << "Assigning `" << var << "` (id #"<< var.get_id() <<") to " << sat_var << std::endl;
   to_sat_var_.insert(var.get_id(), sat_var);
   to_sym_var_.insert(sat_var, var);
