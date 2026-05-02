@@ -46,13 +46,9 @@ SatSolver::SatSolver(const Config& config) : cadical(new CaDiCaL::Solver) {
 
   success = cadical->set("vivify", 1); DREAL_ASSERT(success);
   success = cadical->set("vivifyonce", 2); DREAL_ASSERT(success);
-  success = cadical->set("vivifymineff", 1e3); DREAL_ASSERT(success);
-  success = cadical->set("vivifymaxeff", 2e9); DREAL_ASSERT(success);
-  success = cadical->set("vivifyreleff", 20); DREAL_ASSERT(success);
   success = cadical->set("eagersubsume", 1); DREAL_ASSERT(success);
   success = cadical->set("subsume", 1); DREAL_ASSERT(success);
   success = cadical->set("subsumeclslim", 1e3); DREAL_ASSERT(success);
-  success = cadical->set("subsumeint", 1e3); DREAL_ASSERT(success);
   cadical->options();
 
   if (DREAL_LOG_INFO_ENABLED || DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) cadical->connect_learner(this);
