@@ -34,6 +34,7 @@ class ContractorIbexPolytope;
 class ContractorFixpoint;
 class ContractorWorklistFixpoint;
 class ContractorJoin;
+class contractor_ode_lohner;
 template <typename ContextType>
 class ContractorForall;
 
@@ -53,7 +54,7 @@ class Contractor {
     WORKLIST_FIXPOINT,
     FORALL,
     JOIN,
-    CAPD_FULL
+    ODE_LOHNER  // Replaces CAPD_FULL; uses IBEX interval arithmetic for ODE bounds.
   };
 
   explicit Contractor(const Config& config);
@@ -118,9 +119,9 @@ class Contractor {
                                            const Config& config);
   friend Contractor make_contractor_join(std::vector<Contractor> vec,
                                          const Config& config);
-  friend Contractor mk_contractor_capd_full(Box const& box, const ode_constraint& ctr,
-                                            ode_direction dir, Config const& config,
-                                            double timeout);
+  friend Contractor mk_contractor_ode_lohner(Box const& box, const ode_constraint& ctr,
+                                             ode_direction dir, Config const& config,
+                                             double timeout);
 
   // Note that the following converter functions are only for
   // low-level operations. To use them, you need to include
@@ -138,7 +139,7 @@ class Contractor {
   friend std::shared_ptr<ContractorWorklistFixpoint> to_worklist_fixpoint(
       const Contractor& contractor);
   friend std::shared_ptr<ContractorJoin> to_join(const Contractor& contractor);
-  friend std::shared_ptr<contractor_capd_full> to_capd(const Contractor& contractor);
+  friend std::shared_ptr<contractor_ode_lohner> to_ode_lohner(const Contractor& contractor);
   template <typename ContextType>
   friend std::shared_ptr<ContractorForall<ContextType>> to_forall(
       const Contractor& contractor);
@@ -213,9 +214,9 @@ Contractor make_contractor_worklist_fixpoint(
 Contractor make_contractor_join(std::vector<Contractor> vec,
                                 const Config& config);
 
-Contractor mk_contractor_capd_full(Box const& box, const ode_constraint& ctr,
-                                   ode_direction dir, Config const& config,
-                                   double timeout);
+Contractor mk_contractor_ode_lohner(Box const& box, const ode_constraint& ctr,
+                                    ode_direction dir, Config const& config,
+                                    double timeout);
 
 /// Returns a forall contractor.
 ///
@@ -254,6 +255,6 @@ bool is_forall(const Contractor& contractor);
 /// Returns true if @p contractor is join contractor.
 bool is_join(const Contractor& contractor);
 
-bool is_capd(const Contractor& contractor);
+bool is_ode_lohner(const Contractor& contractor);
 
 }  // namespace dreal

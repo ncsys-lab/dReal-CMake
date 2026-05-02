@@ -22,7 +22,7 @@
 #include <vector>
 #include <fmt/ostream.h>
 
-#include "./ibex.h"
+#include "ibex.h"
 
 #include "dreal/symbolic/symbolic.h"
 

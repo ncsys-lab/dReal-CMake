@@ -46,13 +46,9 @@ SatSolver::SatSolver(const Config& config) : cadical(new CaDiCaL::Solver) {
 
   success = cadical->set("vivify", 1); DREAL_ASSERT(success);
   success = cadical->set("vivifyonce", 2); DREAL_ASSERT(success);
-  success = cadical->set("vivifymineff", 1e3); DREAL_ASSERT(success);
-  success = cadical->set("vivifymaxeff", 2e9); DREAL_ASSERT(success);
-  success = cadical->set("vivifyreleff", 20); DREAL_ASSERT(success);
   success = cadical->set("eagersubsume", 1); DREAL_ASSERT(success);
   success = cadical->set("subsume", 1); DREAL_ASSERT(success);
   success = cadical->set("subsumeclslim", 1e3); DREAL_ASSERT(success);
-  success = cadical->set("subsumeint", 1e3); DREAL_ASSERT(success);
   cadical->options();
 
   if (DREAL_LOG_INFO_ENABLED || DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) cadical->connect_learner(this);
@@ -255,6 +251,8 @@ void SatSolver::MakeSatVar(const Variable& var) {
   }
   // It's not in the maps, let's make one and add it.
   const int sat_var{cadical_next_var++};
+  // CaDiCaL 3.0+ requires variables to be declared before use when factor/BVA is on.
+  cadical->resize(sat_var);
   // std::cout << "Assigning `" << var << "` (id #"<< var.get_id() <<") to " << sat_var << std::endl;
   to_sat_var_.insert(var.get_id(), sat_var);
   to_sym_var_.insert(sat_var, var);

@@ -18,7 +18,7 @@
 #include <memory>
 #include <ostream>
 
-#include "./ibex.h"
+#include "ibex.h"
 
 #include "dreal/contractor/contractor_cell.h"
 #include "dreal/contractor/contractor_status.h"

@@ -96,13 +96,20 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs) const {
   DREAL_LOG_TRACE("F = {}", f_);
   stat.timer_pruning_.resume();
 
-  std::set<int> changed_vec;
+  // Snapshot the interval vector before contraction so we can detect which
+  // variables were pruned.  This restores the pre-callback behavior (the
+  // custom callback in our IBEX fork is not present in upstream/Codac IBEX).
+  // The copy is O(n) but is required for correct, short lemma generation:
+  // without per-variable change tracking, conflict clauses would contain the
+  // entire model instead of only the pruned variables.
+  Box::IntervalVector iv_before = iv;
   const bool is_inner{
-    num_ctr_->f.backward(
-      num_ctr_->right_hand_side(), iv,
-      [&](int index, const ibex::Interval&, const ibex::Interval&) { changed_vec.insert(index); }
-    )
-  }; // true if unchanged.
+    num_ctr_->f.backward(num_ctr_->right_hand_side(), iv)
+  }; // true if iv was already inner (unchanged).
+  std::set<int> changed_vec;
+  for (int i = 0; i < iv.size(); ++i) {
+    if (iv[i] != iv_before[i]) changed_vec.insert(i);
+  }
   stat.timer_pruning_.pause();
   if (stat.enabled()) {
     stat.num_pruning_++;
