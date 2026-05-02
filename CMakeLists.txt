@@ -141,9 +141,6 @@ include(ExternalProject)
 
 set(IBEX_INSTALL_DIR  "${CMAKE_BINARY_DIR}/ibex-install")
 set(CODAC_INSTALL_DIR "${CMAKE_BINARY_DIR}/codac-install")
-file(MAKE_DIRECTORY "${IBEX_INSTALL_DIR}/include")
-file(MAKE_DIRECTORY "${CODAC_INSTALL_DIR}/include")
-file(MAKE_DIRECTORY "${CODAC_INSTALL_DIR}/lib")
 
 set(EP_ARCH_ARGS "")
 if (DEFINED CMAKE_OSX_ARCHITECTURES)
@@ -169,63 +166,100 @@ if (APPLE)
     endif()
     message(STATUS "Using pre-built IBEX/Codac for ${_EP_ARCH}_${_MACOS_NAME}")
 
-    # ExternalProject strips the top-level directory from a zip on extraction,
-    # so SOURCE_DIR ends up with include/, lib/, share/ directly — no copy needed.
+    # Download at configure time so .a files exist before Ninja runs.
+    # file(ARCHIVE_EXTRACT) does NOT strip the top-level directory, so after
+    # extracting ibex_arm64_tahoe.zip to ibex_extract/ the files sit under
+    # ibex_extract/ibex/include, ibex_extract/ibex/lib, etc.
 
-    # ---- IBEX (pre-built release binary) ----
-    ExternalProject_Add(ibex_external
-        URL "https://github.com/lebarsfa/ibex-lib/releases/download/ibex-2.8.9.20250626/ibex_${_EP_ARCH}_${_MACOS_NAME}.zip"
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-        SOURCE_DIR      "${IBEX_INSTALL_DIR}"
-        CONFIGURE_COMMAND ""
-        BUILD_COMMAND   ""
-        INSTALL_COMMAND ""
-        LOG_DOWNLOAD TRUE
-    )
+    if (NOT EXISTS "${IBEX_INSTALL_DIR}/lib/libibex.a")
+        message(STATUS "Downloading IBEX pre-built binary for ${_EP_ARCH}_${_MACOS_NAME}...")
+        set(_IBEX_ZIP "${CMAKE_BINARY_DIR}/ibex_dl.zip")
+        file(DOWNLOAD
+            "https://github.com/lebarsfa/ibex-lib/releases/download/ibex-2.8.9.20250626/ibex_${_EP_ARCH}_${_MACOS_NAME}.zip"
+            "${_IBEX_ZIP}" SHOW_PROGRESS TLS_VERIFY ON)
+        file(REMOVE_RECURSE "${CMAKE_BINARY_DIR}/ibex_extract")
+        file(ARCHIVE_EXTRACT INPUT "${_IBEX_ZIP}" DESTINATION "${CMAKE_BINARY_DIR}/ibex_extract")
+        file(GLOB _ibex_extracted "${CMAKE_BINARY_DIR}/ibex_extract/*")
+        list(LENGTH _ibex_extracted _ibex_count)
+        if (_ibex_count EQUAL 1)
+            file(RENAME "${_ibex_extracted}" "${IBEX_INSTALL_DIR}")
+        else()
+            file(RENAME "${CMAKE_BINARY_DIR}/ibex_extract" "${IBEX_INSTALL_DIR}")
+        endif()
+        file(REMOVE "${_IBEX_ZIP}")
+        file(REMOVE_RECURSE "${CMAKE_BINARY_DIR}/ibex_extract")
+    endif()
 
-    # ---- Codac (pre-built release binary) ----
-    ExternalProject_Add(codac_external
-        DEPENDS         ibex_external
-        URL "https://github.com/codac-team/codac/releases/download/v2.0.2/codac_${_EP_ARCH}_${_MACOS_NAME}.zip"
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-        SOURCE_DIR      "${CODAC_INSTALL_DIR}"
-        CONFIGURE_COMMAND ""
-        BUILD_COMMAND   ""
-        INSTALL_COMMAND ""
-        LOG_DOWNLOAD TRUE
-    )
+    if (NOT EXISTS "${CODAC_INSTALL_DIR}/lib/libcodac-core.a")
+        message(STATUS "Downloading Codac pre-built binary for ${_EP_ARCH}_${_MACOS_NAME}...")
+        set(_CODAC_ZIP "${CMAKE_BINARY_DIR}/codac_dl.zip")
+        file(DOWNLOAD
+            "https://github.com/codac-team/codac/releases/download/v2.0.2/codac_${_EP_ARCH}_${_MACOS_NAME}.zip"
+            "${_CODAC_ZIP}" SHOW_PROGRESS TLS_VERIFY ON)
+        file(REMOVE_RECURSE "${CMAKE_BINARY_DIR}/codac_extract")
+        file(ARCHIVE_EXTRACT INPUT "${_CODAC_ZIP}" DESTINATION "${CMAKE_BINARY_DIR}/codac_extract")
+        file(GLOB _codac_extracted "${CMAKE_BINARY_DIR}/codac_extract/*")
+        list(LENGTH _codac_extracted _codac_count)
+        if (_codac_count EQUAL 1)
+            file(RENAME "${_codac_extracted}" "${CODAC_INSTALL_DIR}")
+        else()
+            file(RENAME "${CMAKE_BINARY_DIR}/codac_extract" "${CODAC_INSTALL_DIR}")
+        endif()
+        file(REMOVE "${_CODAC_ZIP}")
+        file(REMOVE_RECURSE "${CMAKE_BINARY_DIR}/codac_extract")
+    endif()
 else()
-    # ---- Linux: build IBEX + Codac from source ----
-    ExternalProject_Add(ibex_external
-        GIT_REPOSITORY "https://github.com/lebarsfa/ibex-lib.git"
-        GIT_TAG        "ibex-2.8.9.20250626"
-        GIT_SHALLOW    TRUE
-        CMAKE_ARGS
-            -DCMAKE_INSTALL_PREFIX:PATH=${IBEX_INSTALL_DIR}
-            -DCMAKE_BUILD_TYPE=Release
-            -DCMAKE_CXX_STANDARD=17
-            -DINTERVAL_LIB=gaol
-            -DCMAKE_PREFIX_PATH=${GMP_ROOT}
-        BUILD_COMMAND   cmake --build <BINARY_DIR> -j8
-        INSTALL_COMMAND cmake --install <BINARY_DIR>
-        LOG_DOWNLOAD TRUE LOG_CONFIGURE TRUE LOG_BUILD TRUE LOG_INSTALL TRUE
-    )
-    ExternalProject_Add(codac_external
-        DEPENDS        ibex_external
-        GIT_REPOSITORY "https://github.com/codac-team/codac.git"
-        GIT_TAG        "v2.0.2"
-        GIT_SHALLOW    TRUE
-        CMAKE_ARGS
-            -DCMAKE_INSTALL_PREFIX:PATH=${CODAC_INSTALL_DIR}
-            -DCMAKE_PREFIX_PATH="${IBEX_INSTALL_DIR}"
-            -DCMAKE_BUILD_TYPE=Release
-            -DCMAKE_CXX_STANDARD=17
-            -DWITH_CAPD=OFF
-            -DBUILD_TESTS=OFF
-        BUILD_COMMAND   cmake --build <BINARY_DIR> -j8
-        INSTALL_COMMAND cmake --install <BINARY_DIR>
-        LOG_DOWNLOAD TRUE LOG_CONFIGURE TRUE LOG_BUILD TRUE LOG_INSTALL TRUE
-    )
+    # Linux: configure-time download of pre-built noble binaries.
+    # Building IBEX from source on Linux hits a std::apply ADL conflict in IBEX's
+    # Bison-generated parser when compiled against GCC 13 / libstdc++ 13 (Ubuntu 24.04).
+    # Pre-built binaries avoid this and also drastically speed up the build.
+    if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "amd64")
+        set(_LINUX_ARCH "amd64")
+    elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+        set(_LINUX_ARCH "arm64")
+    else()
+        message(FATAL_ERROR "No pre-built IBEX/Codac for Linux arch '${CMAKE_SYSTEM_PROCESSOR}'. "
+                            "Add source-build support in CMakeLists.txt or cross-compile.")
+    endif()
+    message(STATUS "Using pre-built IBEX/Codac noble binaries for ${_LINUX_ARCH}")
+
+    if (NOT EXISTS "${IBEX_INSTALL_DIR}/lib/libibex.a")
+        message(STATUS "Downloading IBEX pre-built binary for ${_LINUX_ARCH}_noble...")
+        set(_IBEX_ZIP "${CMAKE_BINARY_DIR}/ibex_dl.zip")
+        file(DOWNLOAD
+            "https://github.com/lebarsfa/ibex-lib/releases/download/ibex-2.8.9.20250626/ibex_${_LINUX_ARCH}_noble.zip"
+            "${_IBEX_ZIP}" SHOW_PROGRESS TLS_VERIFY ON)
+        file(REMOVE_RECURSE "${CMAKE_BINARY_DIR}/ibex_extract")
+        file(ARCHIVE_EXTRACT INPUT "${_IBEX_ZIP}" DESTINATION "${CMAKE_BINARY_DIR}/ibex_extract")
+        file(GLOB _ibex_extracted "${CMAKE_BINARY_DIR}/ibex_extract/*")
+        list(LENGTH _ibex_extracted _ibex_count)
+        if (_ibex_count EQUAL 1)
+            file(RENAME "${_ibex_extracted}" "${IBEX_INSTALL_DIR}")
+        else()
+            file(RENAME "${CMAKE_BINARY_DIR}/ibex_extract" "${IBEX_INSTALL_DIR}")
+        endif()
+        file(REMOVE "${_IBEX_ZIP}")
+        file(REMOVE_RECURSE "${CMAKE_BINARY_DIR}/ibex_extract")
+    endif()
+
+    if (NOT EXISTS "${CODAC_INSTALL_DIR}/lib/libcodac-core.a")
+        message(STATUS "Downloading Codac pre-built binary for ${_LINUX_ARCH}_noble...")
+        set(_CODAC_ZIP "${CMAKE_BINARY_DIR}/codac_dl.zip")
+        file(DOWNLOAD
+            "https://github.com/codac-team/codac/releases/download/v2.0.2/codac_${_LINUX_ARCH}_noble.zip"
+            "${_CODAC_ZIP}" SHOW_PROGRESS TLS_VERIFY ON)
+        file(REMOVE_RECURSE "${CMAKE_BINARY_DIR}/codac_extract")
+        file(ARCHIVE_EXTRACT INPUT "${_CODAC_ZIP}" DESTINATION "${CMAKE_BINARY_DIR}/codac_extract")
+        file(GLOB _codac_extracted "${CMAKE_BINARY_DIR}/codac_extract/*")
+        list(LENGTH _codac_extracted _codac_count)
+        if (_codac_count EQUAL 1)
+            file(RENAME "${_codac_extracted}" "${CODAC_INSTALL_DIR}")
+        else()
+            file(RENAME "${CMAKE_BINARY_DIR}/codac_extract" "${CODAC_INSTALL_DIR}")
+        endif()
+        file(REMOVE "${_CODAC_ZIP}")
+        file(REMOVE_RECURSE "${CMAKE_BINARY_DIR}/codac_extract")
+    endif()
 endif()
 
 # ---- IMPORTED targets for IBEX ----
@@ -235,14 +269,10 @@ set_target_properties(ibex_imported PROPERTIES
     IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/libibex.a"
     INTERFACE_INCLUDE_DIRECTORIES "${IBEX_INSTALL_DIR}/include"
 )
-add_dependencies(ibex_imported ibex_external)
-
 add_library(ibex_gaol  STATIC IMPORTED GLOBAL)
 add_library(ibex_ultim STATIC IMPORTED GLOBAL)
 set_target_properties(ibex_gaol  PROPERTIES IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/ibex/3rd/libgaol.a")
 set_target_properties(ibex_ultim PROPERTIES IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/ibex/3rd/libultim.a")
-add_dependencies(ibex_gaol  ibex_external)
-add_dependencies(ibex_ultim ibex_external)
 
 # ---- IMPORTED target for Codac ----
 # Codac v2 installs as libcodac-core.a (core ICP/contractors) plus
@@ -252,16 +282,25 @@ set_target_properties(codac_imported PROPERTIES
     IMPORTED_LOCATION "${CODAC_INSTALL_DIR}/lib/libcodac-core.a"
     INTERFACE_INCLUDE_DIRECTORIES "${CODAC_INSTALL_DIR}/include"
 )
-add_dependencies(codac_imported codac_external)
+
+# All platforms now use configure-time downloads, so .a files already exist
+# by the time CMake validates IMPORTED targets — no add_dependencies needed.
 
 # Wire dreal4_cmake against both Codac and IBEX (static linking requires explicit list).
-add_dependencies(dreal4_cmake codac_external)
 target_include_directories(dreal4_cmake PUBLIC
     "${IBEX_INSTALL_DIR}/include"
     "${IBEX_INSTALL_DIR}/include/ibex"
     "${IBEX_INSTALL_DIR}/include/ibex/3rd"
     "${CODAC_INSTALL_DIR}/include"
+    "${CODAC_INSTALL_DIR}/include/codac-core"
 )
+# contractor_odes_codac.cc includes Codac v2 headers which require C++20 (concepts,
+# std::numbers).  All other translation units stay at C++17.
+set_source_files_properties(
+    "${PROJECT_SOURCE_DIR}/src/dreal/contractor/odes/contractor_odes_codac.cc"
+    PROPERTIES COMPILE_OPTIONS "-std=c++20"
+)
+
 target_link_libraries(dreal4_cmake PUBLIC
     codac_imported
     ibex_imported
