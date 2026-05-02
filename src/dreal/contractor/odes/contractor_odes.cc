@@ -1,13 +1,16 @@
 //
 // Created by Kunal Sheth on 9/2/25.
-// Updated for Codac migration: removed CAPD dependency.
+// Updated for Codac migration: ODE integration via Codac v2 LohnerAlgorithm.
+// Codac integration code lives in contractor_odes_codac.cc (compiled C++20).
 //
 
 #include "contractor_odes.h"
+#include "contractor_odes_codac.h"
 
 #include <cassert>
 #include <chrono>
 #include <iomanip>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -28,8 +31,23 @@ namespace dreal
     using std::ostringstream;
 
     // ---------------------------------------------------------------------------
-    // Helpers (replacing capd_helpers.h)
+    // Helpers
     // ---------------------------------------------------------------------------
+
+    // Parse the step number from a variable name of the form "<name>_<step>_{0,t}".
+    // E.g. "height_3_t" -> 3.  Returns 0 on parse failure.
+    static unsigned int extract_step(const std::string& name) {
+        const size_t last = name.rfind('_');
+        if (last != std::string::npos && last > 0) {
+            const size_t second_last = name.rfind('_', last - 1);
+            if (second_last != std::string::npos) {
+                const std::string step_part = name.substr(second_last + 1, last - second_last - 1);
+                try { return static_cast<unsigned int>(std::stoi(step_part)); }
+                catch (...) {}
+            }
+        }
+        return 0;
+    }
 
     std::ostream& operator<<(std::ostream& out, ode_direction const& d) {
         switch (d) {
@@ -51,20 +69,7 @@ namespace dreal
         return {f};
     }
 
-    // Compute the element-wise difference between two boxes of the same size.
-    // Returns a bool vector: ret[i] = true iff b[i] != a[i].
-    static std::vector<bool> diff_box(const Box& a, const Box& b) {
-        assert(a.size() == b.size());
-        std::vector<bool> ret(static_cast<size_t>(a.size()), false);
-        for (int i = 0; i < a.size(); ++i) {
-            if (a[i] != b[i]) ret[static_cast<size_t>(i)] = true;
-        }
-        return ret;
-    }
-
-    // Intersect pars_0 and pars_t in-place.  Parameters are constant along the
-    // trajectory so their initial and final values must be equal.  Returns false
-    // and sets the box to empty if any parameter pair has an empty intersection.
+    // Intersect pars_0 and pars_t in-place.
     static bool intersect_params(Box& b, const FormulaIntegral* icc) {
         const auto& pars_0 = icc->get_pars_0();
         const auto& pars_t = icc->get_pars_t();
@@ -98,12 +103,9 @@ namespace dreal
         const auto& ic = m_ctr.first;
         const auto* const icc = to_integral(ic);
 
-        // Mark all free variables of the integral formula as inputs.
         DynamicBitset& inp{mutable_input()};
         for (const auto& var : ic.GetFreeVariables()) inp.set(box.index(var));
 
-        // Direction-adjusted state/param variables:
-        //   m_vars_0 = start of integration, m_vars_t = end of integration
         if (m_dir == ode_direction::FWD) {
             m_vars_0 = icc->get_vars_0();
             m_vars_t = icc->get_vars_t();
@@ -116,7 +118,6 @@ namespace dreal
             m_pars_t = icc->get_pars_0();
         }
 
-        // Build invariant contractors (if any).
         if (!m_ctr.second.empty()) {
             RoundingModeGuard g(FE_UPWARD);
             for (const auto& inv : m_ctr.second) {
@@ -144,9 +145,6 @@ namespace dreal
     void contractor_ode_lohner::Prune(ContractorStatus* cs) const {
         RoundingModeGuard g(FE_TONEAREST);
 
-        // Save the old box to detect which variables were pruned.
-        const Box old_box = cs->box();
-
         DREAL_LOG_DEBUG("contractor_ode_lohner::Prune [{} dir={}]",
                         m_ctr.first, m_dir == ode_direction::FWD ? "FWD" : "BWD");
 
@@ -155,7 +153,6 @@ namespace dreal
 
         // --- Step 1: Intersect parameters (pars_0 ∩ pars_t) ---
         if (!intersect_params(cs->mutable_box(), icc)) {
-            // Parameter domains are disjoint → UNSAT.
             for (const auto& v : icc->get_pars_0()) cs->mutable_output().set(cs->box().index(v));
             for (const auto& v : icc->get_pars_t()) cs->mutable_output().set(cs->box().index(v));
             cs->AddUsedConstraint(ic);
@@ -163,13 +160,14 @@ namespace dreal
             return;
         }
 
-        // --- Step 2: T=0 special case — intersect X_0 and X_t ---
+        // --- Step 2: T=0 special case ---
         const auto& icct = icc->get_time_t();
         const bool time_is_zero =
             (is_variable(icct) && cs->box()[get_variable(icct)].ub() == 0.0) ||
             is_constant(icct, 0.0);
 
         if (time_is_zero) {
+            const Box old_box = cs->box();
             for (size_t i = 0; i < m_vars_0.size(); ++i) {
                 ibex::Interval& iv_0 = cs->mutable_box()[m_vars_0[i]];
                 ibex::Interval& iv_t = cs->mutable_box()[m_vars_t[i]];
@@ -183,88 +181,187 @@ namespace dreal
                 }
                 iv_t = iv_0;
             }
-            // Record what changed.
-            auto diff = diff_box(old_box, cs->box());
-            for (size_t i = 0; i < diff.size(); ++i) {
-                if (diff[i]) cs->mutable_output().set(static_cast<DynamicBitset::size_type>(i));
+            for (int i = 0; i < old_box.size(); ++i) {
+                if (cs->box()[i] != old_box[i])
+                    cs->mutable_output().set(static_cast<DynamicBitset::size_type>(i));
             }
-            if (!diff.empty()) {
-                cs->AddUsedConstraint(ic);
-                cs->AddUsedConstraint(m_ctr.second);
-            }
+            cs->AddUsedConstraint(ic);
+            cs->AddUsedConstraint(m_ctr.second);
             return;
         }
 
-        // --- Step 3: General case (T > 0) ---
-        //
-        // Check invariants at the *current* X_0 and X_t endpoint enclosures.
-        // This is sound: if the invariant is unsatisfiable at an endpoint, no
-        // valid trajectory can pass through it.
-        //
-        // TODO (Phase 4): Implement full ODE trajectory integration using
-        // Codac's CtcLohner.  This requires converting the symbolic ODE vector
-        // field into a codac::AnalyticFunction<VectorType> and using a
-        // codac::SlicedTube<ibex::IntervalVector> to represent the trajectory
-        // enclosure.  See CODAC_MIGRATION.md §4 for the detailed plan.
+        // --- Step 3: Invariant checking at X_0 endpoint ---
         if (m_need_to_check_inv) {
             const auto& invs = m_ctr.second;
             DREAL_ASSERT(invs.size() == m_inv_ctcs.size());
-
-            // Check invariant at X_0.
-            {
-                ContractorStatus cs_0 = *cs;
-                // Alias X_0 vars into the contractor-status box so the ibex
-                // invariant contractor sees the right intervals.
-                RoundingModeGuard g_up(FE_UPWARD);
-                for (size_t i = 0; i < invs.size(); ++i) {
-                    if (!is_negation(invs[i])) {
-                        m_inv_ctcs[i].Prune(&cs_0);
-                        if (cs_0.box().empty()) {
-                            DREAL_LOG_INFO("contractor_ode_lohner::Prune - invariant violated at X_0");
-                            cs->mutable_box().set_empty();
-                            cs->AddUsedConstraint(ic);
-                            cs->AddUsedConstraint(m_ctr.second);
-                            cs->mutable_output().set();
-                            return;
-                        }
-                    } else {
-                        DREAL_LOG_WARN("contractor_ode_lohner::Prune - Silent omission of negated invariant: {}", invs[i]);
+            ContractorStatus cs_0 = *cs;
+            RoundingModeGuard g_up(FE_UPWARD);
+            for (size_t i = 0; i < invs.size(); ++i) {
+                if (!is_negation(invs[i])) {
+                    m_inv_ctcs[i].Prune(&cs_0);
+                    if (cs_0.box().empty()) {
+                        DREAL_LOG_INFO("contractor_ode_lohner::Prune - invariant violated at X_0");
+                        cs->mutable_box().set_empty();
+                        cs->AddUsedConstraint(ic);
+                        cs->AddUsedConstraint(m_ctr.second);
+                        cs->mutable_output().set();
+                        return;
                     }
+                } else {
+                    DREAL_LOG_WARN("contractor_ode_lohner::Prune - negated invariant ignored: {}", invs[i]);
                 }
             }
         }
 
-        // Record any changes from parameter intersection (the only pruning
-        // this contractor currently performs in the T>0 general case).
-        auto diff = diff_box(old_box, cs->box());
+        // --- Step 4: ODE trajectory integration via Codac v2 LohnerAlgorithm ---
+
+        if (!is_variable(icct)) return;
+        const Variable time_var = get_variable(icct);
+        const double t_ub = cs->box()[time_var].ub();
+        if (t_ub <= 0.0) return;
+
+        const int n = static_cast<int>(m_vars_0.size());
+
+        // Initial condition: start-of-integration intervals
+        std::vector<std::pair<double, double>> u0_bounds;
+        u0_bounds.reserve(static_cast<size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            const ibex::Interval& iv = cs->box()[m_vars_0[static_cast<size_t>(i)]];
+            u0_bounds.emplace_back(iv.lb(), iv.ub());
+        }
+
+        // Target: end-of-integration intervals
+        std::vector<std::pair<double, double>> X_t_bounds;
+        X_t_bounds.reserve(static_cast<size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            const ibex::Interval& iv = cs->box()[m_vars_t[static_cast<size_t>(i)]];
+            X_t_bounds.emplace_back(iv.lb(), iv.ub());
+        }
+
+        // ODE state variables in ode_list order (positional match with m_vars_0/m_vars_t)
+        std::vector<Variable> ode_state_vars;
+        ode_state_vars.reserve(static_cast<size_t>(n));
+        for (const auto& [ode_var, _rhs] : icc->get_flow()->ode_list)
+            ode_state_vars.push_back(ode_var);
+
+        const bool forward = (m_dir == ode_direction::FWD);
+        const CodacOdeResult res = run_lohner_integration(
+            *icc->get_flow(), ode_state_vars, u0_bounds, X_t_bounds,
+            t_ub, forward);
+
+        if (!res.found) return;
+
         bool changed = false;
-        for (size_t i = 0; i < diff.size(); ++i) {
-            if (diff[i]) {
-                cs->mutable_output().set(static_cast<DynamicBitset::size_type>(i));
+
+        // Narrow m_vars_t intervals
+        for (int i = 0; i < n; ++i) {
+            ibex::Interval old_iv = cs->box()[m_vars_t[static_cast<size_t>(i)]];
+            ibex::Interval encl(res.vars_t_narrowed[static_cast<size_t>(i)].first,
+                                res.vars_t_narrowed[static_cast<size_t>(i)].second);
+            ibex::Interval narrowed = old_iv & encl;
+            if (!narrowed.is_empty() && narrowed != old_iv) {
+                cs->mutable_box()[m_vars_t[static_cast<size_t>(i)]] = narrowed;
+                cs->mutable_output().set(cs->box().index(m_vars_t[static_cast<size_t>(i)]));
                 changed = true;
             }
         }
-        if (changed) {
-            cs->AddUsedConstraint(ic);
-            for (size_t i = 0; i < m_ctr.second.size(); ++i) {
-                if (!is_negation(m_ctr.second[i])) {
-                    cs->AddUsedConstraint(m_ctr.second[i]);
-                } else {
-                    DREAL_LOG_WARN("contractor_ode_lohner::Prune - Silent omission of negated invariant: {}", m_ctr.second[i]);
-                }
+
+        // Narrow time variable
+        {
+            ibex::Interval old_t = cs->box()[time_var];
+            ibex::Interval narrowed_t = old_t & ibex::Interval(res.t_new_lb, res.t_new_ub);
+            if (!narrowed_t.is_empty() && narrowed_t != old_t) {
+                cs->mutable_box()[time_var] = narrowed_t;
+                cs->mutable_output().set(cs->box().index(time_var));
+                changed = true;
             }
         }
+
+        if (changed) cs->AddUsedConstraint(ic);
     }
 
     // ---------------------------------------------------------------------------
     // generate_trace
     // ---------------------------------------------------------------------------
 
-    json contractor_ode_lohner::generate_trace(ContractorStatus /*cs_copy*/) {
-        // TODO (Phase 4): Implement trajectory tracing using Codac's CtcLohner.
-        // Return empty trace until trajectory integration is implemented.
-        DREAL_LOG_WARN("contractor_ode_lohner::generate_trace - trajectory tracing not yet implemented (Phase 4 TODO)");
-        return json::array();
+    json contractor_ode_lohner::generate_trace(ContractorStatus cs_copy) {
+        const auto& ic     = m_ctr.first;
+        const auto* const icc = to_integral(ic);
+        Box& b = cs_copy.mutable_box();
+
+        // Intersect parameters before tracing.
+        if (!intersect_params(b, icc)) return json::array();
+
+        // Time variable.
+        const Expression& time_expr = icc->get_time_t();
+        if (!is_variable(time_expr)) return json::array();
+        const Variable time_var = get_variable(time_expr);
+        const double t_lb = b[time_var].lb();
+        const double t_ub = b[time_var].ub();
+        if (t_ub <= 0.0) return json::array();
+
+        // Build ordered ODE state variable list (positional match with m_vars_0).
+        std::vector<Variable> ode_state_vars;
+        ode_state_vars.reserve(m_vars_0.size());
+        for (const auto& [ode_var, _rhs] : icc->get_flow()->ode_list)
+            ode_state_vars.push_back(ode_var);
+
+        // Initial condition for integration (direction-adjusted: m_vars_0 is start).
+        std::vector<std::pair<double, double>> u0_bounds;
+        u0_bounds.reserve(m_vars_0.size());
+        for (const auto& var : m_vars_0) {
+            const ibex::Interval& iv = b[var];
+            u0_bounds.emplace_back(iv.lb(), iv.ub());
+        }
+
+        const bool forward = (m_dir == ode_direction::FWD);
+        const CodacTraceResult trace = run_lohner_trace(
+            *icc->get_flow(), ode_state_vars, u0_bounds, t_ub, forward);
+
+        if (trace.points.empty()) return json::array();
+
+        json ret = json::array();
+        const std::string& mode_name = icc->get_flow()->name;
+        const size_t n = m_vars_0.size();
+
+        // One JSON entry per ODE state variable.
+        for (size_t i = 0; i < n; ++i) {
+            const std::string name = m_vars_0[i].get_name();
+            json entry;
+            entry["key"]    = name;
+            entry["mode"]   = mode_name;
+            entry["step"]   = extract_step(name);
+            entry["values"] = json::array();
+            for (const auto& pt : trace.points) {
+                json value;
+                value["time"]      = {pt.t_lb, pt.t_ub};
+                value["enclosure"] = {pt.var_enclosures[i].first,
+                                      pt.var_enclosures[i].second};
+                entry["values"].push_back(value);
+            }
+            ret.push_back(entry);
+        }
+
+        // One JSON entry per parameter variable: just start and end time points.
+        for (const auto& var : m_pars_0) {
+            const std::string name = var.get_name();
+            const ibex::Interval& iv = b[var];
+            json entry;
+            entry["key"]    = name;
+            entry["mode"]   = mode_name;
+            entry["step"]   = extract_step(name);
+            entry["values"] = json::array();
+            json v_begin, v_end;
+            v_begin["time"]      = {0.0, 0.0};
+            v_begin["enclosure"] = {iv.lb(), iv.ub()};
+            v_end["time"]        = {t_lb, t_ub};
+            v_end["enclosure"]   = {iv.lb(), iv.ub()};
+            entry["values"].push_back(v_begin);
+            entry["values"].push_back(v_end);
+            ret.push_back(entry);
+        }
+
+        return ret;
     }
 
     // ---------------------------------------------------------------------------
