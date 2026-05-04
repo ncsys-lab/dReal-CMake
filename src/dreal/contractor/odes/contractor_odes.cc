@@ -253,7 +253,7 @@ namespace dreal
 
         bool changed = false;
 
-        // Narrow m_vars_t intervals
+        // Narrow m_vars_t intervals from ODE terminal enclosure
         for (int i = 0; i < n; ++i) {
             ibex::Interval old_iv = cs->box()[m_vars_t[static_cast<size_t>(i)]];
             ibex::Interval encl(res.vars_t_narrowed[static_cast<size_t>(i)].first,
@@ -263,6 +263,21 @@ namespace dreal
                 cs->mutable_box()[m_vars_t[static_cast<size_t>(i)]] = narrowed;
                 cs->mutable_output().set(cs->box().index(m_vars_t[static_cast<size_t>(i)]));
                 changed = true;
+            }
+        }
+
+        // Narrow m_vars_0 intervals from ODE initial enclosure (CtcLohner BWD pass)
+        if (!res.vars_0_narrowed.empty()) {
+            for (int i = 0; i < n; ++i) {
+                ibex::Interval old_iv = cs->box()[m_vars_0[static_cast<size_t>(i)]];
+                ibex::Interval encl(res.vars_0_narrowed[static_cast<size_t>(i)].first,
+                                    res.vars_0_narrowed[static_cast<size_t>(i)].second);
+                ibex::Interval narrowed = old_iv & encl;
+                if (!narrowed.is_empty() && narrowed != old_iv) {
+                    cs->mutable_box()[m_vars_0[static_cast<size_t>(i)]] = narrowed;
+                    cs->mutable_output().set(cs->box().index(m_vars_0[static_cast<size_t>(i)]));
+                    changed = true;
+                }
             }
         }
 

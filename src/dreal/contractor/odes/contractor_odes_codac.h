@@ -12,11 +12,14 @@ namespace dreal
 {
     // Result type returned by run_lohner_integration.
     struct CodacOdeResult {
-        // Element i: narrowed [lb, ub] for m_vars_t[i]; NaN pair = no change.
+        // Element i: narrowed [lb, ub] for m_vars_t[i] (terminal state).
         std::vector<std::pair<double, double>> vars_t_narrowed;
+        // Element i: narrowed [lb, ub] for m_vars_0[i] (initial state).
+        // Populated when CtcLohner FWD_BWD is used (backward pass narrows the source).
+        std::vector<std::pair<double, double>> vars_0_narrowed;
         double t_new_lb{0.0};
         double t_new_ub{-1.0};
-        bool found{false};  // true if any intersection was found during integration
+        bool found{false};  // true if the tube is non-empty after integration
     };
 
     // One enclosure snapshot at a single integration step.
@@ -51,7 +54,7 @@ namespace dreal
         const std::vector<std::pair<double, double>>& X_t,
         double t_ub,
         bool forward,
-        int n_steps = 200);
+        int n_steps = 20);
 
     // Run Lohner ODE integration and collect all enclosures for trace generation.
     //

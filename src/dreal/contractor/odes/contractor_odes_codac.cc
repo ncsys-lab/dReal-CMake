@@ -11,6 +11,9 @@
 #include <vector>
 
 #include <codac2_CtcLohner.h>
+#include <codac2_TDomain.h>
+#include <codac2_SlicedTube.h>
+#include <codac2_TimePropag.h>
 #include <codac2_AnalyticFunction.h>
 #include <codac2_analytic_variables.h>
 #include <codac2_analytic_constants.h>
@@ -119,7 +122,7 @@ namespace dreal
     }
 
     // -------------------------------------------------------------------------
-    // Public entry point
+    // Public entry point — uses CtcLohner with FWD_BWD for joint endpoint contraction
     // -------------------------------------------------------------------------
 
     CodacOdeResult run_lohner_integration(
@@ -128,7 +131,7 @@ namespace dreal
         const std::vector<std::pair<double, double>>& u0_bounds,
         const std::vector<std::pair<double, double>>& X_t_bounds,
         double t_ub,
-        bool forward,
+        bool /*forward*/,  // CtcLohner FWD_BWD handles both directions jointly
         int n_steps)
     {
         CodacOdeResult result;
@@ -141,61 +144,63 @@ namespace dreal
         const double h = t_ub / n_steps;
         if (h <= 0.0) return result;
 
-        // Build initial condition
-        codac2::IntervalVector u0(n);
-        for (int i = 0; i < n; ++i)
-            u0[i] = codac2::Interval(u0_bounds[static_cast<std::size_t>(i)].first,
-                                     u0_bounds[static_cast<std::size_t>(i)].second);
-
-        // Build target state
-        codac2::IntervalVector X_t(n);
-        for (int i = 0; i < n; ++i)
-            X_t[i] = codac2::Interval(X_t_bounds[static_cast<std::size_t>(i)].first,
+        // Build endpoint interval vectors
+        codac2::IntervalVector X0(n), Xt(n);
+        for (int i = 0; i < n; ++i) {
+            X0[i] = codac2::Interval(u0_bounds[static_cast<std::size_t>(i)].first,
+                                      u0_bounds[static_cast<std::size_t>(i)].second);
+            Xt[i] = codac2::Interval(X_t_bounds[static_cast<std::size_t>(i)].first,
                                       X_t_bounds[static_cast<std::size_t>(i)].second);
+        }
+
+        // Tube initialization: hull of endpoint intervals, inflated by a factor of
+        // the maximum endpoint radius to give the trajectory room to evolve.
+        // A tight initial tube (vs all-reals) helps CtcLohner converge quickly.
+        codac2::IntervalVector init_box = X0 | Xt;
+        double max_rad = 0.0;
+        for (int i = 0; i < n; ++i)
+            max_rad = std::max(max_rad, init_box[i].rad());
+        const double inflate_by = std::max(1.0, max_rad) * 10.0;
+        for (int i = 0; i < n; ++i)
+            init_box[i] = init_box[i].inflate(inflate_by);
 
         try {
-            codac2::LohnerAlgorithm algo(&(*ode_fn_opt), h, forward, u0);
+            auto tdomain = codac2::create_tdomain(
+                codac2::Interval(0., t_ub), h, /*with_gates=*/true);
+            codac2::SlicedTube<codac2::IntervalVector> tube(tdomain, init_box);
 
-            double t_new_lb = std::numeric_limits<double>::infinity();
-            double t_new_ub = -1.0;
-            std::vector<codac2::Interval> hull(static_cast<std::size_t>(n));
-            bool found = false;
+            // Pin the endpoint gates to the current solver bounds
+            tube.set(X0, 0.);
+            tube.set(Xt, t_ub);
 
-            for (int k = 1; k <= n_steps; ++k) {
-                algo.integrate(1);
-                const codac2::IntervalVector& u_k = algo.getLocalEnclosure();
-                const double t_k = k * h;
+            // CtcLohner with contractions=5 gives tighter per-step enclosures than
+            // the plain LohnerAlgorithm default of 1. FWD_BWD narrows both endpoints
+            // jointly: the FWD pass narrows Xt from X0, the BWD pass narrows X0 from Xt.
+            codac2::CtcLohner ctc(*ode_fn_opt, /*contractions=*/5);
+            ctc.contract(tube, codac2::TimePropag::FWD_BWD);
 
-                bool ok = true;
-                for (int i = 0; i < n && ok; ++i)
-                    if ((u_k[i] & X_t[i]).is_empty()) ok = false;
+            if (tube.is_empty()) return result;  // infeasible
 
-                if (ok) {
-                    if (!found) {
-                        for (int i = 0; i < n; ++i) hull[static_cast<std::size_t>(i)] = u_k[i];
-                        t_new_lb = t_k - h;
-                        t_new_ub = t_k;
-                        found = true;
-                    } else {
-                        for (int i = 0; i < n; ++i) hull[static_cast<std::size_t>(i)] |= u_k[i];
-                        t_new_lb = std::min(t_new_lb, t_k - h);
-                        t_new_ub = std::max(t_new_ub, t_k);
-                    }
-                }
-            }
+            // Read narrowed endpoint gates back
+            const codac2::IntervalVector& narrowed_X0 = tube.first_slice()->codomain();
+            const codac2::IntervalVector& narrowed_Xt  = tube.last_slice()->codomain();
 
-            if (found) {
-                result.found = true;
-                result.t_new_lb = t_new_lb;
-                result.t_new_ub = t_new_ub;
-                result.vars_t_narrowed.reserve(static_cast<std::size_t>(n));
-                for (int i = 0; i < n; ++i)
-                    result.vars_t_narrowed.emplace_back(
-                        hull[static_cast<std::size_t>(i)].lb(),
-                        hull[static_cast<std::size_t>(i)].ub());
-            }
+            result.found = true;
+            result.t_new_lb = 0.0;
+            result.t_new_ub = t_ub;
+
+            result.vars_t_narrowed.reserve(static_cast<std::size_t>(n));
+            for (int i = 0; i < n; ++i)
+                result.vars_t_narrowed.emplace_back(
+                    narrowed_Xt[i].lb(), narrowed_Xt[i].ub());
+
+            result.vars_0_narrowed.reserve(static_cast<std::size_t>(n));
+            for (int i = 0; i < n; ++i)
+                result.vars_0_narrowed.emplace_back(
+                    narrowed_X0[i].lb(), narrowed_X0[i].ub());
+
         } catch (const codac2::GlobalEnclosureError&) {
-            // Integration failed; return empty result
+            // Integration failed to find a global enclosure; return conservatively
         }
 
         return result;
