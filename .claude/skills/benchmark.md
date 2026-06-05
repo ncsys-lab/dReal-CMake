@@ -17,14 +17,14 @@ Run a quick regression benchmark batch and report findings.
    mkdir -p "$OUT_DIR"
    ```
 
-3. **Select and run benchmarks** — `select.py` outputs TSV (csv_name TAB filepath), piped directly to `run_batch.sh` via stdin (will take up to 5 minutes):
+3. **Select and run benchmarks** — use `run_in_background: true` on the Bash tool so the ~5-minute run doesn't block. You will be notified automatically when it completes; do NOT poll or sleep.
    ```bash
    cd /Users/kunalsheth/Documents/new_dreal/dreal4-cmake
    python3 benchmark/select.py 2>/dev/stderr | bash benchmark/run_batch.sh "$OUT_DIR"
    ```
-   Warnings about missing files go to stderr; they are not a problem.
+   Warnings about missing files go to stderr; they are not a problem. While waiting, tell the user the benchmarks are running and you'll report back when done.
 
-4. **Parse results**:
+4. **Parse results** (after receiving the background task completion notification):
    ```bash
    python3 benchmark/parse_results.py "$OUT_DIR"
    ```

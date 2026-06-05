@@ -1,9 +1,32 @@
 {
-  "anomalies": [],
-  "exceptional": [],
+  "anomalies": [
+    "github_oct5_0hz_k256_gen_gen-0-single-nonlinear.drh.n",
+    "github_oct5_0hz_k256_thermostat_thermostat-double-network-sat.drh.n",
+    "github_oct5_0hz_k32_crazyflie_stabilizer.drh.o",
+    "github_oct5_0hz_k4_gen_gen-9-multi-linear.drh.n",
+    "github_oct5_0hz_k64_water_water-double-network-sat.drh.n"
+  ],
+  "exceptional": [
+    "github_oct5_0hz_k64_water_water-double-network-sat.drh.n",
+    "tacas_c2e2_0hz_k12_50000.0clkhz_uniform_NOR_ramp.hyxml_UNS.drh.o",
+    "tacas_c2e2_0hz_k15_50000.0clkhz_uniform_OR_sigmoid.hyxml_UNS.drh.o",
+    "tacas_c2e2_0hz_k21_50000.0clkhz_uniform_NOR__sigmoid.hyxml_UNS.drh.o"
+  ],
   "baseline_column": "DRPM_0L",
   "baseline_source": "benchmark/baseline.csv",
-  "last_run": null,
-  "last_run_dir": null,
-  "runs": []
+  "last_run": "2026-06-05T07:21:12.703204+00:00",
+  "last_run_dir": "benchmark/results/run_bfcef46de_20260605_001527",
+  "runs": [
+    {
+      "timestamp": "2026-06-05T07:21:12.703204+00:00",
+      "results_dir": "benchmark/results/run_bfcef46de_20260605_001527",
+      "n_ran": 8,
+      "n_regressions": 5,
+      "n_exceptional": 4,
+      "n_resolved": 0,
+      "correctness_flips": [
+        "github_oct5_0hz_k64_water_water-double-network-sat.drh.n"
+      ]
+    }
+  ]
 }
