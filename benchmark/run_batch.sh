@@ -15,9 +15,16 @@ if [[ ! -x "$BINARY" ]]; then
     exit 1
 fi
 
+MAX_JOBS=12
+
 while IFS=$'\t' read -r csv_name filepath; do
     [[ -z "$csv_name" || -z "$filepath" ]] && continue
     label="${csv_name%.smt2}"
+
+    while (( $(jobs -r | wc -l) >= MAX_JOBS )); do
+        sleep 0.1
+    done
+
     (
         gtime -v -o "$OUT/${label}.gtime" timeout 300 "$BINARY" "$filepath" \
             > "$OUT/${label}.stdout" \
