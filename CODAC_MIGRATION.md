@@ -19,28 +19,28 @@ Both forked dependencies are unmaintained snapshots requiring heavy local patche
 - [x] Phase 1: CMake restructuring (ExternalProject for lebarsfa/ibex-lib + codac-team/codac)
 - [x] Phase 2: Fix `contractor_ibex_fwdbwd.cc` (pre/post IntervalVector copy replacing callback)
 - [x] Phase 3: Verify `ibex_converter.cc` API compatibility (no changes needed; API is stable)
-- [x] Phase 4: Rewrite ODE contractors — class skeleton + param intersection + T=0 done;
-               full CtcLohner-based trajectory integration is a documented TODO (see Phase 4 note)
-- [x] Phase 5: Update docs (`CLAUDE.md`, `DEPENDENCIES.md`)
-- [ ] Verification (build + tests)
+- [x] Phase 4: Rewrite ODE contractors — fully implemented with `CtcLohner` `FWD_BWD` (see Phase 4 note)
+- [x] Phase 5: Update docs (`CLAUDE.md`, `DEPENDENCIES.md`, `CODAC_MIGRATION.md`)
+- [x] Verification: `./FULL_BUILD.sh` succeeds on ARM64 macOS; ODE benchmarks produce correct results
 
 ### Phase 4 Implementation Note
 
 `contractor_ode_lohner` (in `src/dreal/contractor/odes/`) replaces `contractor_capd_full`.
-Currently implemented (sound):
-- Parameter consistency enforcement: `pars_0 ∩ pars_t`
-- T=0 special case: `X_0 ∩ X_t`
-- ForallT invariant check at X_0 via IBEX HC4 contractors
+Implementation in `contractor_odes_codac.cc` (compiled as C++20):
 
-Not yet implemented (documented TODO, see contractor_odes.cc):
-- Full ODE trajectory integration using `codac::CtcLohner` over `SlicedTube<IntervalVector>`
-  This requires building a `codac::AnalyticFunction<VectorType>` from dReal's runtime symbolic
-  ODE expressions — a new expression visitor similar to IbexConverter but targeting Codac's
-  internal expression types.
+- `run_lohner_integration()` — uses `CtcLohner` with `TimePropag::FWD_BWD`, 5 contractions,
+  50 steps per integration interval. Contracts both initial and final state enclosures.
+- `run_lohner_trace()` — uses `LohnerAlgorithm` for trajectory visualization (the
+  `--visualize` flag path).
 
-The solver is **sound** (no false UNSATs) but **incomplete** on ODE problems: it cannot prune
-based on trajectory dynamics alone. Delta-SAT answers remain correct; delta-UNSAT for ODE
-infeasibility will require more branching than before.
+The solver is **sound and complete** for ODE problems — `CtcLohner` with `FWD_BWD` provides
+a guaranteed enclosure of all trajectories from the initial set, enabling real UNSAT proofs
+for ODE-infeasible regions.
+
+**Known performance regression vs. CAPD**: Codac `CtcLohner` uses Taylor order 2 (O(h³)
+per-step error), whereas old CAPD used Taylor order 20 (O(h²¹)). On ODE-heavy benchmarks
+like `bouncing_ball_with_drag_10_0.smt2` (10 modes), this results in ~13s on ARM64 vs.
+~0.5s with CAPD under x86 Rosetta emulation — roughly a 26× gap. See performance table below.
 
 ---
 
@@ -229,4 +229,83 @@ After the migration compiles and tests pass:
 |---|---|---|
 | One extra `IntervalVector` alloc+compare per backward pass | Pre/post box copy replaces callback | Low–Medium |
 | More memory per IBEX `Function` object | Gradient always allocated (upstream default) | Low |
-| Potentially wider ODE enclosures | Tube model vs. step-by-step; different enclosure strategy | Problem-dependent |
+| ODE-heavy benchmarks ~26× slower than old CAPD | `CtcLohner` fixed at Taylor order 2 vs. CAPD's order 20 | High on ODE benchmarks |
+
+**ODE performance measurements (ARM64 macOS, Apple Silicon)**:
+
+| Benchmark | Codac CtcLohner | CAPD order-20 (x86 Rosetta) |
+|---|---|---|
+| `bouncing_ball_with_drag_10_0.smt2` (10 modes) | ~13 s | ~0.5 s |
+| `normal.smt2` | ~0.017 s | n/a (not measured) |
+| `fedor_01.smt2` | ~0.061 s | n/a (not measured) |
+
+The 26× gap is accepted for CAV26 work because the paper's contribution is pattern-matching/lemma
+reuse, not raw ODE integration speed.
+
+---
+
+## CAPD v6 Direct Integration Attempt (June 2026, Abandoned)
+
+After measuring the 26× ODE performance gap, we attempted to restore CAPD as the primary ODE
+integration backend using CAPD v6.0.0 from `CAPDGroup/CAPD`. This was abandoned.
+
+### What Was Implemented
+
+- `src/dreal/contractor/odes/contractor_odes_capd.cc` — CAPD Taylor-order-20 integration
+  using `capd::IOdeSolver` (order 20), `capd::C0Rect2Set`, adaptive stepping, 16-sub-interval
+  curve evaluation, intersection-based enclosure filter.
+- `CMakeLists.txt` — `ExternalProject_Add(capd_external)` for CAPD v6.0.0.
+- ODE string format used: `"var:x,v;fun:v,(-9.8);"` (variables, then RHS expressions) for
+  `capd::IMap`.
+
+All changes were reverted (`git checkout --` on modified files) after the failure was diagnosed.
+
+### Why It Was Abandoned
+
+CAPD v6.0.0 unconditionally depends on FILIB for directed rounding. FILIB's CMakeLists.txt
+has a `FATAL_ERROR` for any non-x86_64 platform:
+
+```
+capdExt/filibsrc/CMakeLists.txt:
+  if(x86_64) ... else() FATAL_ERROR "Unknown or unsupported processor architecture."
+```
+
+The failure chain:
+1. CAPD root `CMakeLists.txt`: unconditionally `add_dependencies(capd filib)` + `-D__USE_FILIB__`
+2. `capdExt/CMakeLists.txt`: unconditionally `add_subdirectory(filibsrc)`
+3. `capdExt/filibsrc/CMakeLists.txt`: FATAL_ERROR on non-x86
+
+`-DCAPD_INTERVAL_TYPE=NATIVE` does **not** exist in CAPD v6.0.0 (it was a hallucinated CMake
+option). Defining `__USE_NATIVE__` also does not exist in CAPD.
+
+### The Correct ARM64 Fix (for future reference)
+
+CAPD v6 already has ARM64 `DoubleRounding` in `capdAlg/src/capd/rounding/DoubleRounding.cpp`
+(uses `msr fpcr` assembly). Without `__USE_FILIB__`, `capd::interval` =
+`Interval<double, DoubleRounding>` — fully ARM64-capable. The only fix needed is skipping
+FILIB on ARM64.
+
+**Two-file patch** (deliverable via `PATCH_COMMAND` in `ExternalProject_Add`):
+
+`CMakeLists.txt` — wrap FILIB dependency:
+```cmake
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+  message(STATUS "ARM64: using CAPD native DoubleRounding intervals (no FILIB)")
+  target_compile_options(${PROJECT_NAME} PUBLIC -O2 -frounding-math)
+else()
+  add_dependencies(${PROJECT_NAME} filib)
+  target_compile_options(${PROJECT_NAME} PUBLIC -D__USE_FILIB__ -O2 -frounding-math)
+  target_link_libraries(${PROJECT_NAME} PUBLIC filib)
+endif()
+```
+
+`capdExt/CMakeLists.txt` — guard filibsrc:
+```cmake
+if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+  add_subdirectory(filibsrc)
+endif()
+```
+
+If the 26× ODE performance regression ever becomes unacceptable for paper results, this patch
+approach (plus reconstructing `contractor_odes_capd.cc` from the session transcript) is the
+primary path to restoring CAPD Taylor-order-20 integration.

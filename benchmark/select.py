@@ -68,9 +68,10 @@ def main():
         state = json.load(f)
     anomalies = set(state.get("anomalies", []))
 
-    # Separate pool into anomalies and regular
-    anomaly_names = [n for n in all_names if n in anomalies]
-    pool = [n for n in all_names if n not in anomalies]
+    # state.json stores names without .smt2; baseline.csv names include .smt2 —
+    # normalize for comparison but preserve the original name for output/path resolution.
+    anomaly_names = [n for n in all_names if n.removesuffix(".smt2") in anomalies]
+    pool = [n for n in all_names if n.removesuffix(".smt2") not in anomalies]
 
     rng = random.Random(args.seed)
 

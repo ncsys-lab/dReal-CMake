@@ -4,48 +4,65 @@ Run a quick regression benchmark batch and report findings.
 
 ## Steps
 
-1. **Check oom_killer.sh** (required per smt-solver-limits.md):
-   ```bash
-   pgrep -f oom_killer.sh || nohup /usr/local/bin/oom_killer.sh &>/tmp/oom_killer.log &
-   ```
+1. **Tell the user** "Benchmarks are running — I'll report back when done."
 
-2. **Get git SHA and create output dir**:
-   ```bash
-   SHA=$(git -C /Users/kunalsheth/Documents/new_dreal/dreal4-cmake rev-parse --short HEAD)
-   TS=$(date +%Y%m%d_%H%M%S)
-   OUT_DIR="/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/run_${SHA}_${TS}"
-   mkdir -p "$OUT_DIR"
-   ```
+2. **Spawn a Haiku subagent** to handle everything. Spawn with this prompt (fill in the literal git SHA before spawning):
 
-3. **Select and run benchmarks** — use `run_in_background: true` on the Bash tool so the ~5-minute run doesn't block. You will be notified automatically when it completes; do NOT poll or sleep.
-   ```bash
-   cd /Users/kunalsheth/Documents/new_dreal/dreal4-cmake
-   python3 benchmark/select.py 2>/dev/stderr | bash benchmark/run_batch.sh "$OUT_DIR"
-   ```
-   Warnings about missing files go to stderr; they are not a problem. While waiting, tell the user the benchmarks are running and you'll report back when done.
+---
+**Subagent prompt** (replace `<SHA>` with the actual short SHA from `git -C /Users/kunalsheth/Documents/new_dreal/dreal4-cmake rev-parse --short HEAD`):
 
-4. **Parse results** (after receiving the background task completion notification):
-   ```bash
-   python3 benchmark/parse_results.py "$OUT_DIR"
-   ```
+You are running regression benchmarks for the dReal4 SMT solver project at `/Users/kunalsheth/Documents/new_dreal/dreal4-cmake`. Complete all steps below and return a formatted summary as your final message.
 
-5. **Aggregate and detect anomalies**:
-   ```bash
-   AGGREGATE_JSON=$(python3 benchmark/aggregate.py "$OUT_DIR")
-   ```
-   Capture the JSON output.
+**Step A — Check oom_killer.sh** (required before any SMT solver runs):
+```bash
+pgrep -f oom_killer.sh || nohup /usr/local/bin/oom_killer.sh &>/tmp/oom_killer.log &
+```
 
-6. **Escalate correctness regressions immediately** — before spawning any subagent, if `correctness_flips` in the JSON is non-empty, report this to the user directly:
-   > **CORRECTNESS REGRESSION**: The following benchmarks changed SAT/UNSAT result: [names]. This is a soundness or completeness bug and must be investigated before proceeding.
+**Step B — Create output dir:**
+```bash
+TS=$(date +%Y%m%d_%H%M%S)
+OUT_DIR="/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/run_<SHA>_${TS}"
+mkdir -p "$OUT_DIR"
+echo "$OUT_DIR"
+```
 
-7. **Spawn Haiku subagent** for interpretation. Pass it:
-   - The full JSON aggregate output
-   - The `anomaly_report.txt` content from `$OUT_DIR/anomaly_report.txt`
-   - This instruction: "You are interpreting dReal4 SMT solver benchmark results. Provide 2-4 sentences summarizing: (1) overall health (any regressions?), (2) notable timing changes, (3) whether the exceptional speedups look like real wins or measurement noise. End with a single recommendation: does the user need to investigate anything before continuing development? Be terse."
+**Step C — Run benchmarks** (run in the **foreground** with a 420000ms timeout — `run_batch.sh` parallelizes internally via `&`/`wait`, so this Bash call blocks until all jobs are done; do NOT use `run_in_background` here):
+```bash
+cd /Users/kunalsheth/Documents/new_dreal/dreal4-cmake
+python3 benchmark/select.py 2>/dev/stderr | bash benchmark/run_batch.sh "$OUT_DIR"
+```
+Warnings about missing files on stderr are normal.
 
-8. **Report** the subagent's summary back to the user. Also include:
-   - `N ran, M regressions, K exceptional` as a one-line header
-   - The anomaly_report.txt path for reference if the user wants details
+**Step D — Parse results:**
+```bash
+python3 /Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/parse_results.py "$OUT_DIR"
+```
+
+**Step E — Aggregate and capture JSON:**
+```bash
+python3 /Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/aggregate.py "$OUT_DIR"
+```
+Capture the full JSON output.
+
+**Step F — Check for correctness regressions:** If `correctness_flips` in the JSON is non-empty, prepend your summary with:
+> **CORRECTNESS REGRESSION**: The following benchmarks changed SAT/UNSAT result: [names]. This is a soundness or completeness bug.
+
+**Step G — Read anomaly report:**
+```bash
+cat "$OUT_DIR/anomaly_report.txt"
+```
+
+**Step H — Return a formatted summary** as your final message:
+- First line: `N ran, M regressions, K exceptional` (counts from the JSON)
+- Then 2–4 sentences: (1) overall health, (2) notable timing changes, (3) whether exceptional speedups look like real wins or noise
+- End with one sentence: does the user need to investigate anything before continuing development?
+- Last line: `anomaly_report: $OUT_DIR/anomaly_report.txt`
+
+Be terse. Do not narrate your steps — only return the final formatted summary.
+
+---
+
+3. **Relay** the subagent's summary verbatim to the user.
 
 ## Notes
 - The benchmark binary is at `gcc_build/dreal4` — if it doesn't exist, remind the user to run `./BUILD.sh` first.

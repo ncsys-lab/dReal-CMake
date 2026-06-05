@@ -65,15 +65,18 @@ None. We use the upstream `codac-team/codac` at tag `v2.0.2` without local patch
 
 ### ODE Contractor Status
 
-The `contractor_ode_lohner` class in `src/dreal/contractor/odes/contractor_odes.cc`
-replaces the old `contractor_capd_full`. The current implementation is sound but
-incomplete (see Phase 4 note in `CODAC_MIGRATION.md`):
+The `contractor_ode_lohner` class in `src/dreal/contractor/odes/contractor_odes_codac.cc`
+replaces the old `contractor_capd_full`. Fully implemented — sound and complete:
 
-- **Implemented**: Parameter consistency (pars_0 ∩ pars_t), T=0 special case
-  (X_0 ∩ X_t), ForallT invariant checking at endpoints via IBEX HC4.
-- **TODO**: Full ODE trajectory integration using `codac::CtcLohner` over a
-  `SlicedTube<ibex::IntervalVector>`. This requires converting dReal's symbolic
-  ODE vector field to a `codac::AnalyticFunction<VectorType>`.
+- `run_lohner_integration()`: `CtcLohner` with `TimePropag::FWD_BWD`, 5 contractions,
+  50 steps. Contracts both initial and final state enclosures.
+- `run_lohner_trace()`: `LohnerAlgorithm` for trajectory visualization (`--visualize`).
+
+**Known performance gap**: Codac `CtcLohner` is fixed at Taylor order 2, vs. CAPD's
+order 20. ODE-heavy benchmarks run ~26× slower than the old CAPD backend (e.g.,
+`bouncing_ball_with_drag_10_0.smt2`: ~13 s vs ~0.5 s on ARM64). Accepted for current
+research focus. See `CODAC_MIGRATION.md` for the CAPD v6 ARM64 fix if this needs to
+be revisited.
 
 ---
 
