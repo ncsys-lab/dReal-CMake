@@ -17,6 +17,7 @@
 
 #include <sstream>
 #include <utility>
+#include <vector>
 
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
@@ -96,20 +97,30 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs) const {
   DREAL_LOG_TRACE("F = {}", f_);
   stat.timer_pruning_.resume();
 
-  // Snapshot the interval vector before contraction so we can detect which
-  // variables were pruned.  This restores the pre-callback behavior (the
-  // custom callback in our IBEX fork is not present in upstream/Codac IBEX).
-  // The copy is O(n) but is required for correct, short lemma generation:
-  // without per-variable change tracking, conflict clauses would contain the
-  // entire model instead of only the pruned variables.
-  Box::IntervalVector iv_before = iv;
+  // Snapshot the constraint's input intervals before contraction so we can
+  // detect which variables were pruned. The pre-Codac callback into our IBEX
+  // fork did this with no allocation; upstream IBEX has no such hook, so we
+  // must compare before/after. The previous implementation copied the *entire*
+  // interval vector (O(box_size)) and used std::set<int> for change tracking,
+  // which dominated cost on non-ODE benchmarks: boxes are typically 50-500
+  // variables but a single fwdbwd constraint touches only 2-10.
+  //
+  // Restricted snapshot: save only the input bits' intervals. Cost is
+  // O(|free_vars(f)|) instead of O(|box|), and the std::set's per-node heap
+  // alloc disappears. thread_local keeps the buffer's capacity across calls
+  // so steady-state Prune does zero allocations.
+  thread_local std::vector<std::pair<int, ibex::Interval>> saved_inputs;
+  saved_inputs.clear();
+  {
+    DynamicBitset::size_type i_bit = input().find_first();
+    while (i_bit != DynamicBitset::npos) {
+      saved_inputs.emplace_back(static_cast<int>(i_bit), iv[i_bit]);
+      i_bit = input().find_next(i_bit);
+    }
+  }
   const bool is_inner{
     num_ctr_->f.backward(num_ctr_->right_hand_side(), iv)
   }; // true if iv was already inner (unchanged).
-  std::set<int> changed_vec;
-  for (int i = 0; i < iv.size(); ++i) {
-    if (iv[i] != iv_before[i]) changed_vec.insert(i);
-  }
   stat.timer_pruning_.pause();
   if (stat.enabled()) {
     stat.num_pruning_++;
@@ -121,13 +132,11 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs) const {
       changed = true;
       cs->mutable_output().set();
     } else {
-      DynamicBitset::size_type i_bit = input().find_first();
-      while (i_bit != DynamicBitset::npos) {
-        if (changed_vec.count(i_bit)) {
-          cs->mutable_output().set(i_bit);
+      for (const auto& [idx, old_iv] : saved_inputs) {
+        if (iv[idx] != old_iv) {
+          cs->mutable_output().set(static_cast<DynamicBitset::size_type>(idx));
           changed = true;
         }
-        i_bit = input().find_next(i_bit);
       }
     }
   }

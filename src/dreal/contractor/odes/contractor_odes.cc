@@ -136,6 +136,16 @@ namespace dreal
             }
             m_need_to_check_inv = true;
         }
+
+        // Precompute the ode_state_vars ordering and build the Codac
+        // AnalyticFunction + CtcLohner once. Prune() reuses these on every call.
+        m_ode_state_vars.reserve(icc->get_flow()->ode_list.size());
+        for (const auto& [ode_var, _rhs] : icc->get_flow()->ode_list)
+            m_ode_state_vars.push_back(ode_var);
+        {
+            RoundingModeGuard g(FE_TONEAREST);
+            m_codac_cache = make_codac_ode_cache(*icc->get_flow(), m_ode_state_vars);
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -215,12 +225,62 @@ namespace dreal
 
         // --- Step 4: ODE trajectory integration via Codac v2 LohnerAlgorithm ---
 
+        // BWD contractor: skip the Codac integration step.
+        //
+        // The BWD contractor was set up in the constructor by swapping
+        // m_vars_0/m_vars_t. With the old CAPD backend that integrated
+        // dx/dt = -f(x) in reverse time, the swap produced a sound
+        // backward-image narrowing. CtcLohner v2 only knows forward
+        // dynamics dx/dt = f(x); applied to the swapped tube it asks
+        // "is there a forward trajectory from X_t to X_0?" instead of the
+        // intended backward-image question. For non-time-symmetric
+        // dynamics these differ, so the swapped narrowing can drop valid
+        // initial states (potential false UNSAT).
+        //
+        // The FWD contractor with CtcLohner FWD_BWD already narrows both
+        // endpoints jointly, so skipping BWD here doesn't reduce achievable
+        // contraction. Steps 1–3 (parameter intersect, T=0, invariant
+        // checking) still run for both directions. Empirically this gives
+        // ~2-3× speedup on bouncing_ball_with_drag_10_0 with no new
+        // correctness flips relative to the un-skipped Codac build.
+        if (m_dir == ode_direction::BWD) return;
+
+        if (!m_codac_cache) return;  // expression translation failed at construction
         if (!is_variable(icct)) return;
         const Variable time_var = get_variable(icct);
         const double t_ub = cs->box()[time_var].ub();
         if (t_ub <= 0.0) return;
 
         const int n = static_cast<int>(m_vars_0.size());
+
+        // Trivial-flow short-circuit: every RHS is the literal constant 0, so
+        // every state variable is constant along the trajectory. The original
+        // constraint reduces to X_0 == X_t componentwise — identical to the
+        // time_is_zero case handled above. Without this, CtcLohner is called
+        // ~N_modes times per ICP step and dominates Prune cost on the k1280
+        // planning benchmark.
+        if (codac_ode_cache_is_trivial(m_codac_cache)) {
+            const Box old_box = cs->box();
+            for (size_t i = 0; i < m_vars_0.size(); ++i) {
+                ibex::Interval& iv_0 = cs->mutable_box()[m_vars_0[i]];
+                ibex::Interval& iv_t = cs->mutable_box()[m_vars_t[i]];
+                iv_0 &= iv_t;
+                if (iv_0.is_empty()) {
+                    cs->mutable_box().set_empty();
+                    cs->AddUsedConstraint(ic);
+                    cs->AddUsedConstraint(m_ctr.second);
+                    cs->mutable_output() |= input();
+                    return;
+                }
+                iv_t = iv_0;
+            }
+            for (int i = 0; i < old_box.size(); ++i) {
+                if (cs->box()[i] != old_box[i])
+                    cs->mutable_output().set(static_cast<DynamicBitset::size_type>(i));
+            }
+            cs->AddUsedConstraint(ic);
+            return;
+        }
 
         // Initial condition: start-of-integration intervals
         std::vector<std::pair<double, double>> u0_bounds;
@@ -238,16 +298,9 @@ namespace dreal
             X_t_bounds.emplace_back(iv.lb(), iv.ub());
         }
 
-        // ODE state variables in ode_list order (positional match with m_vars_0/m_vars_t)
-        std::vector<Variable> ode_state_vars;
-        ode_state_vars.reserve(static_cast<size_t>(n));
-        for (const auto& [ode_var, _rhs] : icc->get_flow()->ode_list)
-            ode_state_vars.push_back(ode_var);
-
         const bool forward = (m_dir == ode_direction::FWD);
         const CodacOdeResult res = run_lohner_integration(
-            *icc->get_flow(), ode_state_vars, u0_bounds, X_t_bounds,
-            t_ub, forward);
+            m_codac_cache, u0_bounds, X_t_bounds, t_ub, forward);
 
         if (!res.found) return;
 
@@ -315,12 +368,6 @@ namespace dreal
         const double t_ub = b[time_var].ub();
         if (t_ub <= 0.0) return json::array();
 
-        // Build ordered ODE state variable list (positional match with m_vars_0).
-        std::vector<Variable> ode_state_vars;
-        ode_state_vars.reserve(m_vars_0.size());
-        for (const auto& [ode_var, _rhs] : icc->get_flow()->ode_list)
-            ode_state_vars.push_back(ode_var);
-
         // Initial condition for integration (direction-adjusted: m_vars_0 is start).
         std::vector<std::pair<double, double>> u0_bounds;
         u0_bounds.reserve(m_vars_0.size());
@@ -331,7 +378,7 @@ namespace dreal
 
         const bool forward = (m_dir == ode_direction::FWD);
         const CodacTraceResult trace = run_lohner_trace(
-            *icc->get_flow(), ode_state_vars, u0_bounds, t_ub, forward);
+            m_codac_cache, u0_bounds, t_ub, forward);
 
         if (trace.points.empty()) return json::array();
 

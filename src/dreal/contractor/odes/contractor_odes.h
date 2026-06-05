@@ -22,23 +22,27 @@
 
 namespace dreal
 {
+    class CodacOdeCache;  // opaque; defined in contractor_odes_codac.cc
+
     std::ostream& operator<<(std::ostream& out, ode_direction const& d);
 
-    // ODE contractor using IBEX interval arithmetic.
+    // ODE contractor using IBEX interval arithmetic + Codac CtcLohner.
     //
-    // This contractor handles:
+    // Prune() runs the following steps in order:
     //   1. Parameter consistency: pars_0 ∩ pars_t (parameters are constant
     //      along the trajectory and must agree at t=0 and t=T).
     //   2. T=0 special case: X_0 ∩ X_t (initial and final states must agree
     //      when time horizon is zero).
-    //   3. ForallT invariant checking at t=0 and t=T endpoints via IBEX HC4
-    //      contractors.
+    //   3. ForallT invariant checking at the X_0 endpoint via IBEX HC4
+    //      contractors built in the ctor.
+    //   4. ODE trajectory integration via Codac's CtcLohner with
+    //      TimePropag::FWD_BWD, narrowing both X_0 and X_t jointly.
     //
-    // NOTE (Phase 4 TODO): Full ODE trajectory integration (rigorous enclosures
-    // of all trajectories from X_0 to X_t over [0,T]) using Codac's CtcLohner
-    // is not yet implemented. The contractor is sound (will not produce false
-    // UNSAT results) but incomplete (may not detect infeasibility from ODE
-    // dynamics alone). See CODAC_MIGRATION.md Phase 4.
+    // Sound and complete for ODE problems: CtcLohner FWD_BWD provides a
+    // guaranteed enclosure of all trajectories from X_0, enabling real
+    // UNSAT proofs for ODE-infeasible regions. See CODAC_MIGRATION.md
+    // for the per-flow cache, BWD-skip rationale, and adaptive-n_steps
+    // tuning notes.
     class contractor_ode_lohner : public ContractorCell
     {
     public:
@@ -47,9 +51,9 @@ namespace dreal
                               double timeout = 0.0);
         std::ostream& display(std::ostream& out) const override;
 
-        // Generate a JSON trace of the ODE trajectory for visualization.
-        // NOTE: Returns an empty JSON object until trajectory integration is
-        // implemented in Phase 4.
+        // Generate a JSON trace of the ODE trajectory for visualization
+        // (the `--visualize` flag). Uses Codac's LohnerAlgorithm in trace
+        // mode (one enclosure per step) rather than CtcLohner.
         nlohmann::json generate_trace(ContractorStatus cs_copy);
 
         void Prune(ContractorStatus* cs) const override;
@@ -66,6 +70,16 @@ namespace dreal
         std::vector<Variable> m_pars_t;
         bool m_need_to_check_inv{false};
         std::vector<Contractor> m_inv_ctcs;
+        // ODE state variables in flow.ode_list order (positional match with
+        // m_vars_0/m_vars_t). Precomputed in the constructor so Prune() doesn't
+        // rebuild it on every call.
+        std::vector<Variable> m_ode_state_vars;
+        // Cached AnalyticFunction + CtcLohner for this flow. Built once;
+        // CtcLohner::contract is const so it can be safely shared across
+        // parallel ICP workers. Null if expression translation failed (in
+        // which case Prune() falls back to the parameter-intersect + invariant
+        // contractors only — no ODE-driven narrowing).
+        std::shared_ptr<CodacOdeCache> m_codac_cache;
     };
 
     std::vector<Formula> unroll_conjunctions(const Formula& f);

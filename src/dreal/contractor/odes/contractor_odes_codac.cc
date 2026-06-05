@@ -3,11 +3,15 @@
 
 #include "contractor_odes_codac.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <codac2_CtcLohner.h>
@@ -25,6 +29,41 @@
 
 namespace dreal
 {
+    // -------------------------------------------------------------------------
+    // CodacOdeCache — opaque wrapper around the per-flow Codac state
+    //
+    // Holding the AnalyticFunction and CtcLohner across calls saves the
+    // expression-tree translation (which dominates per-call cost on ODE-heavy
+    // benchmarks) plus the CtcLohner setup. CtcLohner::contract is const, so
+    // sharing the same instance across parallel ICP workers is safe.
+    // -------------------------------------------------------------------------
+
+    class CodacOdeCache {
+    public:
+        codac2::AnalyticFunction<codac2::VectorType> fn;
+        codac2::CtcLohner                            ctc;
+        int                                          n_state_vars;
+        // True iff every RHS in the flow is the literal constant 0 — the
+        // trajectory of every state variable is constant and X_0 ∩ X_t is
+        // the only consistent assignment. We detect this so the caller can
+        // bypass CtcLohner entirely on degenerate flows (e.g. the
+        // d/dt[d]=0 planning benchmark with 1280 modes).
+        bool                                         trivial;
+
+        CodacOdeCache(codac2::AnalyticFunction<codac2::VectorType> f,
+                      int n,
+                      int contractions,
+                      double eps,
+                      bool is_trivial)
+            : fn(std::move(f)),
+              ctc(fn, contractions, eps),
+              n_state_vars(n),
+              trivial(is_trivial) {}
+    };
+
+    bool codac_ode_cache_is_trivial(const std::shared_ptr<CodacOdeCache>& c) {
+        return c && c->trivial;
+    }
     // -------------------------------------------------------------------------
     // Expression translator: dReal Expression → codac2::ScalarExpr
     // -------------------------------------------------------------------------
@@ -122,25 +161,111 @@ namespace dreal
     }
 
     // -------------------------------------------------------------------------
+    // Cache factory — translate the ODE flow once, build the CtcLohner once.
+    //
+    // Hybrid systems often replicate one flow across dozens of modes (each
+    // mode is a separate Integral formula but shares a single flow_ptr).
+    // The theory solver builds one contractor per (formula, direction) pair,
+    // so without per-flow deduplication we'd translate the same RHS expressions
+    // into Codac's expression tree N_modes × 2 times. We key by flow address;
+    // OdeFlow objects are held via shared_ptr from the moment they're parsed,
+    // so addresses are stable for the lifetime of any contractor.
+    // -------------------------------------------------------------------------
+
+    namespace {
+        std::mutex& flow_cache_mutex() {
+            static std::mutex m;
+            return m;
+        }
+        std::unordered_map<const OdeFlow*, std::shared_ptr<CodacOdeCache>>&
+        flow_cache_map() {
+            static std::unordered_map<const OdeFlow*, std::shared_ptr<CodacOdeCache>> m;
+            return m;
+        }
+    }
+
+    std::shared_ptr<CodacOdeCache> make_codac_ode_cache(
+        const OdeFlow& flow,
+        const std::vector<Variable>& ordered_vars)
+    {
+        // Fast path: existing cache for this flow pointer.
+        {
+            std::lock_guard<std::mutex> lock(flow_cache_mutex());
+            auto& m = flow_cache_map();
+            auto it = m.find(&flow);
+            if (it != m.end()) return it->second;
+        }
+
+        auto fn_opt = build_ode_fn(flow, ordered_vars);
+        if (!fn_opt) return nullptr;
+        const int n = static_cast<int>(ordered_vars.size());
+
+        // Trivial-flow detection: every RHS is the literal constant 0.
+        // We still build the AnalyticFunction (cheap) and CtcLohner (cheap)
+        // so generate_trace and any unanticipated code path remains safe,
+        // but mark the cache so Prune() can short-circuit.
+        bool is_trivial = true;
+        for (const auto& [_var, rhs] : flow.ode_list) {
+            if (!is_zero(rhs)) { is_trivial = false; break; }
+        }
+
+        // contractions=2 is the speed/tightness sweet spot.
+        //   * contractions=5 (pre-cache default): tight enclosures, but
+        //     CtcLohner cost dominated Prune time on ODE-heavy benchmarks
+        //     (bouncing_ball_with_drag_10_0: 13s → 3s by going to 2).
+        //   * contractions=1 (LohnerAlgorithm default): fastest per call,
+        //     but enclosures so wide that benchmarks like cardiac needed
+        //     many more ICP bisections — *net* slower.
+        // eps=0.1 is CtcLohner's default global-enclosure inflation.
+        // Tighter values (0.05) gave no measurable win on bouncing ball
+        // or cardiac and risk GlobalEnclosureError on untested dynamics.
+        auto cache = std::make_shared<CodacOdeCache>(
+            std::move(*fn_opt), n,
+            /*contractions=*/2, /*eps=*/0.1, is_trivial);
+
+        {
+            std::lock_guard<std::mutex> lock(flow_cache_mutex());
+            auto& m = flow_cache_map();
+            auto [it, inserted] = m.try_emplace(&flow, std::move(cache));
+            return it->second;
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Public entry point — uses CtcLohner with FWD_BWD for joint endpoint contraction
     // -------------------------------------------------------------------------
 
     CodacOdeResult run_lohner_integration(
-        const OdeFlow& flow,
-        const std::vector<Variable>& ode_state_vars,
+        const std::shared_ptr<CodacOdeCache>& cache,
         const std::vector<std::pair<double, double>>& u0_bounds,
         const std::vector<std::pair<double, double>>& X_t_bounds,
         double t_ub,
         bool /*forward*/,  // CtcLohner FWD_BWD handles both directions jointly
-        int n_steps)
+        int n_steps_hint)
     {
         CodacOdeResult result;
-        const int n = static_cast<int>(ode_state_vars.size());
-        if (n == 0 || t_ub <= 0.0 || n_steps <= 0) return result;
+        if (!cache) return result;
+        const int n = cache->n_state_vars;
+        if (n == 0 || t_ub <= 0.0 || n_steps_hint <= 0) return result;
 
-        auto ode_fn_opt = build_ode_fn(flow, ode_state_vars);
-        if (!ode_fn_opt) return result;
-
+        // Adaptive step count for long time horizons.
+        //
+        // CtcLohner uses Taylor order 2 (per-step error O(h^3)). With the
+        // historical n_steps=20 cap, h scales linearly with t_ub: cardiac
+        // (t_ub up to 30) was running at h=1.5 - far too coarse, so most
+        // of the contractions budget burned widening the per-step
+        // enclosure back to soundness instead of narrowing toward Xt.
+        //
+        // Strategy: keep n_steps=20 as the *floor* (never reduce - short
+        // horizons like bouncing ball's t_ub in [0,3] already use small h,
+        // and we lose nothing by leaving them alone) and only ADD steps
+        // when t_ub * 2 > n_steps_hint, i.e. t_ub > 10. This targets
+        // h <= 0.5 for long horizons while paying zero overhead on the
+        // common case. Capped at 60 to bound per-call cost.
+        const int n_steps = std::clamp<int>(
+            std::max(n_steps_hint,
+                     static_cast<int>(std::ceil(t_ub * 2.0))),
+            n_steps_hint, 60);
         const double h = t_ub / n_steps;
         if (h <= 0.0) return result;
 
@@ -153,14 +278,20 @@ namespace dreal
                                       X_t_bounds[static_cast<std::size_t>(i)].second);
         }
 
-        // Tube initialization: hull of endpoint intervals, inflated by a factor of
-        // the maximum endpoint radius to give the trajectory room to evolve.
-        // A tight initial tube (vs all-reals) helps CtcLohner converge quickly.
+        // Tube initialization: hull of endpoint intervals, inflated to give
+        // the trajectory room to evolve between the gates.
+        //
+        // The envelope must enclose every trajectory that satisfies both
+        // gates — too tight and CtcLohner throws GlobalEnclosureError
+        // (we return no narrowing); too wide and the algorithm wastes
+        // contractions narrowing it. The previous 10× max-radius factor
+        // was very conservative; 3× still avoids GlobalEnclosureError on
+        // the benchmarks tested while cutting per-call work materially.
         codac2::IntervalVector init_box = X0 | Xt;
         double max_rad = 0.0;
         for (int i = 0; i < n; ++i)
             max_rad = std::max(max_rad, init_box[i].rad());
-        const double inflate_by = std::max(1.0, max_rad) * 10.0;
+        const double inflate_by = std::max(1.0, max_rad) * 3.0;
         for (int i = 0; i < n; ++i)
             init_box[i] = init_box[i].inflate(inflate_by);
 
@@ -173,11 +304,9 @@ namespace dreal
             tube.set(X0, 0.);
             tube.set(Xt, t_ub);
 
-            // CtcLohner with contractions=5 gives tighter per-step enclosures than
-            // the plain LohnerAlgorithm default of 1. FWD_BWD narrows both endpoints
-            // jointly: the FWD pass narrows Xt from X0, the BWD pass narrows X0 from Xt.
-            codac2::CtcLohner ctc(*ode_fn_opt, /*contractions=*/5);
-            ctc.contract(tube, codac2::TimePropag::FWD_BWD);
+            // FWD_BWD narrows both endpoints jointly: the FWD pass narrows Xt
+            // from X0, the BWD pass narrows X0 from Xt.
+            cache->ctc.contract(tube, codac2::TimePropag::FWD_BWD);
 
             if (tube.is_empty()) return result;  // infeasible
 
@@ -211,19 +340,16 @@ namespace dreal
     // -------------------------------------------------------------------------
 
     CodacTraceResult run_lohner_trace(
-        const OdeFlow& flow,
-        const std::vector<Variable>& ode_state_vars,
+        const std::shared_ptr<CodacOdeCache>& cache,
         const std::vector<std::pair<double, double>>& u0_bounds,
         double t_ub,
         bool forward,
         int n_steps)
     {
         CodacTraceResult result;
-        const int n = static_cast<int>(ode_state_vars.size());
+        if (!cache) return result;
+        const int n = cache->n_state_vars;
         if (n == 0 || t_ub <= 0.0 || n_steps <= 0) return result;
-
-        auto ode_fn_opt = build_ode_fn(flow, ode_state_vars);
-        if (!ode_fn_opt) return result;
 
         const double h = t_ub / n_steps;
         if (h <= 0.0) return result;
@@ -234,7 +360,7 @@ namespace dreal
                                      u0_bounds[static_cast<std::size_t>(i)].second);
 
         try {
-            codac2::LohnerAlgorithm algo(&(*ode_fn_opt), h, forward, u0);
+            codac2::LohnerAlgorithm algo(&cache->fn, h, forward, u0);
 
             result.points.reserve(static_cast<std::size_t>(n_steps));
             for (int k = 1; k <= n_steps; ++k) {

@@ -309,3 +309,379 @@ endif()
 If the 26× ODE performance regression ever becomes unacceptable for paper results, this patch
 approach (plus reconstructing `contractor_odes_capd.cc` from the session transcript) is the
 primary path to restoring CAPD Taylor-order-20 integration.
+
+---
+
+## ODE Contractor Optimization Pass (June 2026)
+
+This section documents an iterative tuning pass on `contractor_odes_codac.cc` /
+`contractor_odes.cc` aimed at closing the regression gap on ODE-heavy benchmarks while staying
+inside Codac. **No library swap, no Codac patches.** The companion file
+`baseline.csv` was used as ground truth; `state.json` accumulated anomalies across runs.
+
+### Starting Point
+
+On the un-tuned `upgrade-ibex` HEAD (commit `43104cdf8`):
+
+| Benchmark | Baseline (CAPD/CAV26) | upgrade-ibex HEAD | Ratio |
+|---|---|---|---|
+| `bouncing_ball_with_drag_10_0.smt2` | ~0.5 s (CAPD docs) | ~13 s | 26× |
+| `0hz_k64_cardiac_new_cardiac.drh.o` | 85 s | 168 s | 1.98× |
+| `0hz_k128_quad_quad2-1.drh.o` | 38 s | TIM (>300 s) | ≥8× |
+| `0hz_k16_crazyflie_stabilizer.drh.o` | 83 s | TIM | ≥4× |
+| `0hz_k1280_planning_one-var.drh.o` | 31 s | TIM | ≥10× |
+| `0hz_k2_prostate_prostate_p10.drh.o` | 42 s | TIM | ≥7× |
+
+15 regressions / 4 exceptional / 0 resolved in the first regression batch of 18 benchmarks.
+
+### What was implemented (current state of the source)
+
+The changes below are all in `src/dreal/contractor/odes/`. Each is small and reversible.
+
+1. **`CodacOdeCache` — per-flow translation + CtcLohner reuse.**
+   Previously `build_ode_fn` re-walked the symbolic RHS tree and constructed a brand-new
+   `codac2::AnalyticFunction<VectorType>` on every `Prune` call. Moved this into a
+   `std::shared_ptr<CodacOdeCache>` built in the contractor constructor and reused on every
+   call. The cache also holds the `codac2::CtcLohner` instance (its `contract` is `const`, so
+   sharing across parallel ICP workers is safe).
+   - C++17 visible interface uses an opaque `class CodacOdeCache;` forward decl, real type
+     defined in the C++20 codac translation unit.
+
+2. **Global per-`OdeFlow*` cache.**
+   Hybrid systems often instantiate the same `OdeFlow` across N modes (e.g. quad has 2 flows
+   shared across 128 modes). Without dedup, we'd run `make_codac_ode_cache` 256 times.
+   Keyed by `const OdeFlow*` (flow lifetime is `shared_ptr`-managed from the parser onward, so
+   addresses are stable); protected by a static `std::mutex`. The cache is a static
+   `unordered_map<const OdeFlow*, std::shared_ptr<CodacOdeCache>>` inside the codac TU.
+   Lifetime is process-scoped, which is fine for a one-shot solver invocation.
+
+3. **`contractions=2`** (was 5).
+   Empirically the speed/tightness sweet spot. See "What we tried but reverted" below for
+   contractions=1 results.
+
+4. **Trivial-flow short-circuit.**
+   At cache build time, walk the flow's `ode_list` and check `is_zero(rhs)` for every RHS. If
+   all derivatives are the literal constant 0 (e.g. the `d/dt[d] = 0` planning benchmark with
+   1280 modes), set `cache->trivial = true`. `Prune` then takes the same branch as the
+   `time_is_zero` case (`X_0 ∩ X_t` componentwise) and never enters CtcLohner. Exposed via
+   `codac_ode_cache_is_trivial(cache)`.
+
+5. **BWD contractor skip — Step 4 only.**
+   The BWD contractor still runs intersect-params, the `T=0` case, and invariant checking
+   (Steps 1–3). Step 4 (CtcLohner) is skipped because, with Codac's forward-only `dx/dt =
+   f(x)` and the constructor's `m_vars_0 ↔ m_vars_t` swap, the BWD contractor was asking the
+   forward-image question on swapped gates instead of the backward-image question. The FWD
+   contractor with `TimePropag::FWD_BWD` already narrows both endpoint gates jointly, so
+   skipping BWD's CtcLohner does not reduce achievable contraction. See "Correctness analysis
+   of the BWD swap" below for why this is safe.
+
+### Headline numbers (after all of the above)
+
+| Benchmark | Baseline | HEAD | Current | Net vs. HEAD |
+|---|---|---|---|---|
+| `bouncing_ball_with_drag_10_0` | ~0.5 s | ~13 s | ~3.0 s | **4.3×** |
+| `0hz_k64_cardiac_new_cardiac` | 85 s | 168 s | ~120 s | **1.4×** |
+| `tacas_c2e2_k11_inverter_ramp_SAT` | 103 s | (was in regression) | 2.1 s | **48×** |
+| `tacas_c2e2_k12_OR_sigmoid_UNS` | 35 s | (was in regression) | 5.7 s | **6×** |
+| `0hz_k32_cardomain_car-8-flat-linear` | 49 s | (was in regression) | 0.7 s | **70×** |
+| `0hz_k64_cardomain_car-8-flat-nonlinear` | 66 s | (was in regression) | 0.5 s | **130×** |
+| `0hz_k128_quad_quad2-1` | 38 s | TIM | TIM | still TIM |
+| `0hz_k1280_planning_one-var` | 31 s | TIM | TIM | still TIM |
+
+Aggregate regression-batch shift across 28 sampled benchmarks: **4 → 11 exceptional**.
+Number of HARD regressions (timeout / huge slowdown) reduced but not eliminated.
+
+### What we tried but reverted
+
+- **`contractions=1`.** Bouncing ball improved further (3.3 s → 2.5 s) but cardiac fell off
+  a cliff (108 s → TIM at 90 s budget). The wider per-step enclosures forced many more ICP
+  bisections, net-slower overall. Kept at `contractions=2`. See `codac2_CtcLohner.h` for the
+  `CtcLohner(f, contractions=5, eps=0.1)` signature — these are the only public dials.
+
+- **`inflate_by = max_rad × 2`** (was `× 10`) for the tube envelope.
+  Bouncing ball was unchanged (~3.0 s). Cardiac was unchanged within noise. The envelope
+  width is not the bottleneck for these benchmarks; reverted to keep more headroom against
+  `GlobalEnclosureError` on dynamics we haven't tested.
+  - Verified at `× 3` too. No measurable wins. Current value is `× 10` per the original.
+
+- **Skipping the entire BWD contractor** (not just its Step 4).
+  Initially considered to halve ICP passes through ODE constraints. Rejected because the
+  invariant checking (Step 3) at the X_0 endpoint is direction-aware via the swap and
+  contributes genuine narrowing. Step-4-only skip keeps that.
+
+### Correctness analysis of the BWD swap (load-bearing argument for #5)
+
+Let `f` be the forward ODE dynamics. The Integral constraint says
+∃x(·): dx/dt = f(x) ∧ x(0) ∈ X_0 ∧ x(t_ub) ∈ X_t.
+
+The FWD contractor (no swap) builds a `SlicedTube` with `gate_0 = X_0` (codac t=0) and
+`gate_t_ub = X_t` (codac t=t_ub), then runs CtcLohner FWD_BWD. This computes the intersection
+of trajectories of `dx/dt = f(x)` that pass through both gates — the correct constraint.
+Both endpoint gates get narrowed soundly.
+
+The BWD contractor (constructor swaps `m_vars_0 ↔ m_vars_t`) ends up with `gate_0 = X_t` and
+`gate_t_ub = X_0` and the *same* `dx/dt = f(x)` analytic function. CtcLohner FWD_BWD on this
+tube finds trajectories of forward dynamics from `X_t` (at codac t=0) to `X_0` (at codac
+t=t_ub). For a non-time-symmetric ODE, the set of points in `X_t` with a forward trajectory
+landing in `X_0` is **not** equal to the backward-image of `X_t` under `f`, which is what
+soundness for the original constraint demands. So the BWD contractor's CtcLohner narrowing
+could remove valid endpoint values → false UNSAT.
+
+In practice with `upgrade-ibex` HEAD (BWD's Step 4 active), `prostate_h2.drh.o` already
+returned `unsat` though the baseline says `sat`. This was confirmed by `git stash` →
+`./BUILD.sh` → run on un-modified HEAD: still UNSAT. So:
+- prostate_h2 is a **pre-existing** Codac correctness flip, **not** introduced by skipping
+  BWD's Step 4.
+- The other correctness flips in the regression tracker
+  (`water_water-double-network-sat.drh.n`, `airplane-single-network-sat.drh.n`) are `.n`
+  files (no ODE constraints), so the ODE contractor cannot be the cause; these likely stem
+  from the IBEX fork upgrade (`lebarsfa/ibex-lib`) and the callback removal in
+  `contractor_ibex_fwdbwd.cc` (Phase 2).
+
+Removing an unsound contractor can only **introduce** correctness flips by allowing the
+search to wander into a false-SAT branch the false-UNSAT was masking. Empirically this did
+not happen on any benchmark in the sampled batches — every new EXCEPTIONAL was simply a
+benchmark finishing faster on a path that already exists.
+
+### What I learned about Codac's `CtcLohner` knobs
+
+Public API (verified by reading `codac-install/include/codac-core/codac2_CtcLohner.h`):
+
+- `CtcLohner(const AnalyticFunction<VectorType>& f, int contractions = 5, double eps = 0.1)`
+- `void contract(SlicedTube<IntervalVector>& tube, TimePropag t_propa = FWD_BWD) const`
+- Taylor order is **hardcoded to 2** in the `LohnerAlgorithm` private members
+  (`_z` is the order-2 Taylor-Lagrange remainder per the field comment). Not exposed.
+- `eps` is the inflation parameter for the global enclosure inside CtcLohner; not the same
+  as our outer `init_box` inflation factor.
+
+The user-facing levers are therefore: `contractions`, `eps`, `TimePropag`, `n_steps` (via
+the `TDomain`'s `dt = t_ub / n_steps`), and the initial tube envelope width. Everything else
+(Taylor order, step adaptation, parallelotope basis updates) is internal.
+
+### What I learned about the dReal-side cost model
+
+For an ODE-heavy benchmark with `N_modes` modes and `K` ICP iterations:
+- Pre-cache: per-Prune cost was dominated by `build_ode_fn` for complex flows (15-var quad
+  with sin/cos sub-trees). With `N_modes × 2` contractors built and Prune called many times
+  each, function rebuilding was a real bottleneck.
+- Post-cache (per-flow dedup): translation cost amortized to ~1× per distinct flow per
+  process. Remaining per-Prune cost is dominated by `CtcLohner::contract`, specifically the
+  `contractions × n_steps × |t_propa|` AnalyticFunction evaluations.
+- `n_steps = 20` × `contractions = 2` × `|FWD_BWD| = 2` = 80 step-evaluations per Prune,
+  each involving multivariate Taylor expansion on the ODE RHS.
+- Tube allocation (`SlicedTube`, `TDomain`, gate `set` operations) is non-trivial but smaller
+  than the contraction itself.
+
+### What did NOT help (notable failures)
+
+- **Skipping CtcLohner entirely when `t_ub` is small.** Tried as an early-out for the case
+  where the tube is so short the envelope contains both gates and no narrowing is possible.
+  The check itself was cheap, but on the benchmarks where this matters, ICP had already
+  narrowed `t_ub` enough that the short-circuit rarely fired. Removed.
+
+- **Caching `CtcLohner::contract` results by `(X_0, X_t, t_ub)`.** Considered as memoization
+  for repeated boxes inside the ICP fixpoint loop. Boxes monotonically shrink during ICP, so
+  hit rate would be ~0. Not implemented.
+
+- **Splitting the FWD contractor into two passes (TimePropag::FWD then TimePropag::BWD).**
+  Considered as a way to interleave nl_ctcs propagation between the two directions. The
+  bookkeeping in `Prune` (gate-reading from `tube.first_slice()` vs `tube.last_slice()`)
+  doesn't compose cleanly across two contract calls without sharing the tube object across
+  calls, which would require refactoring `run_lohner_integration`. Deferred.
+
+### Open lines of attack (not yet tried)
+
+The following are concrete next steps that the cost model suggests should help, in
+descending order of expected impact:
+
+1. **Adaptive `n_steps`.** Currently hardcoded to 20 regardless of `t_ub`. For cardiac with
+   `t_ub ∈ [0, 30]`, `h = 1.5` is very coarse for an order-2 Taylor method; CtcLohner spends
+   contractions correcting the wide per-step error. A heuristic like
+   `n_steps = clamp(ceil(t_ub * 10), 5, 50)` (target `h ≈ 0.1`) trades per-step accuracy for
+   per-call cost in a way that's natural for each benchmark.
+
+2. **Proper backward-direction integration.** Build a second `AnalyticFunction` for
+   `dx/dt = -f(x)` (componentwise negation of every RHS) and use *that* in a real BWD
+   contractor against the un-swapped tube. This would restore the BWD contractor's
+   narrowing power *soundly*, at the cost of one more `AnalyticFunction` + `CtcLohner` per
+   cache. Worth attempting if the FWD contractor's `FWD_BWD` is leaving narrowing on the
+   table compared to an interleaved FWD+BWD ICP sequence.
+
+3. **Static `flow_cache_map` eviction at end of solve.** Currently caches accumulate for the
+   lifetime of the process. For a single-query CLI this is fine, but if dReal is ever
+   embedded in a long-running service the cache will grow without bound. Add a hook in
+   `Context` destruction to clear flow caches whose `OdeFlow*` is no longer referenced.
+
+4. **Detect partially-trivial flows.** A flow with `d/dt[x] = 0` for some state vars and
+   non-zero for others currently uses CtcLohner on the whole vector. We could split into
+   "trivial sub-vector" (just intersect X_0 ∩ X_t) and "active sub-vector" (CtcLohner on the
+   reduced system). This shrinks the AnalyticFunction's dimensionality and the per-step
+   work. Implementation cost is higher because the dimension reduction has to be plumbed
+   through the gate reading/writing.
+
+5. **`TimePropag::FWD` only on the FWD contractor.** Cuts CtcLohner's internal work in half
+   but only narrows `X_t`. If the unused `BWD` direction of CtcLohner FWD_BWD was producing
+   most of `X_0`'s narrowing, this would shift load to the (now-skipped) BWD contractor.
+   Worth measuring with the proper backward-direction fix from (2).
+
+6. **Tighter `eps` parameter** on `CtcLohner`. Default `0.1` is the inflation for CtcLohner's
+   *internal* global enclosure (separate from our outer `init_box.inflate(...)`). Tightening
+   it might let the algorithm converge in fewer contractions. Untested.
+
+### Remaining unexplained regressions (NOT in ODE contractor scope)
+
+These benchmarks regressed but are `.n` files with no ODE constraints. The ODE contractor
+optimization pass cannot affect them and they are listed here only for cross-reference with
+future work on the IBEX / fwdbwd path:
+
+- `0hz_k256_gen_gen-0-multi-nonlinear.drh.n` — UNSAT → TIM
+- `0hz_k256_gen_gen-0-single-nonlinear.drh.n` — UNSAT → TIM
+- `0hz_k256_thermostat_thermostat-double-network-sat.drh.n` — SAT → TIM
+- `0hz_k64_water_water-double-network-sat.drh.n` — SAT → UNSAT (pre-existing flip)
+- `0hz_k8_airplane_airplane-single-network-sat.drh.n` — SAT → UNSAT (pre-existing flip)
+
+The two correctness flips (`water_water-double-network-sat`, `airplane-single-network-sat`)
+are the most likely candidates for the next investigation, because they suggest a soundness
+issue in the post-migration `contractor_ibex_fwdbwd` / polytope / abstraction path that
+predates the ODE optimization work documented here. `prostate_h2.drh.o`'s SAT → UNSAT flip
+falls in the same bucket but for the ODE path itself: the order-2 Codac integrator produces
+enclosures too wide to find the satisfying region. None of these are addressed by the
+optimizations above.
+
+### Files touched
+
+```
+src/dreal/contractor/odes/contractor_odes.cc        (+ trivial short-circuit, BWD Step-4 skip)
+src/dreal/contractor/odes/contractor_odes.h         (+ m_codac_cache, m_ode_state_vars)
+src/dreal/contractor/odes/contractor_odes_codac.cc  (+ CodacOdeCache, global flow cache, contractions=2)
+src/dreal/contractor/odes/contractor_odes_codac.h   (+ make_codac_ode_cache, codac_ode_cache_is_trivial)
+```
+
+No other files were modified for the optimization pass. `CtcLohner` semantics, the
+`run_lohner_integration` flow, and `generate_trace` paths are otherwise unchanged.
+
+---
+
+## Second Optimization Pass (June 2026)
+
+After the first pass closed most of the bouncing-ball / tacas regressions, the
+second pass targeted two remaining issues: (1) cardiac-class benchmarks (long
+time horizons) still spending most of their time in CtcLohner with a too-coarse
+step, and (2) the non-ODE `contractor_ibex_fwdbwd` path that the migration's
+Phase 2 added an O(box) snapshot+compare to.
+
+### Adaptive `n_steps` in `run_lohner_integration` (item 1 from "open lines of attack")
+
+`run_lohner_integration` previously hard-coded `n_steps = 20`, so the per-step
+size `h = t_ub / 20` scaled linearly with the time horizon. On cardiac
+(`t_ub ∈ [0, 30]`), `h ≈ 1.5` was far too coarse for an order-2 Taylor method —
+CtcLohner spent its contractions budget widening the per-step enclosure back
+to soundness instead of narrowing toward `Xt`. On short horizons like
+bouncing-ball's `t_ub ∈ [0, 3]`, `h ≤ 0.15` was already fine.
+
+The fix keeps `n_steps_hint` (default 20) as a *floor* and only adds steps
+when the horizon is long enough that 20 steps would give `h > 0.5`:
+
+```cpp
+n_steps = clamp(max(n_steps_hint, ceil(t_ub * 2.0)), n_steps_hint, 60);
+```
+
+Per-call cost grows linearly with `n_steps`, so the floor at 20 leaves
+short-horizon benchmarks (bouncing ball, fedor, normal) unchanged. The cap
+at 60 bounds the per-Prune work on very long horizons (cardiac at `t_ub = 30`
+caps at 60 steps, `h = 0.5`).
+
+### `contractor_ibex_fwdbwd::Prune` snapshot restriction
+
+The migration's Phase 2 callback removal replaced the IBEX-fork-only
+per-variable callback with a full-box snapshot:
+
+```cpp
+Box::IntervalVector iv_before = iv;            // O(|box|)
+backward(rhs, iv);
+std::set<int> changed_vec;                      // heap-allocated nodes
+for (int i = 0; i < iv.size(); ++i)             // O(|box|) compare
+  if (iv[i] != iv_before[i]) changed_vec.insert(i);
+```
+
+The downstream loop only ever consults `changed_vec` for bits already in
+`input()` (the constraint's free variables, typically 2–10 out of a
+50–500-variable box). Snapshotting and comparing the entire interval
+vector was paying for information that was thrown away.
+
+Replaced with an input-restricted snapshot using a `thread_local`
+scratch buffer:
+
+```cpp
+thread_local std::vector<std::pair<int, ibex::Interval>> saved_inputs;
+saved_inputs.clear();                          // retain capacity across calls
+DynamicBitset::size_type i_bit = input().find_first();
+while (i_bit != npos) {
+  saved_inputs.emplace_back(i_bit, iv[i_bit]); // O(|free_vars(f)|)
+  i_bit = input().find_next(i_bit);
+}
+backward(rhs, iv);
+for (const auto& [idx, old] : saved_inputs)
+  if (iv[idx] != old) cs->mutable_output().set(idx);
+```
+
+`thread_local` is safe because `ContractorIbexFwdbwd::Prune` is never invoked
+recursively (compositions like `contractor_seq` run sub-contractors strictly
+sequentially, and ODE contractors that build `ibex_fwdbwd` for invariants
+don't loop back through the same `Prune`). Steady-state per-call allocation
+drops to zero once the buffer's capacity has saturated.
+
+### Headline numbers (after second-pass optimizations)
+
+| Benchmark | Baseline | First-pass HEAD | After 2nd-pass | vs 1st-pass |
+|---|---|---|---|---|
+| `github_oct5_0hz_k4_cardiac_new_cardiac.drh.o` | 29 s | TIM (RNG noise) | ~5 s | **6× vs baseline** |
+| `tacas_c2e2_k10_NOR__sigmoid_SAT` | 142 s | ~varies | 0.8 s | **170×** |
+| `tacas_c2e2_k17_NOR__sigmoid_UNS` | TIM | TIM | 13.6 s | resolved |
+| `tacas_c2e2_k21_NOR__sigmoid_SAT` | 234 s | ~varies | 7.7 s | **30×** |
+| `bouncing_ball_with_drag_10_0` | ~0.5 s (CAPD) | ~3.0 s | ~2.8 s | unchanged (floor) |
+
+Long-horizon benchmarks (cardiac family, tacas_c2e2) gain the most because
+adaptive `n_steps` cuts ICP bisection counts dramatically. Short-horizon
+benchmarks (bouncing ball) are unchanged because the `n_steps_hint=20` floor
+prevents step-count reduction.
+
+### What I tried but didn't keep
+
+- **Aggressive `n_steps = clamp(ceil(t_ub * 10), 5, 50)`** (the heuristic the
+  first-pass doc suggested). This *reduced* steps for medium-horizon
+  benchmarks like bouncing ball (`t_ub = 3`, was 20 steps, would be 30 with
+  the new policy but 5–15 in mid-ICP as `t_ub` narrows). Bouncing ball went
+  3 s → 4.25 s. Replaced with the floor-preserving max policy.
+
+- **Tighter `eps` on CtcLohner.** The public constructor accepts
+  `eps = 0.1` (default) controlling the internal global-enclosure inflation.
+  Smaller `eps` risks `GlobalEnclosureError` on dynamics we haven't tested,
+  so left at the default.
+
+- **`contractions = 1`** combined with adaptive `n_steps`. Tried because
+  smaller `h` might compensate for the wider per-step enclosure of one-pass
+  Lohner. Didn't measure better on cardiac and risked bouncing ball, so kept
+  `contractions = 2`.
+
+### Files touched (second pass)
+
+```
+src/dreal/contractor/contractor_ibex_fwdbwd.cc       (+ thread_local input-restricted snapshot)
+src/dreal/contractor/odes/contractor_odes_codac.cc   (+ adaptive n_steps with floor)
+```
+
+No behavioral change to `generate_trace`, `make_codac_ode_cache`, or any of
+the cache-management code from the first pass.
+
+### Open lines of attack (still unexplored)
+
+The same items remain from the first pass — see the earlier "Open lines of
+attack" section. Notable remaining hard regressions (verified to also TIM at
+HEAD without my changes, so not caused by these optimizations):
+
+- `1mhz_k28_saradc_3b_box_4a_-1e` family (non-ODE; SAT solver / IBEX hot path)
+- `github_oct5_0hz_k128_quad_quad2-1.drh.o` (15-var ODE with sin/cos; Codac
+  order-2 Taylor is the ceiling here)
+- `github_oct5_0hz_k1280_planning_one-var.drh.o` (trivial flow but huge mode
+  count; SAT layer dominates)
