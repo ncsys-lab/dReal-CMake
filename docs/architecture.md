@@ -1,0 +1,167 @@
+# dReal4 Architecture
+
+## Overview
+
+dReal4 is a delta-complete decision procedure for nonlinear arithmetic over the reals (QF_NRA) and systems with ordinary differential equations (QF_NRA_ODE). "Delta-complete" means: given a formula φ and a precision δ > 0, the solver either proves φ is unsatisfiable or finds a witness that satisfies a δ-weakening of φ (every atomic constraint is relaxed by at most δ).
+
+The solver implements a variant of DPLL(T) where the SAT layer handles propositional structure and the theory layer handles nonlinear arithmetic via interval constraint propagation.
+
+---
+
+## Layers
+
+```
+ ┌──────────────────────────────────────────────────┐
+ │  Input (SMT2 / dReal .dr)                        │
+ │  src/dreal/smt2/driver.h, src/dreal/dr/driver.h  │
+ └───────────────────────┬──────────────────────────┘
+                         │
+ ┌───────────────────────▼──────────────────────────┐
+ │  Context  (src/dreal/solver/context.h)            │
+ │  Manages Assert / Push / Pop / CheckSat           │
+ └───────────────────────┬──────────────────────────┘
+                         │
+ ┌───────────────────────▼──────────────────────────┐
+ │  Preprocessing  (src/dreal/util/)                 │
+ │  ITE elimination → NNF → Tseitin CNF              │
+ │  → predicate abstraction                          │
+ └───────────────────────┬──────────────────────────┘
+                         │
+           ┌─────────────┴──────────────┐
+           │                            │
+ ┌─────────▼─────────┐        ┌─────────▼──────────┐
+ │  SAT Layer        │        │  Theory Layer       │
+ │  CaDiCaL 3.0.0    │◄──────►│  TheorySolver +     │
+ │  Boolean CDCL     │  DPLL  │  ICP (seq/parallel) │
+ └───────────────────┘   (T)  └─────────────────────┘
+                                        │
+                         ┌──────────────▼─────────────┐
+                         │  Contractors                │
+                         │  IBEX fwdbwd, polytope,     │
+                         │  fixpoint, ODE (Codac),     │
+                         │  forall, seq, join          │
+                         └────────────────────────────┘
+```
+
+---
+
+## Preprocessing Pipeline
+
+Before the solver sees a formula it goes through four passes (in `context_impl.cc`):
+
+1. **ITE elimination** (`if_then_else_eliminator.h`): Rewrites `ite(c, t, e)` nodes into equivalent formulas without branching expressions, because IBEX and the contractor layer cannot handle ITE directly.
+
+2. **NNF** (Negation Normal Form, `nnfizer.h`): Pushes negations inward so that no `Not` nodes appear above atoms. Required for Tseitin.
+
+3. **Tseitin CNF** (`tseitin_cnfizer.h`): Converts the NNF formula to CNF by introducing fresh Boolean variables for each sub-formula. This is the standard structure-preserving CNF transformation — it keeps formula size linear at the cost of auxiliary variables.
+
+4. **Predicate abstraction** (`predicate_abstractor.h`): Each nonlinear atomic formula (e.g., `x² + y² ≤ 1`) becomes a fresh Boolean variable `b_i`. The SAT solver reasons only over these Boolean variables; the theory solver checks that a Boolean assignment corresponds to a geometrically consistent region.
+
+---
+
+## SAT Layer
+
+**File:** `src/dreal/solver/sat_solver.cc` and `sat_solver_interval_logic.cc` / `sat_solver_model_logic.cc`
+
+CaDiCaL is used as the Boolean CDCL solver. Two modes exist:
+
+- **Interval logic** (`--logic QF_NRA`): The SAT solver guesses which nonlinear predicates to assert (true/false) and the theory solver checks consistency.
+- **Model logic** (default for `--produce-models`): Slightly different bookkeeping to preserve witness information.
+
+The `CaDiCaL::Learner` interface is used by the pattern-matching layer (CAV26 research) to inject learned clauses derived from previously solved subproblems.
+
+---
+
+## Theory Layer
+
+**File:** `src/dreal/solver/theory_solver.h`
+
+`TheorySolver::CheckSat(box, assertions)` is the main entry point. It:
+
+1. Builds a contractor for each asserted formula (or retrieves it from the contractor cache).
+2. Composes contractors with `ContractorFixpoint` or `ContractorSeq`.
+3. Delegates to an `Icp` implementation (sequential or parallel) to run the ICP loop.
+4. Returns `true` (delta-SAT with model in `model_`) or `false` (UNSAT with explanation in `explanation_`).
+
+Caches are keyed by formula identity (`std::unordered_map<Formula, Contractor>`). Three separate caches exist for forward ODE contractors, backward ODE contractors, and constraint contractors.
+
+---
+
+## ICP Loop
+
+**Files:** `src/dreal/solver/icp.h`, `icp_seq.cc`, `icp_parallel.cc`
+
+Interval Constraint Propagation is a branch-and-prune search:
+
+```
+procedure ICP(box B, contractor C, formula_evaluators FE):
+  while true:
+    B' ← C.Prune(B)          // shrink domains
+    result ← Evaluate(FE, B') // check all formulas over B'
+    if result = UNSAT:  return UNSAT
+    if result = δ-SAT:  return SAT, witness B'
+    // still undecided: branch on a variable
+    dim ← select_branch_dimension(FE, B')
+    [B_left, B_right] ← split(B', dim)
+    push B_right onto worklist
+    B ← B_left
+```
+
+`FormulaEvaluator` implements the three-valued evaluation:
+- **None** (⊥): some formula evaluates to the empty interval — UNSAT.
+- **Some(∅)**: all formulas are either valid or within δ — delta-SAT.
+- **Some(Vars)**: some formula is undecided and its variables must be branched.
+
+The sequential implementation (`icp_seq.cc`) uses a simple stack. The parallel implementation (`icp_parallel.cc`) distributes boxes across threads via a concurrent work queue.
+
+---
+
+## Branching
+
+**File:** `src/dreal/solver/brancher.h`
+
+When the ICP loop cannot determine satisfiability, it picks a dimension to bisect the current box. The default strategy is to branch on the variable with the largest interval width among those implicated by undecided formulas.
+
+---
+
+## Box
+
+**File:** `src/dreal/util/box.h`
+
+`Box` is the central data structure — a map from `Variable` to `ibex::Interval`. Internally it wraps `ibex::IntervalVector` and maintains a parallel `Variable` index for named access. Operations:
+
+- `operator[](Variable)` — access interval by variable name
+- `operator[](int)` — access by index
+- `bisect(int dim)` — split box along dimension `dim`, returns `(left, right)` pair
+- `MaxDiam()` — index of widest interval (used by brancher)
+- `empty()` — whether any interval is empty (UNSAT witness)
+
+Box copies are the main per-node allocation in ICP. The lambda-callback optimization in `contractor_ibex_fwdbwd.cc` avoids gratuitous copies during constraint building.
+
+---
+
+## Contractor Status
+
+**File:** `src/dreal/contractor/contractor_status.h`
+
+`ContractorStatus` threads a mutable `Box` plus bookkeeping (explanation set, active constraints) through the contractor pipeline. Contractors read from and write to the `ContractorStatus` rather than returning new boxes, which avoids allocation.
+
+---
+
+## Explanation / UNSAT Witnesses
+
+When the ICP loop returns UNSAT, the `explanation_` set in `TheorySolver` contains the minimal subset of asserted formulas that jointly imply infeasibility. This explanation is returned to the SAT layer as a learned clause, causing CaDiCaL to backtrack and try other assignments.
+
+The quality of explanations (their minimality) directly impacts solver performance because it determines how many future SAT assignments are pruned.
+
+---
+
+## Pattern Matching / Lemma Reuse (CAV26)
+
+See `docs/pattern-matching.md` for full details. At a high level: when the theory solver produces an UNSAT explanation, the pattern matcher checks whether this explanation is structurally similar (up to variable renaming) to previously seen explanations. If so, it injects a generalized lemma into the SAT solver via `CaDiCaL::Learner`, potentially pruning exponentially many future search paths.
+
+---
+
+## ODE Support
+
+See `docs/ode-integration.md` for details. ODE constraints (`d/dt[x] = f(x,t)` combined with `Integral` and `ForallT` AST nodes) are handled by `contractor_ode_lohner`, which wraps Codac's `CtcLohner` to compute guaranteed interval enclosures of ODE trajectories.

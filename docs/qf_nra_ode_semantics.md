@@ -1,0 +1,743 @@
+# QF_NRA_ODE Semantics
+
+This document gives a ground-up description of the `QF_NRA_ODE` logic as implemented in dReal4.
+Every claim is cross-referenced to the parser (`src/dreal/smt2/parser.yy`, `scanner.ll`), the driver
+(`src/dreal/smt2/driver.cc`), the symbolic layer
+(`src/third_party/com_github_robotlocomotion_drake/dreal/symbolic/odes/`), and the contractor
+(`src/dreal/contractor/odes/contractor_odes.cc`, `contractor_odes_codac.cc`).
+
+---
+
+## 1. Setting the Logic
+
+```smt2
+(set-logic QF_NRA_ODE)
+```
+
+The logic string `QF_NRA_ODE` is parsed by `dreal::parse_logic` (`src/dreal/smt2/logic.h`). It selects
+quantifier-free nonlinear real arithmetic augmented with ODE-specific keywords. All four ODE tokens are
+accepted in any file regardless of whether `set-logic` was called (the scanner always emits them), but
+tools and users should declare `QF_NRA_ODE` to signal intent.
+
+---
+
+## 2. Variable Declarations
+
+Variables are declared with the standard SMT2-LIB `declare-fun` or `declare-const` commands:
+
+```smt2
+(declare-fun x_0 () Real)
+(declare-fun x_t () Real [0.0, 10.0])   ; with domain bounds
+```
+
+**Convention**: dReal4 does not enforce any naming convention, but every ODE-based benchmark uses
+the pattern `<name>_<mode>_0` and `<name>_<mode>_t` for initial and final values of `<name>` in
+`<mode>`. The `_0` / `_t` suffix is parsed purely as a user naming convention — the solver does not
+assign special meaning to the suffix. The variable-extraction logic in `contractor_odes.cc`
+(`extract_step`) does parse the `_<step>_` part of the name for trace JSON output, but this has no
+effect on semantics.
+
+The time variable for mode `k` is conventionally named `time_k`. Time variables must be real-valued;
+dReal4 does not enforce a non-negativity constraint automatically — you must declare it explicitly:
+
+```smt2
+(declare-fun time_0 () Real)
+(assert (>= time_0 0.0))
+(assert (<= time_0 5.0))
+```
+
+---
+
+## 3. `define-ode`: Flow Definitions
+
+```smt2
+(define-ode flow_1 (
+    (= d/dt[x] e_x)
+    (= d/dt[v] e_v)
+))
+```
+
+### 3.1 Grammar
+
+From `parser.yy`:
+
+```
+command_define_ode:
+    '(' TK_DEFINEODE SYMBOL '(' ode_list ')' ')'
+        { driver.DefineOde($3, $5); }
+
+ode: '(' TK_EQ TK_DDT '[' SYMBOL ']' term ')'
+        { $$.first  = Variable{driver.lookup_variable($5)};
+          $$.second = $7.expression(); }
+```
+
+The scanner (`scanner.ll`) emits `TK_DEFINEODE` for `define-ode` and `TK_DDT` for `d/dt`.
+The `[` `SYMBOL` `]` part names the state variable by looking it up with `driver.lookup_variable`.
+This means **the variable named by `d/dt[x]` must already be declared** at the point the
+`define-ode` command is parsed.
+
+### 3.2 ODE variables vs. ODE parameters
+
+`driver.DefineOde` calls `OdeFlow::OdeFlow(flow_id, ode_list)` (`OdeFlow.cc`):
+
+```cpp
+for (const auto& [ode_var, ode_rhs] : ode_list) {
+    if (is_constant(ode_rhs, 0)) ode_pars.insert(ode_var);
+    else ode_vars.insert(ode_var);
+}
+```
+
+A variable whose RHS is the **exact constant `0`** (checked via `is_constant(rhs, 0)`) is classified
+as an **ODE parameter** (`ode_pars`). Every other variable is an **ODE state variable** (`ode_vars`).
+
+This distinction matters for the contractor:
+
+- **State variables** (`ode_vars`): integrated by `CtcLohner`; their final-state domains are pruned
+  by the ODE enclosure.
+- **Parameters** (`ode_pars`): not integrated; instead, the contractor enforces
+  `pars_0[i] ∩ pars_t[i]` — i.e., the initial and final values of a parameter must agree (they are
+  constant along the trajectory by definition). This intersection is step 1 of `Prune` in
+  `contractor_odes.cc`.
+
+**Example**: in `fedor_01.smt2`, `v01` and `v02` have `(= d/dt[v01] 0)` so they are parameters.
+The contractor does not integrate them; it simply constrains `v01_0_0 == v01_0_t`.
+
+### 3.3 Flow names and numeric IDs
+
+Flows are stored in a `ScopedUnorderedMap<std::string, shared_ptr<const OdeFlow>>` called
+`ode_definition_map_` in `Smt2Driver`. The key is the flow name string (e.g., `"flow_1"`).
+
+For `forall_t` (see §5), the parser uses a numeric ID:
+
+```
+'(' TK_FORALLT double_or_int_value '[' term term ']' term_list ')'
+    { ... forallT(driver.LookupOde($3), ...) }
+```
+
+`LookupOde(double id)` in `driver.h` is:
+
+```cpp
+const std::shared_ptr<const OdeFlow>& LookupOde(const double id) {
+    DREAL_ASSERT(id >= 0);
+    DREAL_ASSERT(is_integer(id));
+    return LookupOde("flow_" + std::to_string(static_cast<int>(id)));
+}
+```
+
+So `(forall_t 1 ...)` looks up `"flow_1"`. The numeric form is a dReal3 compatibility convention:
+mode numbers directly encode the flow name by prepending `"flow_"`. The flow name must therefore
+match `"flow_"` followed by an integer.
+
+### 3.4 Scoping and shadowing
+
+`ode_definition_map_` is a `ScopedUnorderedMap` but `DefineOde` explicitly throws if a name already
+exists at the current scope level:
+
+```cpp
+if (ode_definition_map_.count(flow_name) != 0) {
+    throw DREAL_RUNTIME_ERROR("Scoped/shadowed define-ode's are not well supported yet.");
+}
+```
+
+This means **flow names must be globally unique** within a file. You cannot shadow a flow inside
+a `(push)` / `(pop)` block. In practice all benchmark files use globally unique names like
+`flow_1`, `flow_2`, etc.
+
+### 3.5 The RHS may reference other ODE variables
+
+The right-hand side `e` in `(= d/dt[x] e)` is a full dReal `Expression` and may reference:
+- any variable declared before the `define-ode` command (parsed via `driver.lookup_variable`)
+- numeric constants
+- all arithmetic operators supported in QF_NRA (`+`, `-`, `*`, `/`, `^`/`pow`, `exp`, `log`,
+  `sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `min`,
+  `max`, `abs`)
+
+However, the expression translator in `contractor_odes_codac.cc` (`translate_expr`) only handles
+a subset of `ExpressionKind`: Constant, RealConstant, Var, Add, Mul, Div, Pow, Exp, Sqrt, Sin,
+Cos, Tan, Abs. Anything else (`log`, `asin`, `atan`, etc.) throws:
+
+```cpp
+default:
+    throw std::runtime_error(
+        "translate_expr: unsupported ExpressionKind " + ...);
+```
+
+If translation fails, `build_ode_fn` returns `std::nullopt` and the contractor silently skips
+integration (returns without pruning). There is no parse-time check for this limitation.
+
+---
+
+## 4. `integral`: The Trajectory Constraint
+
+```smt2
+(= [x_t P_t] (integral 0. time_0 [x_0 P_0] flow_1))
+```
+
+### 4.1 Grammar
+
+```
+term:
+    '(' TK_EQ '[' term_list ']'
+        '(' TK_INTEGRAL term term '[' term_list ']' SYMBOL ')'
+    ')'
+    {
+        // $4  = vec_t (variables on the LHS [...])
+        // $8  = time_0 expression
+        // $9  = time_t expression
+        // $11 = vec_0 (variables inside (integral ... [...] flow))
+        // $13 = flow name (SYMBOL)
+        $$ = integral($8.expression(), $9.expression(),
+                      vec_0_expr, vec_t_expr,
+                      driver.LookupOde($13));
+    }
+```
+
+The full parse production is:
+
+```
+'(' TK_EQ '[' term_list ']'
+        '(' TK_INTEGRAL term term '[' term_list ']' SYMBOL ')'
+')'
+```
+
+Positions (token-numbered from `$1 = '('`):
+- `$4` (`term_list` after first `[`) — the **final-state vector** `vec_t`
+- `$8` (first `term` inside `(integral ...)`) — `time_0` expression (start time)
+- `$9` (second `term` inside `(integral ...)`) — `time_t` expression (end time)
+- `$11` (`term_list` inside `(integral ... [...])`) — the **initial-state vector** `vec_0`
+- `$13` (`SYMBOL` at end) — flow name
+
+### 4.2 Semantic invariants (checked in `FormulaIntegral` constructor)
+
+In `symbolic_odes.cc`, `FormulaIntegral::FormulaIntegral` enforces at construction time:
+
+1. `time_0` must be a variable, a constant, or a real-constant expression:
+   ```cpp
+   DREAL_ASSERT(is_variable(time_0_) || is_constant(time_0_) || is_real_constant(time_0_));
+   DREAL_ASSERT(is_variable(time_t_) || is_constant(time_t_) || is_real_constant(time_t_));
+   ```
+
+2. `vec_0.size() == vec_t.size()` — the initial and final vectors must have equal length.
+
+3. `vec_0.size() == flow->ode_list.size()` — the vector length must equal the number of
+   differential equations in the flow.
+
+4. Each element of `vec_0` and `vec_t` must be a single variable (not an expression):
+   ```cpp
+   DREAL_ASSERT(is_variable(vec_0_[i]));
+   DREAL_ASSERT(is_variable(vec_t_[i]));
+   ```
+
+5. Each ODE variable in the flow is classified: the constructor splits the combined
+   `(vec_0, vec_t)` pair into `(vars_0, vars_t)` for state variables and
+   `(pars_0, pars_t)` for parameter variables, preserving positional correspondence.
+
+Violation of (1)–(4) is a `DREAL_RUNTIME_ERROR` at parse time.
+
+### 4.3 Positional correspondence
+
+The mapping between `vec_0`/`vec_t` elements and the `ode_list` is **positional**:
+element `i` of `vec_0` is the initial value of the variable whose ODE is `ode_list[i]`.
+There is no name-based matching.
+
+**Example**: if `flow_1` has `ode_list = [(x, ...), (P, ...)]` and you write
+`(integral 0. t [P_0 x_0] flow_1)`, then `P_0` is treated as the initial condition for
+`x` (not for `P`) because it appears first. The variable names `P_0` and `x_0` are opaque.
+
+### 4.4 `time_0` vs. `time_t`: direction and zero-time case
+
+The `integral` formula represents: _integrate `flow` from time `time_0` to time `time_t`, starting
+at state `vec_0`, ending at state `vec_t`._
+
+In all current benchmarks, `time_0` is the literal constant `0.` and `time_t` is a variable
+(e.g., `time_0` in the problem). The constructor accepts any expression that satisfies invariant (1),
+but `contractor_odes.cc` (`Prune`) contains this check:
+
+```cpp
+if (!is_variable(icct)) return;
+```
+
+where `icct = icc->get_time_t()`. If `time_t` is not a variable (i.e., is a numeric constant),
+the ODE integration step is silently skipped. The parameter intersection and T=0 special cases still
+run.
+
+**T=0 special case** (`Prune`, Step 2):
+
+```cpp
+const bool time_is_zero =
+    (is_variable(icct) && cs->box()[get_variable(icct)].ub() == 0.0) ||
+    is_constant(icct, 0.0);
+```
+
+If the upper bound of the time variable is exactly `0.0`, the contractor intersects each
+`vars_0[i]` with `vars_t[i]` in-place (since a zero-duration trajectory means initial = final
+state). This avoids a Codac call when the time domain is already pinned to zero.
+
+### 4.5 Direction: FWD vs. BWD
+
+`TheorySolver` constructs two contractors per `Integral` formula: one with
+`ode_direction::FWD` and one with `ode_direction::BWD` (cached in separate maps
+`fwd_ode_contractor_cache_` and `bwd_ode_contractor_cache_`).
+
+In `contractor_ode_lohner`'s constructor, the direction controls variable assignment:
+
+```cpp
+if (m_dir == ode_direction::FWD) {
+    m_vars_0 = icc->get_vars_0();   // integration starts from vars_0
+    m_vars_t = icc->get_vars_t();   // integration ends at vars_t
+} else {
+    m_vars_0 = icc->get_vars_t();   // integration starts from vars_t (backwards)
+    m_vars_t = icc->get_vars_0();   // integration ends at vars_0
+}
+```
+
+In both cases, `m_vars_0` is passed as the initial condition to `run_lohner_integration` and
+`m_vars_t` is the target. Since `CtcLohner` runs `FWD_BWD` internally regardless, both contractor
+instances effectively contract both endpoints. The FWD vs. BWD distinction in dReal controls
+_which endpoint is considered the "initial" state_ for the outer ICP loop.
+
+---
+
+## 5. `forall_t`: Invariant Constraints
+
+```smt2
+(forall_t 1 [0 time_0] (< s1_0_t (+ s2_0_t (* v2_0_t 2.0))))
+```
+
+### 5.1 Grammar
+
+```
+'(' TK_FORALLT double_or_int_value '[' term term ']' term_list ')'
+    { Formula f = Formula::True();
+      for (const Term& t : $8) f = f && t.formula();
+      $$ = forallT(driver.LookupOde($3), $5.expression(), $6.expression(), f); }
+```
+
+Fields:
+- `$3` (`double_or_int_value`) — flow ID (numeric, mapped to `"flow_N"`)
+- `$5` (`term`) — lower bound of time interval `lb`
+- `$6` (`term`) — upper bound of time interval `ub`
+- `$8` (`term_list`) — conjunction of invariant formulas; multiple terms are `&&`-folded
+
+The `term_list` variant lets you write multiple invariant predicates:
+`(forall_t 1 [0 T] (< x 5) (> v -10))` produces `forallT(flow_1, 0, T, x < 5 && v > -10)`.
+
+### 5.2 Invariant flattening in `FormulaForallT` constructor
+
+`FormulaForallT::FormulaForallT` in `symbolic_odes.cc` calls `flatten_nested_boolean_structures`
+on the body `bound_f`:
+
+```cpp
+bound_f_{make_conjunction(flatten_nested_boolean_structures(bound_f, false))}
+```
+
+`flatten_nested_boolean_structures` recursively:
+- Strips `Not` nodes (toggling an `inverted` flag)
+- Flattens `And` (when not inverted) into a flat set of atomic formulas
+- **Throws a `DREAL_RUNTIME_ERROR`** for `Or` when not inverted:
+  ```cpp
+  DREAL_LOG_CRITICAL("or is not a valid invariant for now, (forall_t constraint {})", f);
+  throw DREAL_RUNTIME_ERROR("or is not a valid invariant for now, (forall_t constraint)");
+  ```
+- **Throws** if the body is `false`
+- Passes all other formulas through (comparison operators become leaves)
+
+Consequence: the invariant body must be a **conjunction of atomic (non-disjunctive) constraints**.
+Disjunctive invariants are not supported and will crash the parser.
+
+### 5.3 Linking `forall_t` to `integral`
+
+`forall_t` formulas are not independently asserted — they must be linked to an `integral` formula
+at contractor-construction time. This linking happens in `link_integral_invariants` in
+`contractor_odes.h`:
+
+```cpp
+for (const auto& ic : int_ctrs) {
+    Variables vars_t_in_ic;
+    // collect vars_t variables from the integral
+    for (const auto& vec_t : icc->get_vec_t()) vars_t_in_ic.insert(vec_t.GetVariables());
+
+    for (const auto& fc : inv_ctrs) {
+        // Link if:
+        //   fc.flow->name == ic.flow->name
+        //   vars(fc.bound_f) ⊆ ic.vars_t
+        if (fcc->get_flow()->name == icc->get_flow()->name) {
+            bool const included = vars_t_in_ic.IsSupersetOf(vars_in_fc);
+            if (included) local_invs.push_back(fc);
+        }
+    }
+    result.emplace_back(ic, local_invs);
+}
+```
+
+Two conditions must hold for a `forall_t` to be linked to an `integral`:
+
+1. **Same flow name**: `fc.flow->name == ic.flow->name`. This is the flow numeric ID that maps to
+   `"flow_N"`.
+
+2. **Variable subset**: the free variables of the `forall_t` body must be a subset of the
+   `vec_t` variables of the `integral`.
+
+If a `forall_t` fails either condition, it is silently discarded — it never becomes a constraint.
+There is no error message for this case.
+
+### 5.4 Free variables in `FormulaForallT`
+
+There was a design decision about which variables to expose as free in a `ForallT` formula.
+A comment in `symbolic_odes.cc` documents the evolution:
+
+```cpp
+// PRIOR THINKING: variables in bound_f are bound, not free
+// NEW: see UPDATE comment in `ADD_DECL(VisitForallT)` of `pattern_matching_trie_form.cc`
+lb.GetVariables() + ub.GetVariables() + bound_f.GetFreeVariables()
+```
+
+The **current** implementation treats the variables in `bound_f` as **free** (not bound). This
+is semantically unusual — in standard first-order logic, `∀t: φ(x, t)` would bind `t`. Here,
+`bound_f` references time-indexed state variables (`x_0_t`, `v_0_t`, etc.) which are solver
+variables, not quantified over in the classical sense. The `forall_t` quantifies over the
+time parameter of the ODE trajectory, not over solver variables. The solver variables are the
+state variables at the endpoints.
+
+`get_bound_vars()` returns `bound_f_.GetFreeVariables()`, which is used in
+`link_integral_invariants` to verify the subset condition.
+
+---
+
+## 6. Negated ODE Constraints: Semantically Ignored
+
+This is one of the most important semantic gotchas.
+
+### 6.1 Negated invariants in `Prune`
+
+In `contractor_ode_lohner::Prune` (Step 3 of the invariant-checking code):
+
+```cpp
+for (size_t i = 0; i < invs.size(); ++i) {
+    if (!is_negation(invs[i])) {
+        m_inv_ctcs[i].Prune(&cs_0);
+        // ... UNSAT detection
+    } else {
+        DREAL_LOG_WARN("contractor_ode_lohner::Prune - negated invariant ignored: {}", invs[i]);
+    }
+}
+```
+
+If a `forall_t` formula appears negated in the assertions (e.g., wrapped in `(not ...)` or
+arriving as a negated literal from the SAT solver), the contractor **does not prune** based on it.
+The negation is logged at `WARN` level and skipped.
+
+### 6.2 Negated ODE constraints in `link_integral_invariants`
+
+In the top-level loop inside `link_integral_invariants` (also called from `contractor_odes.h`):
+
+```cpp
+else if (is_negation(f) && f.include_ode()) {
+    DREAL_LOG_DEBUG("Inverted ODE constraints are currently ignored: {}", f);
+}
+else if (f.include_ode()) {
+    DREAL_LOG_DEBUG("Nested ODE constraint currently ignored: {}", f);
+}
+```
+
+If an `integral` or `forall_t` formula appears **negated** (inside a `not`), the entire constraint
+is **silently discarded** during contractor construction. It is not checked for satisfiability and
+does not contribute to UNSAT explanations. An `integral` nested inside a larger formula (not at
+top level in the conjunction) is also discarded.
+
+### 6.3 Why this matters
+
+Consider a formula like:
+
+```smt2
+(assert (not (forall_t 1 [0 T] (>= x 0.0))))
+```
+
+This asserts that the invariant `x ≥ 0` does NOT hold for all time — i.e., there exists some
+`t ∈ [0, T]` where `x < 0`. In a complete solver, this would need different handling (existential
+quantification over trajectory time). In dReal4, this constraint is **ignored**: it contributes
+nothing to the contractor or the satisfiability result. The solver may return delta-SAT on a
+formula that is actually unsatisfiable because of such a negated ODE constraint.
+
+This is a **soundness limitation for negated ODE formulas**. It is documented at `WARN` level in
+the contractor, and at `DEBUG` level in the linking function. Users must not rely on negated ODE
+constraints being enforced.
+
+### 6.4 `OdeFormulaEvaluator` also returns vacuously valid
+
+`ode_formula_evaluator.cc` (`OdeFormulaEvaluator::operator()`):
+
+```cpp
+FormulaEvaluationResult OdeFormulaEvaluator::operator()(const Box& box) const {
+  // TODO: IMPLEMENT CAPD STUFF HERE
+  return FormulaEvaluationResult{FormulaEvaluationResult::Type::VALID, Box::Interval(0.0, 0.0)};
+}
+```
+
+The formula evaluator for ODE formulas unconditionally returns `VALID`. This means the ICP loop
+never considers an `integral` or `forall_t` formula as a branching criterion — they do not drive
+bisection. The ODE contractor prunes domains through the normal contractor `Prune` path, but the
+formula evaluator does not detect whether the ODE constraint is actually satisfied in the current
+box. The `TODO` comment has been present since the original codebase; the CAPD-based implementation
+it references was never completed here.
+
+---
+
+## 7. `forall` (not `forall_t`): Quantified Constraints
+
+The standard SMT2-LIB `forall` (quantification over real variables) is also supported:
+
+```smt2
+(forall ((x Real [0.0, 1.0])) (>= (* x x) 0.0))
+```
+
+Grammar:
+
+```
+'(' TK_FORALL enter_scope '(' variable_sort_list ')' term exit_scope ')'
+    { const Variables& vars = $5.first;
+      const Formula& domain = $5.second;
+      const Formula body = Smt2Driver::EliminateBooleanVariables(vars, $7.formula());
+      const Variables quantified_variables = intersect(vars, body.GetFreeVariables());
+      if (quantified_variables.empty()) $$ = body;
+      else $$ = forall(quantified_variables, imply(domain, body)); }
+```
+
+This is completely separate from `forall_t`. Key differences:
+- `forall` uses `variable_sort_list`, which creates variables with domain bounds; `forall_t` uses
+  a numeric flow ID.
+- `forall` produces a `Formula::Forall` AST node; `forall_t` produces `FormulaKind::ForallT`.
+- `forall` variables that do not appear free in the body are silently dropped
+  (`intersect(vars, body.GetFreeVariables())`).
+- Boolean variables are eliminated by case-splitting (`EliminateBooleanVariables`).
+- `forall` is handled by `ContractorForall` in the contractor layer; `forall_t` by
+  `contractor_ode_lohner`.
+
+---
+
+## 8. `ignored_dreal3_precision_value`: Backward Compatibility
+
+dReal3 allowed an optional precision annotation on comparison operators and conjunction:
+
+```smt2
+(<= x 5.0 [0.001])   ; dReal3 precision annotation
+(and ... [0.001])     ; dReal3 precision annotation on and
+```
+
+The parser grammar handles this with:
+
+```
+ignored_dreal3_precision_value
+  : '[' DOUBLE ']'  { $$ = ""; }
+  |                 { $$ = ""; }
+  ;
+```
+
+The precision value is consumed and **discarded**. It has no effect on the solver. This is present
+in the productions for `TK_LT`, `TK_LTE`, `TK_GT`, `TK_GTE`, and `TK_AND`.
+
+---
+
+## 9. How the Pieces Connect: Full Data Flow
+
+```
+(define-ode flow_1 (...))
+         │
+         ▼
+  driver.DefineOde("flow_1", ode_list)
+         │
+         ▼
+  OdeFlow{name="flow_1", ode_list, ode_vars, ode_pars}
+  stored in ode_definition_map_["flow_1"]
+         │
+         │  (reference held by)
+         ▼
+(= [x_t] (integral 0. time_0 [x_0] flow_1))
+         │
+         ▼
+  FormulaIntegral{time_0=0., time_t=time_0,
+                  vec_0=[x_0], vec_t=[x_t], flow=flow_1}
+  classified: vars_0=[x_0], vars_t=[x_t], pars=[]
+         │
+(forall_t 1 [0 time_0] (< x_t 5))
+         │
+         ▼
+  FormulaForallT{flow=flow_1, lb=0, ub=time_0,
+                 bound_f = (x_t < 5)}
+         │
+         │  both formulas appear in context_.assertions()
+         ▼
+  link_integral_invariants(assertions)
+         │  matches: flow_1 == flow_1  AND  {x_t} ⊆ {x_t}
+         ▼
+  ode_constraint = { FormulaIntegral, [FormulaForallT] }
+         │
+         ▼
+  contractor_ode_lohner(box, ode_constraint, FWD/BWD, config)
+         │
+         ▼  Prune():
+  Step 1: intersect parameters
+  Step 2: T=0 case → intersect state vars
+  Step 3: check invariants at X_0 via ibex contractors
+           (negated invariants silently skipped)
+  Step 4: run_lohner_integration() via CtcLohner FWD_BWD
+           → narrow [x_0, x_t, time_0]
+```
+
+---
+
+## 10. Edge Cases and Gotchas
+
+### 10.1 Multiple `integral` formulas with the same flow
+
+It is legal to write two `integral` constraints that reference the same flow:
+
+```smt2
+(= [P_t]    (integral 0. time_0 [P_0]    flow_2))
+(= [x_t P_t] (integral 0. time_0 [x_0 P_0] flow_1))
+```
+
+(`normal_partial_flow_KUNAL.smt2` does exactly this.) `link_integral_invariants` creates a
+separate `ode_constraint` for each `integral`, each linked to the `forall_t` formulas matching
+its flow name and variable subset. Two `integral`s over the same flow but different variable
+sets are independent constraints and both are contracted.
+
+### 10.2 `integral` with a constant `time_t`
+
+```smt2
+(= [x_t] (integral 0. 5.0 [x_0] flow_1))
+```
+
+The constructor assertion `is_variable(time_t_) || is_constant(time_t_) || is_real_constant(time_t_)`
+accepts a constant. However, `Prune` bails early:
+
+```cpp
+if (!is_variable(icct)) return;
+```
+
+The ODE integration is skipped. Only parameter intersection and T=0 detection run. This means
+specifying a literal constant duration does not trigger integration — you must use a variable for
+`time_t` if you want the ODE dynamics to be enforced.
+
+### 10.3 `forall_t` with a flow not defined in any `integral`
+
+A `forall_t` that references a flow name for which no matching `integral` exists is silently
+dropped by `link_integral_invariants`. The condition
+
+```cpp
+if (fcc->get_flow()->name == icc->get_flow()->name)
+```
+
+will never be true, so the invariant simply never appears in any `ode_constraint`.
+
+### 10.4 `forall_t` linking uses subset, not equality
+
+If the `forall_t` body references a variable not in `vars_t` of the corresponding `integral`,
+the invariant is not linked. But there is no error. Example:
+
+```smt2
+(define-ode flow_1 ((= d/dt[x] v) (= d/dt[v] -9.8)))
+(= [x_t v_t] (integral 0. T [x_0 v_0] flow_1))
+(forall_t 1 [0 T] (>= height_sensor_t 0.0))  ; ← height_sensor_t NOT in {x_t, v_t}
+```
+
+The `forall_t` is silently discarded because `{height_sensor_t}` is not a subset of `{x_t, v_t}`.
+
+### 10.5 `OdeFlow` equality is by name only
+
+`OdeFlow::operator==` compares only by `name`:
+
+```cpp
+bool operator==(const OdeFlow& lhs, const OdeFlow& rhs) {
+    if (&lhs == &rhs) { return true; }
+    return lhs.name == rhs.name; // commented-out deep comparison
+}
+```
+
+Two `OdeFlow` objects with the same name but different `ode_list` contents are considered equal.
+Since `DefineOde` throws on name collision, this situation cannot occur in a single file, but
+it could arise if `OdeFlow` objects from different parses were compared.
+
+### 10.6 dReal3 `arcsin`/`arctan` aliases
+
+The scanner (`scanner.ll`) maps both `asin` and `arcsin` to `TK_ASIN`, and both `acos`/`arccos`,
+`atan`/`arctan`, `atan2`/`arctan2` to their respective tokens. dReal3 files using the `arc`
+prefix work without modification.
+
+### 10.7 `^` as `pow`
+
+The scanner maps both `^` and `pow` to `TK_POW`. The expression `x^2` is parsed identically
+to `(pow x 2)`.
+
+### 10.8 Flow IDs in `forall_t` must be non-negative integers
+
+`driver.LookupOde(double id)` asserts `id >= 0` and `is_integer(id)`. Fractional or negative
+numeric IDs will trigger a `DREAL_ASSERT` failure at runtime.
+
+### 10.9 `GlobalEnclosureError` from Codac
+
+If `CtcLohner` cannot find a global enclosure (the trajectory tube is too stiff or the time step
+too large), it throws `codac2::GlobalEnclosureError`. The contractor catches this and returns
+without pruning:
+
+```cpp
+} catch (const codac2::GlobalEnclosureError&) {
+    // Integration failed to find a global enclosure; return conservatively
+}
+```
+
+This is sound (no incorrect pruning) but incomplete (the ODE constraint is not enforced for that
+Prune call). It can happen on long time horizons or highly nonlinear RHS.
+
+---
+
+## 11. Output Format: Trajectory Visualization
+
+When `--visualize` is set, `driver.cc` calls `link_integral_invariants` on the model and runs
+`contractor_ode_lohner::generate_trace` on each `ode_constraint`. The output is a JSON file at
+`<input_file>.json` with structure:
+
+```json
+{
+  "traces": [
+    [
+      {
+        "key": "x_0_0",
+        "mode": "flow_1",
+        "step": 0,
+        "values": [
+          {"time": [0.0, 0.1], "enclosure": [1.0, 1.1]},
+          {"time": [0.1, 0.2], "enclosure": [1.05, 1.15]},
+          ...
+        ]
+      },
+      ...
+    ]
+  ]
+}
+```
+
+One entry per ODE state variable and one per parameter. The `step` field is parsed from the
+variable name by `extract_step` — it extracts the middle component of `<name>_<step>_{0,t}`.
+Parameters have only two time points (start and end) since they are constant.
+
+---
+
+## 12. Grammar Summary
+
+```
+define-ode   := (define-ode <flow-id> (ode-entry*))
+ode-entry    := (= d/dt[<var>] <expr>)
+
+integral     := (= [<var>+] (integral <time0> <timet> [<var>+] <flow-id>))
+forall_t     := (forall_t <flow-num> [<lb> <ub>] <formula>+)
+
+<flow-id>    := SYMBOL  (e.g. "flow_1")
+<flow-num>   := non-negative integer (mapped to "flow_N")
+
+<time0>      := variable | constant       (must satisfy one of these)
+<timet>      := variable | constant       (integration only runs if variable)
+
+ODE vars     := ode entries where RHS ≠ constant 0
+ODE pars     := ode entries where RHS = exact constant 0
+```
