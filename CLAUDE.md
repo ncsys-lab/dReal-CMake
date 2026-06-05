@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-dReal4 is a delta-complete SMT solver for nonlinear arithmetic over the reals. It takes SMT-LIB2 (`.smt2`) or Delta-Real (`.dr`) formatted formulas and checks satisfiability up to a precision parameter delta. Current branch `cav26` contains research extensions for the CAV26 conference.
+dReal4 is a delta-complete SMT solver for nonlinear arithmetic over the reals. It takes SMT-LIB2 (`.smt2`) or Delta-Real (`.dr`) formatted formulas and checks satisfiability up to a precision parameter delta. The `cav26` branch holds pattern-matching/lemma-reuse research; `upgrade-ibex` replaces the ODE integration backend with Codac v2.
 
 ## Build
 
@@ -125,7 +125,13 @@ This project started as a CMake port of the original dReal4 (which used Bazel). 
 - ODE symbol table in the parser/driver; `LookupOde(double)` for dReal3 compat.
 - `--visualize` flag and JSON flow dumps for ODE trajectory visualization.
 
-**`cav26`** (current): Replaces the old trie-based pattern matcher with a fundamentally different approach:
+**`upgrade-ibex`** (current): Replaces the ODE integration backend on top of `tacas26-odes`:
+- Migrates from `ncsys-lab/capdDynSys-4.0` + `ncsys-lab/ibex-lib` to Codac v2 + `lebarsfa/ibex-lib`.
+- `contractor_odes_codac.cc`: `CtcLohner` with `TimePropag::FWD_BWD` (5 contractions, 50 steps) for integration; `LohnerAlgorithm` for trace/visualization.
+- Known performance gap: ~13 s vs ~0.5 s (CAPD order-20) on `bouncing_ball_with_drag_10_0.smt2`; caused by Codac's fixed Taylor order-2. See `CODAC_MIGRATION.md` for the CAPD v6 ARM64 fix if this needs to change.
+- CAPD v6 direct integration was attempted and abandoned (FILIB x86-only blocker); details in `CODAC_MIGRATION.md`.
+
+**`cav26`**: Replaces the old trie-based pattern matcher with a fundamentally different approach:
 - **DeBruijn canonicalization** (`debruijn_canonical.cc`): Converts AST terms to a canonical alpha-equivalent form using De Bruijn indices, so structurally identical formulas up to variable renaming hash the same.
 - **`substitution_tree.cc`**: Efficient alpha-bijection checking. `substitutions_map` "forward"/"backward" terminology refers to the two directions of the bijection being maintained during matching.
 - **Flat-vector `substitutions_map`**: Replaced `std::unordered_map` with a flat vector for cache-friendliness.
@@ -134,6 +140,37 @@ This project started as a CMake port of the original dReal4 (which used Bazel). 
 - Removed all heuristic infrastructure (`predicate_heuristic.cc`, `pattern_matching_heuristic.cc`) that was in earlier branches.
 - PM thresholds and timeouts are now CLI-configurable (`--drpm-max-size`, `--drpm-max-time`) instead of compile-time.
 - Randomized iteration order in `substitution_tree.cc` to avoid biasing towards early-indexed variables when a timeout interrupts matching.
+
+## Benchmarking
+
+Run `/benchmark` after every meaningful code change. This is the primary regression-detection mechanism during active development — run it frequently, not just before commits. Suggest it proactively at natural breakpoints even if the user doesn't ask.
+
+**Infrastructure** (`benchmark/` directory):
+- `baseline.csv` — frozen DRPM_0L reference times for 102 benchmarks (good_benchmarks.csv subset)
+- `state.json` — persistent anomaly/exceptional tracker; updated automatically each run
+- `run_batch.sh` — parallel runner: reads TSV from stdin, runs each with `gtime -v -o` and `timeout 300`
+- `select.py` — picks 8 random benchmarks + all current anomalies; outputs TSV (csv_name TAB filepath)
+- `parse_results.py` — parses gtime output + solver stdout into `summary.csv`
+- `aggregate.py` — compares vs baseline, flags regressions/exceptional, updates `state.json`
+- `results/` — per-run output directories (gitignored)
+
+**Skills** (invoke from Claude Code prompt):
+- `/benchmark` — runs ~8-12 benchmarks in parallel, spawns a Haiku subagent to interpret results, reports back 2-4 sentence summary with regression/exceptional counts
+- `/benchmark-baseline` — runs ~30 benchmarks to establish a fresh local baseline (use before branch merges or when exceptional list grows stale)
+
+**Thresholds**: regression if wall time >1.5× baseline or result changes; exceptional if <0.6× baseline. Correctness flips (SAT↔UNSAT) are always escalated immediately regardless of timing.
+
+**Benchmark sources** (raw `.smt2` files, not in this repo):
+- `~/Documents/new_dreal/nraode_to_nra/drealgithub_sunoct5/rolled/` — github_oct5_ family
+- `~/Documents/new_dreal/nraode_to_nra/VNAMSCwI_satoct11/rolled/` — tacas_c2e2_ family
+- `~/Documents/new_dreal/nraode_to_nra/SARADC_tueoct14/` and `REB_SAR_k1_dec9/` — 1mhz_ family
+
+**Manual invocation** (if not using the skill):
+```bash
+python3 benchmark/select.py | bash benchmark/run_batch.sh benchmark/results/run_$(git rev-parse --short HEAD)_$(date +%s)
+python3 benchmark/parse_results.py <results_dir>
+python3 benchmark/aggregate.py <results_dir>
+```
 
 ## Key Design Notes
 
@@ -144,5 +181,7 @@ This project started as a CMake port of the original dReal4 (which used Bazel). 
 **FPU rounding mode**: The solver sets the FPU rounding mode explicitly (fesetround). There are guards in `prefix_printer.cc` and `rounding mode guards` in several places. Interval arithmetic requires directed rounding; don't add floating-point code without considering this.
 
 **`filter_assertion` soundness**: There was a soundness bug where strict upper bounds were handled incorrectly due to a wrong `nextafter()` call. The `forward`/`backward` naming in `substitutions_map` also had a soundness bug that was fixed. Be careful around strict vs. non-strict inequality handling in contractors and the SAT interval logic.
+
+**ODE performance baseline** (`upgrade-ibex` branch, ARM64 macOS): `bouncing_ball_with_drag_10_0.smt2` (10 modes) takes ~13 s with Codac `CtcLohner` (Taylor order 2). Old CAPD (Taylor order 20, x86 Rosetta) took ~0.5 s. The 26× gap is accepted because CAV26 research focus is pattern-matching/lemma reuse, not ODE integration speed. See `CODAC_MIGRATION.md` for the CAPD v6 ARM64 fix if ODE speed becomes critical.
 
 **Benchmarking instrumentation**: Several `std::cerr` prints and JSON dumps exist specifically for benchmarking runs. Log levels (TRACE/DEBUG/INFO) are tuned so that `--verbose` (DEBUG) is useful for development without flooding output on large queries. TRACE is for deep debugging only.

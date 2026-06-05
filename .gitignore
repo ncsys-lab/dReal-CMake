@@ -463,3 +463,7 @@ pip-selfcheck.json
 
 .idea
 .idea/**
+smt2
+gcc_build
+past_compilations
+benchmark/results/

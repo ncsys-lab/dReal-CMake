@@ -1,0 +1,9 @@
+{
+  "anomalies": [],
+  "exceptional": [],
+  "baseline_column": "DRPM_0L",
+  "baseline_source": "benchmark/baseline.csv",
+  "last_run": null,
+  "last_run_dir": null,
+  "runs": []
+}
