@@ -163,7 +163,7 @@ Run `/benchmark` after every meaningful code change. This is the primary regress
 **Benchmark sources** (raw `.smt2` files, not in this repo):
 - `~/Documents/new_dreal/nraode_to_nra/drealgithub_sunoct5/rolled/` — github_oct5_ family
 - `~/Documents/new_dreal/nraode_to_nra/VNAMSCwI_satoct11/rolled/` — tacas_c2e2_ family
-- `~/Documents/new_dreal/nraode_to_nra/SARADC_tueoct14/` and `REB_SAR_k1_dec9/` — 1mhz_ family
+- `~/Documents/new_dreal/AMS-verification-bundle-of-sticks/saradc/rolled/` — 1mhz_ family
 
 **Manual invocation** (if not using the skill):
 ```bash

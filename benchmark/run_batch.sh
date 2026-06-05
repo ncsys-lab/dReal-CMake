@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Usage: run_batch.sh <output_dir>
-# Reads TSV pairs (csv_name <TAB> filepath) from stdin, one per line.
+# Usage: run_batch.sh <output_dir> [jobs_file]
+# Reads TSV pairs (csv_name <TAB> filepath) from stdin or jobs_file, one per line.
 # Runs each benchmark in parallel with gtime -v and a 300s timeout.
 # Outputs per-benchmark using csv_name (minus .smt2) as the label:
 #   <label>.stdout, <label>.solver_log, <label>.gtime, <label>.exit
@@ -8,6 +8,7 @@
 BINARY="$(dirname "$0")/../gcc_build/dreal4"
 OUT="$1"
 mkdir -p "$OUT"
+[[ -n "${2:-}" ]] && exec < "$2"
 
 if [[ ! -x "$BINARY" ]]; then
     echo "ERROR: dreal4 binary not found at $BINARY" >&2

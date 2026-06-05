@@ -1,31 +1,74 @@
 {
   "anomalies": [
+    "github_oct5_0hz_k1280_planning_one-var.drh.o",
     "github_oct5_0hz_k128_quad_quad2-1.drh.o",
+    "github_oct5_0hz_k1536_planning_one-var.drh.o",
+    "github_oct5_0hz_k16_crazyflie_stabilizer.drh.o",
     "github_oct5_0hz_k256_gen_gen-0-multi-nonlinear.drh.n",
-    "github_oct5_0hz_k256_gen_gen-0-single-nonlinear.drh.n",
     "github_oct5_0hz_k256_thermostat_thermostat-double-network-sat.drh.n",
+    "github_oct5_0hz_k2_prostate_cancer2_scaled_prostate.drh.o",
+    "github_oct5_0hz_k2_prostate_cancer_scaled_prostate_infix.drh.o",
+    "github_oct5_0hz_k2_prostate_prostate_h2.drh.o",
+    "github_oct5_0hz_k2_prostate_prostate_p10.drh.o",
     "github_oct5_0hz_k32_crazyflie_stabilizer.drh.o",
-    "github_oct5_0hz_k4_gen_gen-9-multi-linear.drh.n",
+    "github_oct5_0hz_k32_water_water-triple-network-sat.drh.n",
+    "github_oct5_0hz_k4_gen_gen-5-single-nonlinear.drh.n",
     "github_oct5_0hz_k64_cardiac_new_cardiac.drh.o",
+    "github_oct5_0hz_k64_gen_gen-2-multi-linear.drh.n",
     "github_oct5_0hz_k64_water_water-double-network-sat.drh.n",
     "github_oct5_0hz_k64_water_water-triple-network-sat.drh.n",
-    "github_oct5_0hz_k8_airplane_airplane-single-network-sat.drh.n"
+    "github_oct5_0hz_k8_cardomain_car-10-single-nonlinear-no-acc-no-lock.drh.n"
   ],
   "exceptional": [
+    "github_oct5_0hz_k128_water_water-double-network.drh.n",
+    "github_oct5_0hz_k2048_atrial_fibrillation_new_cardiac_stim.drh.o",
+    "github_oct5_0hz_k2_prostate_prostate_h2.drh.o",
+    "github_oct5_0hz_k32_cardomain_car-8-flat-linear.drh.o",
+    "github_oct5_0hz_k4_cardomain_car-1-single-linear-no-acc.drh.n",
+    "github_oct5_0hz_k4_cardomain_car-1-single-linear.drh.n",
+    "github_oct5_0hz_k4_cardomain_car-3-single-linear.drh.n",
     "github_oct5_0hz_k4_cardomain_car-3-single-nonlinear.drh.n",
+    "github_oct5_0hz_k4_cardomain_car.drh.n",
+    "github_oct5_0hz_k4_gen_gen-1-single-nonlinear.drh.n",
+    "github_oct5_0hz_k4_gen_gen-2-unsat.drh.n",
+    "github_oct5_0hz_k4_gen_gen-9-multi-linear.drh.n",
+    "github_oct5_0hz_k64_cardomain_car-7-flat-nonlinear.drh.o",
+    "github_oct5_0hz_k64_cardomain_car-8-flat-nonlinear.drh.o",
     "github_oct5_0hz_k64_water_water-double-network-sat.drh.n",
     "github_oct5_0hz_k8_airplane_airplane-single-network-sat.drh.n",
+    "github_oct5_0hz_k8_airplane_airplane-single-network.drh.n",
+    "tacas_c2e2_0hz_k10_50000.0clkhz_uniform_NOR__sigmoid.hyxml_SAT.drh.o",
+    "tacas_c2e2_0hz_k10_50000.0clkhz_uniform_OR_sigmoid.hyxml_SAT.drh.o",
+    "tacas_c2e2_0hz_k11_10000.0clkhz_uniform_inverter_ramp.hyxml_SAT.drh.o",
+    "tacas_c2e2_0hz_k12_50000.0clkhz_uniform_NOR_ramp.hyxml_SAT.drh.o",
     "tacas_c2e2_0hz_k12_50000.0clkhz_uniform_NOR_ramp.hyxml_UNS.drh.o",
+    "tacas_c2e2_0hz_k12_50000.0clkhz_uniform_OR_sigmoid.hyxml_SAT.drh.o",
+    "tacas_c2e2_0hz_k12_50000.0clkhz_uniform_OR_sigmoid.hyxml_UNS.drh.o",
+    "tacas_c2e2_0hz_k13_10000.0clkhz_uniform_inverter_sigmoid.hyxml_SAT.drh.o",
+    "tacas_c2e2_0hz_k13_50000.0clkhz_uniform_NOR__sigmoid.hyxml_UNS.drh.o",
+    "tacas_c2e2_0hz_k14_50000.0clkhz_uniform_NOR__sigmoid.hyxml_SAT.drh.o",
     "tacas_c2e2_0hz_k14_50000.0clkhz_uniform_NOR_ramp.hyxml_SAT.drh.o",
+    "tacas_c2e2_0hz_k15_50000.0clkhz_uniform_NOR__sigmoid.hyxml_SAT.drh.o",
     "tacas_c2e2_0hz_k15_50000.0clkhz_uniform_OR_sigmoid.hyxml_UNS.drh.o",
+    "tacas_c2e2_0hz_k16_50000.0clkhz_uniform_NOR__sigmoid.hyxml_SAT.drh.o",
+    "tacas_c2e2_0hz_k17_50000.0clkhz_uniform_NOR__sigmoid.hyxml_SAT.drh.o",
     "tacas_c2e2_0hz_k17_50000.0clkhz_uniform_NOR__sigmoid.hyxml_UNS.drh.o",
+    "tacas_c2e2_0hz_k19_50000.0clkhz_uniform_NOR__sigmoid.hyxml_UNS.drh.o",
+    "tacas_c2e2_0hz_k20_50000.0clkhz_uniform_NOR__sigmoid.hyxml_UNS.drh.o",
+    "tacas_c2e2_0hz_k21_50000.0clkhz_uniform_NOR__sigmoid.hyxml_SAT.drh.o",
     "tacas_c2e2_0hz_k21_50000.0clkhz_uniform_NOR__sigmoid.hyxml_UNS.drh.o",
+    "tacas_c2e2_0hz_k22_50000.0clkhz_uniform_NOR__sigmoid.hyxml_SAT.drh.o",
+    "tacas_c2e2_0hz_k25_50000.0clkhz_uniform_NOR__sigmoid.hyxml_SAT.drh.o",
+    "tacas_c2e2_0hz_k26_50000.0clkhz_uniform_NOR__sigmoid.hyxml_SAT.drh.o",
+    "tacas_c2e2_0hz_k27_50000.0clkhz_uniform_NOR__sigmoid.hyxml_SAT.drh.o",
+    "tacas_c2e2_0hz_k2_50000.0clkhz_uniform_NOR_ramp.hyxml_UNS.drh.o",
+    "tacas_c2e2_0hz_k8_50000.0clkhz_uniform_OR_sigmoid.hyxml_SAT.drh.o",
     "tacas_c2e2_0hz_k9_50000.0clkhz_uniform_NOR__sigmoid.hyxml_UNS.drh.o"
   ],
-  "baseline_column": "DRPM_0L",
-  "baseline_source": "benchmark/baseline.csv",
-  "last_run": "2026-06-05T08:11:55.788868+00:00",
-  "last_run_dir": "/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/run_00d38ea75_20260605_010609",
+  "baseline_column": "wall_time_s",
+  "baseline_source": "benchmark/baseline_local.csv",
+  "last_run": "2026-06-05T20:07:28.915024+00:00",
+  "last_run_dir": "benchmark/results/baseline_43104cdf8_20260605_130147",
   "runs": [
     {
       "timestamp": "2026-06-05T07:21:12.703204+00:00",
@@ -60,6 +103,135 @@
         "github_oct5_0hz_k64_water_water-double-network-sat.drh.n",
         "github_oct5_0hz_k8_airplane_airplane-single-network-sat.drh.n"
       ]
+    },
+    {
+      "timestamp": "2026-06-05T15:39:24.755081+00:00",
+      "results_dir": "benchmark/results/run_43104cdf8_baseline_20260605_083355",
+      "n_ran": 18,
+      "n_regressions": 15,
+      "n_exceptional": 4,
+      "n_resolved": 0,
+      "correctness_flips": [
+        "github_oct5_0hz_k64_water_water-double-network-sat.drh.n",
+        "github_oct5_0hz_k8_airplane_airplane-single-network-sat.drh.n"
+      ]
+    },
+    {
+      "timestamp": "2026-06-05T18:14:46.328797+00:00",
+      "results_dir": "benchmark/results/run_cache_only_20260605_110815",
+      "n_ran": 23,
+      "n_regressions": 16,
+      "n_exceptional": 8,
+      "n_resolved": 1,
+      "correctness_flips": [
+        "github_oct5_0hz_k64_water_water-double-network-sat.drh.n",
+        "github_oct5_0hz_k8_airplane_airplane-single-network-sat.drh.n"
+      ]
+    },
+    {
+      "timestamp": "2026-06-05T18:39:29.061981+00:00",
+      "results_dir": "benchmark/results/run_trivial_bwd_20260605_113216",
+      "n_ran": 24,
+      "n_regressions": 18,
+      "n_exceptional": 9,
+      "n_resolved": 0,
+      "correctness_flips": [
+        "github_oct5_0hz_k2_prostate_prostate_h2.drh.o",
+        "github_oct5_0hz_k64_water_water-double-network-sat.drh.n",
+        "github_oct5_0hz_k8_airplane_airplane-single-network-sat.drh.n"
+      ]
+    },
+    {
+      "timestamp": "2026-06-05T18:40:06.652326+00:00",
+      "results_dir": "/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/run_43104cdf8_20260605_113347",
+      "n_ran": 24,
+      "n_regressions": 17,
+      "n_exceptional": 8,
+      "n_resolved": 0,
+      "correctness_flips": [
+        "github_oct5_0hz_k64_water_water-double-network-sat.drh.n",
+        "github_oct5_0hz_k8_airplane_airplane-single-network-sat.drh.n"
+      ]
+    },
+    {
+      "timestamp": "2026-06-05T18:42:41.554933+00:00",
+      "results_dir": "/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/run_43104cdf8_20260605_114203",
+      "n_ran": 0,
+      "n_regressions": 0,
+      "n_exceptional": 0,
+      "n_resolved": 0,
+      "correctness_flips": []
+    },
+    {
+      "timestamp": "2026-06-05T18:48:27.297661+00:00",
+      "results_dir": "/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/run_43104cdf8_20260605_114203",
+      "n_ran": 27,
+      "n_regressions": 20,
+      "n_exceptional": 9,
+      "n_resolved": 1,
+      "correctness_flips": [
+        "github_oct5_0hz_k2_prostate_prostate_h2.drh.o",
+        "github_oct5_0hz_k64_water_water-double-network-sat.drh.n",
+        "github_oct5_0hz_k8_airplane_airplane-single-network-sat.drh.n"
+      ]
+    },
+    {
+      "timestamp": "2026-06-05T18:56:46.926048+00:00",
+      "results_dir": "benchmark/results/run_final_20260605_115002",
+      "n_ran": 28,
+      "n_regressions": 19,
+      "n_exceptional": 11,
+      "n_resolved": 1,
+      "correctness_flips": [
+        "github_oct5_0hz_k2_prostate_prostate_h2.drh.o",
+        "github_oct5_0hz_k64_water_water-double-network-sat.drh.n",
+        "github_oct5_0hz_k8_airplane_airplane-single-network-sat.drh.n"
+      ]
+    },
+    {
+      "timestamp": "2026-06-05T18:58:20.990567+00:00",
+      "results_dir": "/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/run_43104cdf8_20260605_115320",
+      "n_ran": 28,
+      "n_regressions": 21,
+      "n_exceptional": 9,
+      "n_resolved": 0,
+      "correctness_flips": [
+        "github_oct5_0hz_k2_prostate_prostate_h2.drh.o",
+        "github_oct5_0hz_k64_water_water-double-network-sat.drh.n",
+        "github_oct5_0hz_k8_airplane_airplane-single-network-sat.drh.n"
+      ]
+    },
+    {
+      "timestamp": "2026-06-05T19:15:37.694286+00:00",
+      "results_dir": "/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/run_43104cdf8_20260605_121037",
+      "n_ran": 29,
+      "n_regressions": 21,
+      "n_exceptional": 9,
+      "n_resolved": 1,
+      "correctness_flips": [
+        "github_oct5_0hz_k2_prostate_prostate_h2.drh.o",
+        "github_oct5_0hz_k64_water_water-double-network-sat.drh.n",
+        "github_oct5_0hz_k8_airplane_airplane-single-network-sat.drh.n"
+      ]
+    },
+    {
+      "timestamp": "2026-06-05T20:07:19.150007+00:00",
+      "results_dir": "/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/baseline_43104cdf8_20260605_130147",
+      "n_ran": 30,
+      "n_regressions": 0,
+      "n_exceptional": 7,
+      "n_resolved": 3,
+      "correctness_flips": []
+    },
+    {
+      "timestamp": "2026-06-05T20:07:28.915024+00:00",
+      "results_dir": "benchmark/results/baseline_43104cdf8_20260605_130147",
+      "n_ran": 30,
+      "n_regressions": 0,
+      "n_exceptional": 7,
+      "n_resolved": 0,
+      "correctness_flips": []
     }
-  ]
+  ],
+  "baseline_sha": "43104cdf8"
 }

@@ -14,8 +14,9 @@ import sys
 BENCHMARK_DIR = "/Users/kunalsheth/Documents/new_dreal/nraode_to_nra"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# SARADC files are split across two directories; search both in order.
+# SARADC files live in the AMS verification bundle; fall back to old split dirs.
 SARADC_DIRS = [
+    "/Users/kunalsheth/Documents/new_dreal/AMS-verification-bundle-of-sticks/saradc/rolled",
     os.path.join(BENCHMARK_DIR, "SARADC_tueoct14"),
     os.path.join(BENCHMARK_DIR, "REB_SAR_k1_dec9"),
 ]

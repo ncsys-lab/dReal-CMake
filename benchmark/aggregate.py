@@ -23,7 +23,28 @@ EXCEPTIONAL_RATIO = 0.6  # wall time < 0.6x baseline → exceptional
 def load_baseline(baseline_csv: str, column: str = "DRPM_0L") -> dict[str, dict]:
     """Returns {benchmark_name: {time_s: float, result: str}}"""
     with open(baseline_csv) as f:
-        rows = list(csv.reader(f))
+        reader = csv.DictReader(f)
+        rows_as_dicts = list(reader)
+
+    # If we have benchmark_name, wall_time_s, solver_result columns, parse as new format
+    if reader.fieldnames and "benchmark_name" in reader.fieldnames:
+        baseline = {}
+        for row in rows_as_dicts:
+            if not row or not row.get("benchmark_name", "").strip():
+                continue
+            name = row["benchmark_name"].strip().removesuffix(".smt2")
+            try:
+                time_s = float(row.get("wall_time_s", ""))
+            except (ValueError, TypeError):
+                time_s = None
+            result = row.get("solver_result", "").strip()
+            baseline[name] = {"time_s": time_s, "result": result}
+        return baseline
+
+    # Otherwise parse as old multi-column format
+    f = open(baseline_csv)
+    rows = list(csv.reader(f))
+    f.close()
 
     # rows[0]: group headers (elapsed_time x3, solver_result x3)
     # rows[1]: sub-headers (DRPM_0L, DRPM_16L_200ms, dReal3, ...)
@@ -71,12 +92,63 @@ def load_summary(summary_csv: str) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: aggregate.py <results_dir>", file=sys.stderr)
-        sys.exit(1)
+def family_of(name: str) -> str | None:
+    if name.startswith("1mhz_"):
+        return "saradc"
+    if name.startswith("github_oct5_"):
+        return "github"
+    if name.startswith("tacas_c2e2_"):
+        return "tacas"
+    return None
 
-    results_dir = sys.argv[1]
+
+def compute_family_comparison(frozen_csv: str, local_summary: list[dict]) -> dict:
+    """Compare per-family averages between frozen baseline and new local run."""
+    frozen = load_baseline(frozen_csv, "DRPM_0L")
+
+    from collections import defaultdict
+    frozen_times: dict[str, list[float]] = defaultdict(list)
+    local_times: dict[str, list[float]] = defaultdict(list)
+
+    for row in local_summary:
+        name = row["benchmark_name"]
+        fam = family_of(name)
+        if fam is None:
+            continue
+        cur_time = float(row["wall_time_s"]) if row.get("wall_time_s") else None
+        base = frozen.get(name)
+        base_time = base["time_s"] if base else None
+        if cur_time is not None and base_time is not None:
+            local_times[fam].append(cur_time)
+            frozen_times[fam].append(base_time)
+
+    result = {}
+    for fam in ("saradc", "github", "tacas"):
+        lt = local_times.get(fam, [])
+        ft = frozen_times.get(fam, [])
+        if lt and ft:
+            local_avg = sum(lt) / len(lt)
+            frozen_avg = sum(ft) / len(ft)
+            result[fam] = {
+                "frozen_avg": round(frozen_avg, 2),
+                "local_avg": round(local_avg, 2),
+                "ratio": round(local_avg / frozen_avg, 3),
+                "n": len(lt),
+            }
+        else:
+            result[fam] = {"frozen_avg": None, "local_avg": None, "ratio": None, "n": 0}
+    return result
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("results_dir")
+    parser.add_argument("--frozen-baseline", default=None,
+                        help="Path to frozen baseline CSV for per-family comparison")
+    args = parser.parse_args()
+
+    results_dir = args.results_dir
     state_path = os.path.join(SCRIPT_DIR, "state.json")
     summary_csv = os.path.join(results_dir, "summary.csv")
 
@@ -243,6 +315,11 @@ def main():
         "resolved": resolved_anomalies,
         "anomaly_report": open(report_path).read(),
     }
+    if args.frozen_baseline:
+        summary_json["family_comparison"] = compute_family_comparison(
+            args.frozen_baseline, summary
+        )
+        summary_json["baseline_sha"] = state.get("baseline_sha", "unknown")
     print(json.dumps(summary_json, indent=2))
 
 
