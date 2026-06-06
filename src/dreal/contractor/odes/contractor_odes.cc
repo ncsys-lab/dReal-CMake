@@ -144,7 +144,7 @@ namespace dreal
             m_ode_state_vars.push_back(ode_var);
         {
             RoundingModeGuard g(FE_TONEAREST);
-            m_codac_cache = make_codac_ode_cache(*icc->get_flow(), m_ode_state_vars);
+            m_codac_cache = make_codac_ode_cache(icc->get_flow(), m_ode_state_vars);
         }
     }
 

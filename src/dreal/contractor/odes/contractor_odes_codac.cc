@@ -167,36 +167,47 @@ namespace dreal
     // mode is a separate Integral formula but shares a single flow_ptr).
     // The theory solver builds one contractor per (formula, direction) pair,
     // so without per-flow deduplication we'd translate the same RHS expressions
-    // into Codac's expression tree N_modes × 2 times. We key by flow address;
-    // OdeFlow objects are held via shared_ptr from the moment they're parsed,
-    // so addresses are stable for the lifetime of any contractor.
+    // into Codac's expression tree N_modes × 2 times. We key by flow address
+    // but also hold the flow's shared_ptr in the cache slot to keep the
+    // OdeFlow alive for the cache's lifetime — without that, an OdeFlow can
+    // be destroyed and a new one allocated at the same address, in which
+    // case the raw-pointer lookup would return a stale cache built for the
+    // old flow. Hit during testing; the inline-static fixture workaround
+    // is no longer needed.
     // -------------------------------------------------------------------------
 
     namespace {
+        struct CacheSlot {
+            std::shared_ptr<const OdeFlow> flow;     // keeps OdeFlow alive
+            std::shared_ptr<CodacOdeCache> cache;
+        };
         std::mutex& flow_cache_mutex() {
             static std::mutex m;
             return m;
         }
-        std::unordered_map<const OdeFlow*, std::shared_ptr<CodacOdeCache>>&
+        std::unordered_map<const OdeFlow*, CacheSlot>&
         flow_cache_map() {
-            static std::unordered_map<const OdeFlow*, std::shared_ptr<CodacOdeCache>> m;
+            static std::unordered_map<const OdeFlow*, CacheSlot> m;
             return m;
         }
     }
 
     std::shared_ptr<CodacOdeCache> make_codac_ode_cache(
-        const OdeFlow& flow,
+        std::shared_ptr<const OdeFlow> flow,
         const std::vector<Variable>& ordered_vars)
     {
+        if (!flow) return nullptr;
+        const OdeFlow* const flow_ptr = flow.get();
+
         // Fast path: existing cache for this flow pointer.
         {
             std::lock_guard<std::mutex> lock(flow_cache_mutex());
             auto& m = flow_cache_map();
-            auto it = m.find(&flow);
-            if (it != m.end()) return it->second;
+            auto it = m.find(flow_ptr);
+            if (it != m.end()) return it->second.cache;
         }
 
-        auto fn_opt = build_ode_fn(flow, ordered_vars);
+        auto fn_opt = build_ode_fn(*flow, ordered_vars);
         if (!fn_opt) return nullptr;
         const int n = static_cast<int>(ordered_vars.size());
 
@@ -205,7 +216,7 @@ namespace dreal
         // so generate_trace and any unanticipated code path remains safe,
         // but mark the cache so Prune() can short-circuit.
         bool is_trivial = true;
-        for (const auto& [_var, rhs] : flow.ode_list) {
+        for (const auto& [_var, rhs] : flow->ode_list) {
             if (!is_zero(rhs)) { is_trivial = false; break; }
         }
 
@@ -226,8 +237,9 @@ namespace dreal
         {
             std::lock_guard<std::mutex> lock(flow_cache_mutex());
             auto& m = flow_cache_map();
-            auto [it, inserted] = m.try_emplace(&flow, std::move(cache));
-            return it->second;
+            auto [it, inserted] = m.try_emplace(
+                flow_ptr, CacheSlot{std::move(flow), std::move(cache)});
+            return it->second.cache;
         }
     }
 

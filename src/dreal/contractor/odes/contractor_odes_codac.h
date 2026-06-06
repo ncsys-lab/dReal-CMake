@@ -48,8 +48,14 @@ namespace dreal
     // Build a cache for `flow`. Returns nullptr if expression translation fails.
     // `ordered_vars` MUST match the order in `flow.ode_list` (one entry per ODE
     // state variable).
+    //
+    // The cache holds a reference to `flow` (the shared_ptr is stored alongside
+    // the cache entry) to guarantee `flow.get()` stays valid for the lifetime
+    // of the cache. Without this, the internal `flow_cache_map` (keyed by raw
+    // pointer) could return stale entries when an OdeFlow is destroyed and a
+    // new one is allocated at the same address.
     std::shared_ptr<CodacOdeCache> make_codac_ode_cache(
-        const OdeFlow& flow,
+        std::shared_ptr<const OdeFlow> flow,
         const std::vector<Variable>& ordered_vars);
 
     // True if every RHS in the cached flow is the literal 0 constant — i.e.

@@ -54,13 +54,13 @@ using std::vector;
 // Exercises the trivial-flow short-circuit in contractor_odes.cc.
 // =============================================================================
 
-// Note: Variables and OdeFlow are `inline static` so they outlive the test
-// program. `make_codac_ode_cache` (contractor_odes_codac.cc:180) keys its
-// internal cache by raw `OdeFlow*` pointer. If an OdeFlow were destroyed
-// between tests and a new one allocated at the same address, the contractor
-// would silently return a stale cache built for the old flow. (Pre-existing
-// bug — unrelated to the BWD experiment; tracked separately. Workaround
-// here: never let the test OdeFlows die.)
+// Variables and OdeFlow are `inline static` — one instance per fixture class,
+// shared across every test in the class. This was originally a workaround
+// for a cache-key bug in `make_codac_ode_cache` (raw `OdeFlow*` keys,
+// vulnerable to pointer reuse after destruction). That bug is now fixed —
+// the cache holds a shared_ptr to the OdeFlow alongside the cache slot —
+// but the inline-static pattern is kept because it's tidier and avoids
+// unnecessary cache-map growth in the test binary.
 
 class TrivialFlowTest : public ::testing::Test {
  protected:
