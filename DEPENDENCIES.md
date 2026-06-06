@@ -65,24 +65,13 @@ None. We use the upstream `codac-team/codac` at tag `v2.0.2` without local patch
 
 ### ODE Contractor Status
 
-The `contractor_ode_lohner` class in `src/dreal/contractor/odes/contractor_odes_codac.cc`
-replaces the old `contractor_capd_full`. Fully implemented — sound and complete:
-
-- `run_lohner_integration()`: `CtcLohner` with `TimePropag::FWD_BWD`,
-  `contractions=2`, adaptive `n_steps = clamp(max(20, ceil(t_ub*2)), 20, 60)`.
-  Contracts both initial and final state enclosures. Used by the FWD
-  contractor.
-- `run_lohner_bwd_oneshot()`: `LohnerAlgorithm` with `forward=false`,
-  default `contractions=1`. Computes the backward image of `X_t` at real
-  time 0 via repeated `integrate(1)` calls. Used by the BWD contractor
-  (third optimization pass — see `CODAC_MIGRATION.md`).
-- `run_lohner_trace()`: `LohnerAlgorithm` for trajectory visualization (`--visualize`).
-
-**Known performance gap**: Codac `CtcLohner` is fixed at Taylor order 2, vs. CAPD's
-order 20. ODE-heavy benchmarks run ~8× slower than the old CAPD backend on ARM64
-(e.g., `bouncing_ball_with_drag_10_0.smt2`: ~4.2 s post-BWD-restoration vs ~0.5 s).
-Accepted for current research focus. See `CODAC_MIGRATION.md` for the CAPD v6
-ARM64 fix if this needs to be revisited.
+`contractor_ode_lohner` (`src/dreal/contractor/odes/contractor_odes_codac.cc`) replaces
+the old `contractor_capd_full`. Three entry points: `run_lohner_integration` (FWD via
+`CtcLohner FWD_BWD`), `run_lohner_bwd_oneshot` (BWD via `LohnerAlgorithm(forward=false)`),
+`run_lohner_trace` (`--visualize`). Sound; complete modulo `GlobalEnclosureError`
+fallbacks on stiff dynamics. Known perf floor on ODE-heavy benchmarks (Codac
+hardcoded to Taylor order 2 vs CAPD's order 20). See `CODAC_MIGRATION.md` for the
+tuning history and the CAPD v6 ARM64 fallback patch.
 
 ---
 

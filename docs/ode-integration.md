@@ -67,42 +67,24 @@ The benchmark `bouncing_ball_with_drag_10_0.smt2` is a 10-mode bouncing ball —
 
 ## Performance
 
-| Backend | Platform | Time on `bouncing_ball_10_0` | Taylor order |
-|---|---|---|---|
-| CAPD v4 (old, ncsys-lab) | x86 Rosetta on ARM64 | ~0.5 s | 20 |
-| Codac v2 CtcLohner (current) | ARM64 native | ~13 s | 2 |
+`bouncing_ball_with_drag_10_0.smt2` (10 modes) runs at ~4.2 s on ARM64 native (post-three-optimization-passes) vs ~0.5 s on the old CAPD order-20 backend (x86 Rosetta). Two root causes:
 
-The 26× regression is due to:
-1. **Taylor order**: CAPD used order 20 (much tighter enclosures per step, fewer bisections). Codac's `CtcLohner` is fixed at order 2.
-2. **Architecture**: Native ARM64 vs. x86 emulation — the architectural advantage partially offset the algorithmic difference.
+- **Taylor order**: Codac `CtcLohner` is hardcoded to order 2; CAPD used order 20. Order-2 produces wider per-step enclosures, forcing more ICP bisections.
+- **Architecture**: ARM64 native vs x86 emulation partially offsets the algorithmic gap.
 
-This regression is accepted on the `upgrade-ibex` branch because the research focus (CAV26) is pattern-matching / lemma reuse, not ODE integration speed. See `CODAC_MIGRATION.md` for a documented path to fix this via CAPD v6 ARM64 if ODE performance becomes critical.
+See `CODAC_MIGRATION.md` for the headline benchmark table, optimization timeline, and the CAPD v6 ARM64 fallback patch.
 
 ---
 
-## What Was Replaced
+## What was replaced
 
-The old stack:
-
-- `ncsys-lab/ibex-lib` — IBEX fork with CAPD interval arithmetic headers
-- `ncsys-lab/capdDynSys-4.0` — CAPD v4 interval ODE library
-- `contractor_odes.cc` (old) — CAPD-based contractor
-
-The new stack:
-
-- `lebarsfa/ibex-lib@ibex-2.8.9.1` — Standard IBEX fork (no CAPD dependency)
-- `codac-team/codac@v2.0.2` — Codac v2 with `CtcLohner`
-- `contractor_odes_codac.cc` — Current implementation
-
-The main difficulty in the migration was that Codac v2 uses IBEX's standard interval arithmetic internally, but the old contractor used CAPD's interval types. All interval conversions at the boundary now go through IBEX's `ibex::Interval` / `ibex::IntervalVector`.
+`ncsys-lab/ibex-lib` + `ncsys-lab/capdDynSys-4.0` + `contractor_odes.cc` (old, CAPD-based) → `lebarsfa/ibex-lib@ibex-2.8.9.1` + `codac-team/codac@v2.0.2` + `contractor_odes_codac.cc`. Per-library rationale lives in `DEPENDENCIES.md`. The boundary conversions now go through `ibex::Interval` / `ibex::IntervalVector` since Codac v2 shares IBEX's interval arithmetic.
 
 ---
 
-## CAPD v6 ARM64 Path (Not Taken)
+## CAPD v6 ARM64 path (not taken)
 
-CAPD v6 was investigated as a way to recover Taylor order 20 performance on ARM64. The blocker was FILIB (a low-level interval library), which depends on x86-specific FPU control (`fenv.h` intrinsics for directed rounding that have no ARM64 equivalent in FILIB's implementation). Replacing FILIB with a portable alternative would require significant CAPD patching.
-
-The decision to use Codac instead of fixing FILIB is documented in `CODAC_MIGRATION.md`. If this path needs to be revisited, the key file is `capd/filib/interval.h` in CAPD's source.
+Order-20 CAPD on ARM64 is achievable — CAPD v6 already has ARM64 `DoubleRounding`. The blocker is that CAPD's root `CMakeLists.txt` unconditionally pulls in FILIB, which has a `FATAL_ERROR` for non-x86. The two-file patch that fixes this is documented in `CODAC_MIGRATION.md` under "CAPD v6 ARM64 path (abandoned, but here's how to do it)".
 
 ---
 

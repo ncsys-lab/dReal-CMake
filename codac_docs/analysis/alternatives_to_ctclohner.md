@@ -51,6 +51,18 @@ Bouncing-ball perf. The order-2 ceiling is the same. Where this helps is on benc
 
 Splitting `FWD_BWD` into a `FWD` call then a `BWD` call on the same tube might just reproduce `FWD_BWD` semantics — but if the interleaving with other contractors in the fixpoint loop matters, it could either improve narrowing per pass or expose extra room for ICP to bisect. One-line change to validate before committing to #1.
 
+## Why #6 is not justified
+
+Three issues that aren't visible from the row's "weeks" estimate:
+
+1. **Soundness risk is silent and unbounded.** Interval Taylor integration has a long list of landmines: directed-rounding discipline on every FP op (already a known dReal fragility — see `prefix_printer.cc` guards and the `filter_assertion`/`nextafter` history in `CLAUDE.md`), interval-valid Lagrange remainder bounds at every order for every elementary function, AD correctness, and divergence detection (the analog of Codac's `GlobalEnclosureError`). Any of these going wrong produces an *under*-approximation → UNSAT-when-SAT → poisoned benchmark data. The existing `contractor_odes_semantic_test.cc` fixtures (trivial, decay, mock-prostate) are nowhere near sufficient to confirm soundness of hand-rolled interval code; a defensible validation harness needs differential testing against a trusted oracle, which means keeping CAPD or Codac alongside anyway — negating the "no heavy dep" motivation.
+
+2. **Wrapping effect is the killer subtlety.** Naive order-20 Taylor without preconditioning is *worse* than CtcLohner at order 2, because the per-step parallelotope rotates and Minkowski sums blow up. To actually beat Codac's performance you also have to implement interval-valid QR (or polynomial-enclosure) preconditioning — another soundness-critical chunk. CAPD's order-20 win comes from decades of mature preconditioning, not just the high order.
+
+3. **Maintenance has bus factor 1.** Custom integrator code has no upstream community to absorb bug reports or improvements. CAPD/Codac/IBEX all have research communities and citations behind them. Combined with the soundness risk above, this is exactly the worst-shaped technical debt for research code on a submission timeline.
+
+Closing the bouncing-ball gap also isn't on the CAV26 critical path (see `CLAUDE.md`). If the order-2 ceiling later blocks a future line of work, the right path is still #5 (CAPD restoration via the ARM64 FILIB-bypass patch) — battle-tested order-20 at the cost of a small two-file patch — not custom integration.
+
 ## Operational plan
 
 1. Save documentation snapshot (this `codac_docs/` directory) so future sessions don't re-fetch. **Done.**
