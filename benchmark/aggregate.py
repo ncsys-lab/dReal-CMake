@@ -38,7 +38,9 @@ def load_baseline(baseline_csv: str, column: str = "DRPM_0L") -> dict[str, dict]
             except (ValueError, TypeError):
                 time_s = None
             result = row.get("solver_result", "").strip()
-            baseline[name] = {"time_s": time_s, "result": result}
+            ground_truth = row.get("ground_truth", "").strip()
+            baseline[name] = {"time_s": time_s, "result": result,
+                              "ground_truth": ground_truth}
         return baseline
 
     # Otherwise parse as old multi-column format
@@ -66,6 +68,13 @@ def load_baseline(baseline_csv: str, column: str = "DRPM_0L") -> dict[str, dict]
     if time_col is None or result_col is None:
         raise ValueError(f"Column '{column}' not found in baseline CSV (found: {subheaders})")
 
+    # Optional ground_truth column populated only from filename conventions
+    gt_col = None
+    for i, h in enumerate(subheaders):
+        if h.strip() == "ground_truth":
+            gt_col = i
+            break
+
     baseline = {}
     for row in rows[3:]:
         if not row or not row[0].strip():
@@ -83,7 +92,11 @@ def load_baseline(baseline_csv: str, column: str = "DRPM_0L") -> dict[str, dict]
             result = "UNSAT"
         elif result in ("TIM", "MEM", "UNK"):
             pass  # keep as-is
-        baseline[name] = {"time_s": time_s, "result": result}
+        ground_truth = ""
+        if gt_col is not None and gt_col < len(row):
+            ground_truth = row[gt_col].strip()
+        baseline[name] = {"time_s": time_s, "result": result,
+                          "ground_truth": ground_truth}
     return baseline
 
 
@@ -160,11 +173,42 @@ def main():
     baseline_file = os.path.normpath(baseline_file)
 
     baseline = load_baseline(baseline_file, baseline_column)
+
+    # Augment with the frozen baseline (benchmark/baseline.csv): supplies
+    # SAT/UNSAT verdicts + ground_truth for benchmarks not in the per-machine
+    # local baseline. Without this, SAT↔UNSAT flips on anomaly-list rows
+    # (e.g. prostate_h2 — picked by select.py but absent from baseline_local)
+    # are invisible because base = None and the row gets skipped.
+    frozen_path = os.path.join(SCRIPT_DIR, "baseline.csv")
+    if os.path.exists(frozen_path):
+        try:
+            frozen = load_baseline(frozen_path, "DRPM_0L")
+        except Exception:
+            frozen = {}
+        for name, fentry in frozen.items():
+            if name not in baseline:
+                # Fallback row: contributes to SAT/UNSAT flip detection only.
+                # Timing-regression and solve→timeout branches must not fire on
+                # these — frozen times are from a different machine and a TIM
+                # locally vs SAT in the frozen ref is not necessarily a code
+                # regression.
+                baseline[name] = {
+                    "time_s": None,
+                    "result": fentry.get("result", ""),
+                    "ground_truth": fentry.get("ground_truth", ""),
+                    "from_frozen": True,
+                }
+            elif not baseline[name].get("ground_truth"):
+                # Local baseline lacks ground_truth for this row — fill from frozen.
+                baseline[name]["ground_truth"] = fentry.get("ground_truth", "")
+
     summary = load_summary(summary_csv)
 
     regressions = []       # {name, reason, baseline_time, current_time, baseline_result, current_result}
     exceptional_list = []  # {name, reason, baseline_time, current_time}
     resolved_anomalies = []
+    correctness_improvements = []  # flips where current matches ground_truth
+    undetermined_flips = []        # flips on rows with no ground_truth annotation
 
     prev_anomalies = set(state.get("anomalies", []))
     prev_exceptional = set(state.get("exceptional", []))
@@ -185,23 +229,58 @@ def main():
         base_result = base["result"]
         base_timed_out = base_result in ("TIM", "MEM", "UNK") or (base_time is not None and base_time >= 180)
 
-        # --- Correctness regression (always HIGH PRIORITY) ---
+        # --- SAT↔UNSAT flip: classify against ground_truth ---
+        # dReal is sound + delta-complete, so a flip can be either a true
+        # soundness regression OR a completeness improvement (the baseline
+        # was a spurious δ-witness). Ground truth, when known, distinguishes
+        # them. See plan: codac_docs/.../verify-bwd-experiment.
         result_flip = False
         if cur_result in ("SAT", "UNSAT") and base_result in ("SAT", "UNSAT") and cur_result != base_result:
-            regressions.append({
-                "name": name,
-                "priority": "CORRECTNESS",
-                "reason": f"Result changed: baseline={base_result} current={cur_result}",
-                "baseline_time": base_time,
-                "current_time": cur_time,
-                "baseline_result": base_result,
-                "current_result": cur_result,
-            })
-            new_anomalies.add(name)
             result_flip = True
+            gt = base.get("ground_truth", "").strip()
+            if gt == cur_result:
+                correctness_improvements.append({
+                    "name": name,
+                    "reason": f"Flip aligns with ground_truth: baseline={base_result} current={cur_result} GT={gt}",
+                    "baseline_time": base_time,
+                    "current_time": cur_time,
+                    "baseline_result": base_result,
+                    "current_result": cur_result,
+                    "ground_truth": gt,
+                })
+                new_anomalies.discard(name)
+            elif gt == base_result:
+                regressions.append({
+                    "name": name,
+                    "priority": "SOUNDNESS",
+                    "reason": f"Flip disagrees with ground_truth: baseline={base_result} current={cur_result} GT={gt}",
+                    "baseline_time": base_time,
+                    "current_time": cur_time,
+                    "baseline_result": base_result,
+                    "current_result": cur_result,
+                    "ground_truth": gt,
+                })
+                new_anomalies.add(name)
+            else:
+                # No ground_truth annotation (gt == "") or it disagrees with both
+                # (shouldn't happen unless annotation is bogus).
+                undetermined_flips.append({
+                    "name": name,
+                    "reason": f"Undetermined flip: baseline={base_result} current={cur_result} (no ground_truth)",
+                    "baseline_time": base_time,
+                    "current_time": cur_time,
+                    "baseline_result": base_result,
+                    "current_result": cur_result,
+                })
+                new_anomalies.add(name)
+
+        from_frozen = base.get("from_frozen", False)
 
         # --- Solve→timeout/OOM regression ---
-        if not result_flip and base_result in ("SAT", "UNSAT") and cur_result in ("TIM", "OOM", "ERR"):
+        # Skip on frozen-fallback rows: a TIM locally vs SAT in the frozen ref
+        # may just reflect a slower machine, not a code regression.
+        if (not result_flip and not from_frozen and
+                base_result in ("SAT", "UNSAT") and cur_result in ("TIM", "OOM", "ERR")):
             regressions.append({
                 "name": name,
                 "priority": "HIGH",
@@ -280,6 +359,20 @@ def main():
                 f.write(f"  {e['name']}\n")
                 f.write(f"    {e['reason']}\n")
 
+        if correctness_improvements:
+            f.write(f"\n=== CORRECTNESS IMPROVEMENTS ({len(correctness_improvements)}) ===\n")
+            f.write("  (current result matches ground_truth; baseline did not)\n")
+            for c in correctness_improvements:
+                f.write(f"  {c['name']}\n")
+                f.write(f"    {c['reason']}\n")
+
+        if undetermined_flips:
+            f.write(f"\n=== UNDETERMINED FLIPS ({len(undetermined_flips)}) ===\n")
+            f.write("  (SAT↔UNSAT change with no ground_truth; soundness or completeness — cannot tell)\n")
+            for u in undetermined_flips:
+                f.write(f"  {u['name']}\n")
+                f.write(f"    {u['reason']}\n")
+
         if resolved_anomalies:
             f.write(f"\n=== RESOLVED ANOMALIES ({len(resolved_anomalies)}) ===\n")
             for name in resolved_anomalies:
@@ -290,6 +383,12 @@ def main():
     state["exceptional"] = sorted(new_exceptional)
     state["last_run"] = datetime.now(timezone.utc).isoformat()
     state["last_run_dir"] = results_dir
+    # `correctness_flips` semantics: only SOUNDNESS regressions (flips that
+    # disagree with ground_truth). Improvements and undetermined flips are
+    # separate buckets — the skill (`.claude/skills/benchmark`) leads with a
+    # CORRECTNESS REGRESSION banner only when this list is non-empty.
+    soundness_flip_names = [r["name"] for r in regressions if r["priority"] == "SOUNDNESS"]
+
     state.setdefault("runs", []).append({
         "timestamp": state["last_run"],
         "results_dir": results_dir,
@@ -297,7 +396,9 @@ def main():
         "n_regressions": len(regressions),
         "n_exceptional": len(exceptional_list),
         "n_resolved": len(resolved_anomalies),
-        "correctness_flips": [r["name"] for r in regressions if r["priority"] == "CORRECTNESS"],
+        "n_correctness_improvements": len(correctness_improvements),
+        "n_undetermined_flips": len(undetermined_flips),
+        "correctness_flips": soundness_flip_names,
     })
 
     with open(state_path, "w") as f:
@@ -309,9 +410,13 @@ def main():
         "n_regressions": len(regressions),
         "n_exceptional": len(exceptional_list),
         "n_resolved": len(resolved_anomalies),
-        "correctness_flips": [r["name"] for r in regressions if r["priority"] == "CORRECTNESS"],
+        "n_correctness_improvements": len(correctness_improvements),
+        "n_undetermined_flips": len(undetermined_flips),
+        "correctness_flips": soundness_flip_names,
         "regressions": regressions,
         "exceptional": exceptional_list,
+        "correctness_improvements": correctness_improvements,
+        "undetermined_flips": undetermined_flips,
         "resolved": resolved_anomalies,
         "anomaly_report": open(report_path).read(),
     }

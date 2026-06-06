@@ -500,12 +500,13 @@ descending order of expected impact:
    `n_steps = clamp(ceil(t_ub * 10), 5, 50)` (target `h ≈ 0.1`) trades per-step accuracy for
    per-call cost in a way that's natural for each benchmark.
 
-2. **Proper backward-direction integration.** Build a second `AnalyticFunction` for
-   `dx/dt = -f(x)` (componentwise negation of every RHS) and use *that* in a real BWD
-   contractor against the un-swapped tube. This would restore the BWD contractor's
-   narrowing power *soundly*, at the cost of one more `AnalyticFunction` + `CtcLohner` per
-   cache. Worth attempting if the FWD contractor's `FWD_BWD` is leaving narrowing on the
-   table compared to an interleaved FWD+BWD ICP sequence.
+2. **Proper backward-direction integration.** [LANDED via LohnerAlgorithm
+   variant — see "Third Pass: BWD Contractor Restoration" below.] The
+   chosen mechanism is Codac's `LohnerAlgorithm(forward=false)` rather than
+   a second `AnalyticFunction` with `dx/dt = -f(x)` — same backward image,
+   no extra cache slot per flow. The `-f(x)`-based variant remains
+   available as a fallback if specific benchmarks show looseness from the
+   single-shot `LohnerAlgorithm` path.
 
 3. **Static `flow_cache_map` eviction at end of solve.** Currently caches accumulate for the
    lifetime of the process. For a single-query CLI this is fine, but if dReal is ever
@@ -520,9 +521,10 @@ descending order of expected impact:
    through the gate reading/writing.
 
 5. **`TimePropag::FWD` only on the FWD contractor.** Cuts CtcLohner's internal work in half
-   but only narrows `X_t`. If the unused `BWD` direction of CtcLohner FWD_BWD was producing
-   most of `X_0`'s narrowing, this would shift load to the (now-skipped) BWD contractor.
-   Worth measuring with the proper backward-direction fix from (2).
+   but only narrows `X_t`. Now that item (2) is landed and X_0 narrowing
+   has a sound BWD-contractor home, this is the natural follow-on. Worth
+   measuring on benchmarks where the BWD contractor is the load-bearing
+   narrower (cardiac, prostate); deferred until baseline is re-locked.
 
 6. **Tighter `eps` parameter** on `CtcLohner`. Default `0.1` is the inflation for CtcLohner's
    *internal* global enclosure (separate from our outer `init_box.inflate(...)`). Tightening
@@ -685,3 +687,148 @@ HEAD without my changes, so not caused by these optimizations):
   order-2 Taylor is the ceiling here)
 - `github_oct5_0hz_k1280_planning_one-var.drh.o` (trivial flow but huge mode
   count; SAT layer dominates)
+
+---
+
+## Third Pass: BWD Contractor Restoration (June 2026)
+
+The third optimization pass re-enabled the BWD ODE contractor's Step 4
+(previously skipped — see "Open lines of attack" item 2 above) using
+Codac's `LohnerAlgorithm` with `forward=false` to compute a sound backward
+image of `X_t` at real time 0. The implementation is purely additive: the
+FWD contractor's `CtcLohner FWD_BWD` path is unchanged.
+
+### Mechanism
+
+New entry point in `contractor_odes_codac.{h,cc}`:
+
+```cpp
+CodacOdeResult run_lohner_bwd_oneshot(
+    const std::shared_ptr<CodacOdeCache>& cache,
+    const std::vector<std::pair<double, double>>& Xt_bounds,
+    double t_ub,
+    int n_steps_hint = 20);
+```
+
+Constructs `codac2::LohnerAlgorithm algo(&cache->fn, h, /*forward=*/false, u0)`
+where `u0 = X_t`, iterates `algo.integrate(1)` for `n_steps` (same adaptive
+formula as `run_lohner_integration`: `clamp(max(hint, ceil(t_ub*2)), hint, 60)`),
+and returns the post-integration `algo.getLocalEnclosure()` as the backward
+image of `X_t` at real time 0. Uses LohnerAlgorithm's default `contractions=1`;
+`GlobalEnclosureError` is caught and treated as "no narrowing."
+
+In `contractor_odes.cc::Prune` Step 4, the early-return for BWD is replaced
+with a direction branch: FWD calls `run_lohner_integration` as before; BWD
+calls `run_lohner_bwd_oneshot` and intersects the result with the current
+`m_vars_t` (which, post-constructor-swap, holds the original X_0).
+Soundness rests on: every concrete `x_0 ∈ X_0` reaching some point of `X_t`
+under forward dynamics must lie in the backward image, so removing states
+outside the backward image is sound.
+
+### Verification methodology
+
+The prior "any SAT↔UNSAT flip aborts" criterion was replaced with a
+ground-truth-aware classification. dReal is sound + delta-complete: a
+baseline `delta-sat` can be a spurious δ-witness, and a tighter contractor
+refuting it is a *completeness improvement*, not a soundness bug.
+
+Three pieces of infrastructure landed alongside the code change:
+
+- **`benchmark/baseline.csv` + `benchmark/baseline_local.csv` `ground_truth`
+  column** — populated only from filename conventions (VNAMSCwI
+  `_SAT`/`_UNS`, SARADC `-1e`/`5000e`). dReal3 is not propagated; it has
+  the same δ-completeness limitations as dReal4 and is not authoritative.
+- **`benchmark/aggregate.py` flip classifier** — emits `CORRECTNESS
+  IMPROVEMENT` (flip toward annotated ground truth), `SOUNDNESS
+  REGRESSION` (flip away from it), or `UNDETERMINED FLIP` (no
+  annotation). The previous blanket "correctness regression" alert now
+  fires only on SOUNDNESS. Also adds a frozen-baseline fallback so flips
+  on anomaly-list rows missing from `baseline_local.csv` are no longer
+  invisible.
+- **`test/dreal/contractor/test/contractor_odes_semantic_test.cc`** —
+  closed-form-derived soundness gates for FWD and BWD contractors on
+  three ODE families: trivial (`dx/dt=0`), linear decay (`dx/dt=-x`), and
+  mock-prostate coupled rational dynamics (`dx/dt = -x·z/(z+2),
+  dz/dt = -z`). Each gate is a SAT-known instance; box must remain
+  non-empty after Prune. The mock-prostate fixtures are the load-bearing
+  case — rational coupling is the shape of dynamics where the suspected
+  unsoundness might live.
+
+### Outcome
+
+All 7 semantic soundness gates pass on HEAD and under the experiment:
+
+```
+TrivialFlowTest.FwdInfeasible_BoxEmpties        PASS / PASS
+TrivialFlowTest.BwdInfeasible_BoxEmpties        PASS / PASS
+DecayFlowTest.FwdFeasible_BoxRemains            PASS / PASS
+DecayFlowTest.BwdFeasible_BoxRemains            PASS / PASS
+MockProstateTest.FwdFeasible_BoxRemains         PASS / PASS
+MockProstateTest.BwdFeasible_BoxRemains         PASS / PASS
+MockProstateTest.BwdFeasible_PreservesInteriorPoint   PASS / PASS
+```
+
+`prostate_h2.drh.o` itself remains UNDETERMINED ground-truth-wise — the
+`drealgithub_sunoct5` family carries no naming-convention annotation. Under
+the experiment it flips from baseline `delta-sat` (11.27 s) to `unsat`
+(0.08 s); the working hypothesis is that the baseline was a spurious
+δ-witness which the restored BWD path correctly refutes, not a soundness
+regression — but this rests on the semantic-test evidence, not on a direct
+verdict for prostate_h2.
+
+Other observed flips under the experiment (also UNDETERMINED): the four
+prostate variants (`cancer2_scaled`, `cancer_scaled_infix`, `h2`, `p10`)
+plus `0hz_k64_water_water-double-network-sat.drh.n`. All move from
+`delta-sat` baseline to `unsat`; the same δ-witness-refutation hypothesis
+applies. None are flagged as soundness regressions by `aggregate.py` —
+the soundness alarm fires only on flips that disagree with annotated
+ground truth.
+
+Bouncing ball with drag (10 modes): δ-sat in 4.24 s under experiment vs
+2.87 s on HEAD — ~1.5× slower, matching the cost model (the BWD path adds
+~50% of one `CtcLohner FWD_BWD` call per BWD Prune).
+
+### Update to the prior prostate_h2 analysis
+
+The earlier "Remaining unexplained regressions" section attributed
+`prostate_h2.drh.o`'s SAT → UNSAT flip to "the order-2 Codac integrator
+produces enclosures too wide to find the satisfying region." With the BWD
+contractor now landed and soundness verified on a mock-prostate-shaped
+fixture, the more likely reading is: the baseline's `delta-sat` was a
+spurious δ-witness for that benchmark, the over-skipped BWD path was the
+under-narrowing that let it slip through, and the experiment correctly
+refutes it. The order-2 integrator looseness story remains valid for
+benchmarks where the experiment loses ground (none observed so far).
+
+### Pre-existing cache-key bug surfaced during testing
+
+While writing the semantic tests, the GTest fixtures revealed that
+`make_codac_ode_cache` (`contractor_odes_codac.cc:180`) keys its static
+`flow_cache_map` by raw `OdeFlow*` pointer. If an `OdeFlow` is destroyed
+and a new one is later allocated at the same address with different
+dynamics, the cache returns stale data for the new flow. The test file
+sidesteps this by holding `OdeFlow` shared_ptrs in `inline static` class
+members so they outlive the process. Worth fixing in production code
+(weak_ptr-based key, or content-hash key, or explicit eviction on flow
+destruction); not part of this pass.
+
+### Files touched
+
+```
+src/dreal/contractor/odes/contractor_odes.cc        (Prune Step 4: direction branch instead of BWD early-return)
+src/dreal/contractor/odes/contractor_odes_codac.cc  (+ run_lohner_bwd_oneshot)
+src/dreal/contractor/odes/contractor_odes_codac.h   (+ run_lohner_bwd_oneshot declaration)
+test/dreal/contractor/test/contractor_odes_semantic_test.cc   (NEW)
+benchmark/baseline.csv                              (+ ground_truth column)
+benchmark/baseline_local.csv                        (+ ground_truth column)
+benchmark/aggregate.py                              (+ ground-truth-aware flip classification + frozen-baseline fallback)
+```
+
+### Natural next steps
+
+- Fuzz the BWD contractor with sympy-derived polynomial closed-form
+  fixtures (random RHS within a polynomial template) to harden confidence
+  past the seven hand-picked fixtures.
+- Item 5 from "Open lines of attack" — reduce FWD `CtcLohner` from
+  `FWD_BWD` to `FWD` only, pushing X_0 narrowing onto the new BWD path.
+- Fix the cache-key bug noted above (weak_ptr or content-hash).

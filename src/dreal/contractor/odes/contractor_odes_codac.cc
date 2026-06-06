@@ -385,4 +385,75 @@ namespace dreal
         return result;
     }
 
+    // -------------------------------------------------------------------------
+    // BWD one-shot: backward image of X_t via LohnerAlgorithm(forward=false)
+    //
+    // Used by the BWD contractor's Step 4 to recover the sound backward-image
+    // narrowing the old CAPD backend provided (CAPD integrated dx/dt = -f(x)
+    // forward; LohnerAlgorithm with forward=false integrates dx/dt = f(x)
+    // backward in time — mathematically equivalent).
+    //
+    // No vars_0_narrowed: this is one-way narrowing only. The FWD contractor's
+    // run_lohner_integration still handles joint endpoint contraction.
+    // -------------------------------------------------------------------------
+
+    CodacOdeResult run_lohner_bwd_oneshot(
+        const std::shared_ptr<CodacOdeCache>& cache,
+        const std::vector<std::pair<double, double>>& Xt_bounds,
+        double t_ub,
+        int n_steps_hint)
+    {
+        CodacOdeResult result;
+        if (!cache) return result;
+        const int n = cache->n_state_vars;
+        if (n == 0 || t_ub <= 0.0 || n_steps_hint <= 0) return result;
+
+        // Same adaptive step-count policy as run_lohner_integration: floor at
+        // n_steps_hint, ceiling at 60, scale as ceil(t_ub * 2) so long
+        // horizons get h ≤ 0.5 while short horizons stay at the hint.
+        const int n_steps = std::clamp<int>(
+            std::max(n_steps_hint,
+                     static_cast<int>(std::ceil(t_ub * 2.0))),
+            n_steps_hint, 60);
+        const double h = t_ub / n_steps;
+        if (h <= 0.0) return result;
+
+        // Initial condition for the backward integration = current X_t bounds.
+        codac2::IntervalVector u0(n);
+        for (int i = 0; i < n; ++i)
+            u0[i] = codac2::Interval(Xt_bounds[static_cast<std::size_t>(i)].first,
+                                     Xt_bounds[static_cast<std::size_t>(i)].second);
+
+        try {
+            // forward=false: LohnerAlgorithm sets _direction = -1.0 and
+            // integrates dx/dt = f(x) in reverse time. After n_steps of size
+            // h, the algorithm has stepped from real time t_ub back to 0.
+            //
+            // Default contractions=1 (Codac default) is intentionally lighter
+            // than the cached CtcLohner's contractions=2 — this routine adds
+            // pure overhead in the BWD ICP pass, so we start cheap. Bump to 2
+            // if benchmarks show the resulting envelope is too loose to
+            // narrow X_0.
+            codac2::LohnerAlgorithm algo(&cache->fn, h, /*forward=*/false, u0);
+
+            for (int k = 0; k < n_steps; ++k)
+                algo.integrate(1);
+
+            const codac2::IntervalVector& encl = algo.getLocalEnclosure();
+
+            result.vars_t_narrowed.reserve(static_cast<std::size_t>(n));
+            for (int i = 0; i < n; ++i)
+                result.vars_t_narrowed.emplace_back(encl[i].lb(), encl[i].ub());
+
+            result.found = true;
+            result.t_new_lb = 0.0;
+            result.t_new_ub = t_ub;
+        } catch (const codac2::GlobalEnclosureError&) {
+            // Backward integration failed to maintain a sound global
+            // enclosure — return no narrowing (found = false).
+        }
+
+        return result;
+    }
+
 } // namespace dreal

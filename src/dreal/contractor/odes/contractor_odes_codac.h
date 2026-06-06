@@ -91,4 +91,23 @@ namespace dreal
         bool forward,
         int n_steps = 200);
 
+    // Run a single backward Lohner integration from u0 = X_t at real time t_ub
+    // to real time 0, using LohnerAlgorithm(forward=false). Returns
+    // vars_t_narrowed = an over-approximation of the backward image of u0
+    // (i.e. the set of states at real time 0 whose forward trajectory under
+    // dx/dt = f(x) reaches u0 at real time t_ub). The caller is expected to
+    // intersect this with the current X_0 bounds.
+    //
+    // vars_0_narrowed is left empty — this routine provides one-way
+    // narrowing only. Use the FWD contractor's run_lohner_integration if
+    // joint narrowing of both endpoints is needed.
+    //
+    // n_steps_hint follows the same adaptive policy as run_lohner_integration:
+    //   clamp(max(n_steps_hint, ceil(t_ub * 2)), n_steps_hint, 60)
+    CodacOdeResult run_lohner_bwd_oneshot(
+        const std::shared_ptr<CodacOdeCache>& cache,
+        const std::vector<std::pair<double, double>>& Xt_bounds,
+        double t_ub,
+        int n_steps_hint = 20);
+
 } // namespace dreal

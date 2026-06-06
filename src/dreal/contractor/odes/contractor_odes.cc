@@ -225,25 +225,35 @@ namespace dreal
 
         // --- Step 4: ODE trajectory integration via Codac v2 LohnerAlgorithm ---
 
-        // BWD contractor: skip the Codac integration step.
+        // Direction handling:
         //
-        // The BWD contractor was set up in the constructor by swapping
-        // m_vars_0/m_vars_t. With the old CAPD backend that integrated
-        // dx/dt = -f(x) in reverse time, the swap produced a sound
-        // backward-image narrowing. CtcLohner v2 only knows forward
-        // dynamics dx/dt = f(x); applied to the swapped tube it asks
-        // "is there a forward trajectory from X_t to X_0?" instead of the
-        // intended backward-image question. For non-time-symmetric
-        // dynamics these differ, so the swapped narrowing can drop valid
-        // initial states (potential false UNSAT).
+        // FWD contractor (m_dir == FWD): m_vars_0 = original X_0,
+        //   m_vars_t = original X_t. We call run_lohner_integration which
+        //   uses CtcLohner with TimePropag::FWD_BWD to narrow both gates
+        //   jointly.
         //
-        // The FWD contractor with CtcLohner FWD_BWD already narrows both
-        // endpoints jointly, so skipping BWD here doesn't reduce achievable
-        // contraction. Steps 1–3 (parameter intersect, T=0, invariant
-        // checking) still run for both directions. Empirically this gives
-        // ~2-3× speedup on bouncing_ball_with_drag_10_0 with no new
-        // correctness flips relative to the un-skipped Codac build.
-        if (m_dir == ode_direction::BWD) return;
+        // BWD contractor (m_dir == BWD): the constructor swapped variables
+        //   so m_vars_0 = original X_t, m_vars_t = original X_0. We call
+        //   run_lohner_bwd_oneshot which uses LohnerAlgorithm(forward=false)
+        //   to integrate dx/dt = f(x) in reverse time from X_t back to t=0.
+        //   The resulting enclosure is the sound backward image of X_t,
+        //   used to narrow m_vars_t (= original X_0). One-way narrowing
+        //   only — m_vars_0 (= original X_t) is not touched on this pass
+        //   because the FWD contractor's CtcLohner FWD_BWD already narrows
+        //   both endpoints from the X_0 side.
+        //
+        // Soundness of the BWD path: integrating f(x) backward in time
+        //   from a state in X_t is mathematically equivalent to integrating
+        //   -f(x) forward, which is exactly how the old CAPD BWD contractor
+        //   computed backward images. Any state x_0 ∈ X_0 that participates
+        //   in a feasible witness must lie in the backward image, so
+        //   intersecting with the LohnerAlgorithm enclosure can only remove
+        //   infeasible states.
+        //
+        // The pre-Codac-migration BWD contractor was disabled entirely
+        // because CtcLohner has no -f(x) mode and the swapped-tube approach
+        // was unsound. LohnerAlgorithm's forward=false flag (used here)
+        // restores the sound backward-direction narrowing.
 
         if (!m_codac_cache) return;  // expression translation failed at construction
         if (!is_variable(icct)) return;
@@ -258,7 +268,8 @@ namespace dreal
         // constraint reduces to X_0 == X_t componentwise — identical to the
         // time_is_zero case handled above. Without this, CtcLohner is called
         // ~N_modes times per ICP step and dominates Prune cost on the k1280
-        // planning benchmark.
+        // planning benchmark. Direction-agnostic: the swap of m_vars_0/m_vars_t
+        // does not affect X_0 ∩ X_t componentwise.
         if (codac_ode_cache_is_trivial(m_codac_cache)) {
             const Box old_box = cs->box();
             for (size_t i = 0; i < m_vars_0.size(); ++i) {
@@ -282,7 +293,9 @@ namespace dreal
             return;
         }
 
-        // Initial condition: start-of-integration intervals
+        // Initial condition: start-of-integration intervals.
+        // FWD: m_vars_0 = original X_0 (start of forward integration)
+        // BWD: m_vars_0 = original X_t (start of backward integration)
         std::vector<std::pair<double, double>> u0_bounds;
         u0_bounds.reserve(static_cast<size_t>(n));
         for (int i = 0; i < n; ++i) {
@@ -290,17 +303,24 @@ namespace dreal
             u0_bounds.emplace_back(iv.lb(), iv.ub());
         }
 
-        // Target: end-of-integration intervals
-        std::vector<std::pair<double, double>> X_t_bounds;
-        X_t_bounds.reserve(static_cast<size_t>(n));
-        for (int i = 0; i < n; ++i) {
-            const ibex::Interval& iv = cs->box()[m_vars_t[static_cast<size_t>(i)]];
-            X_t_bounds.emplace_back(iv.lb(), iv.ub());
+        CodacOdeResult res;
+        if (m_dir == ode_direction::FWD) {
+            // Target: end-of-integration intervals (m_vars_t = original X_t)
+            std::vector<std::pair<double, double>> X_t_bounds;
+            X_t_bounds.reserve(static_cast<size_t>(n));
+            for (int i = 0; i < n; ++i) {
+                const ibex::Interval& iv = cs->box()[m_vars_t[static_cast<size_t>(i)]];
+                X_t_bounds.emplace_back(iv.lb(), iv.ub());
+            }
+            res = run_lohner_integration(
+                m_codac_cache, u0_bounds, X_t_bounds, t_ub, /*forward=*/true);
+        } else {
+            // BWD: backward image of u0 = original X_t. The result's
+            // vars_t_narrowed corresponds to the state at real time 0
+            // (= original X_0 = current m_vars_t).
+            res = run_lohner_bwd_oneshot(
+                m_codac_cache, u0_bounds, t_ub);
         }
-
-        const bool forward = (m_dir == ode_direction::FWD);
-        const CodacOdeResult res = run_lohner_integration(
-            m_codac_cache, u0_bounds, X_t_bounds, t_ub, forward);
 
         if (!res.found) return;
 
@@ -319,7 +339,9 @@ namespace dreal
             }
         }
 
-        // Narrow m_vars_0 intervals from ODE initial enclosure (CtcLohner BWD pass)
+        // Narrow m_vars_0 intervals from ODE initial enclosure (CtcLohner BWD
+        // pass; populated only by the FWD path's run_lohner_integration).
+        // The BWD contractor's run_lohner_bwd_oneshot leaves this empty.
         if (!res.vars_0_narrowed.empty()) {
             for (int i = 0; i < n; ++i) {
                 ibex::Interval old_iv = cs->box()[m_vars_0[static_cast<size_t>(i)]];
