@@ -100,7 +100,7 @@ If the ODE perf gap ever becomes unacceptable, this patch plus reconstructing `c
 All ODE-contractor source lives under `src/dreal/contractor/odes/`. The C++17 surface (`contractor_odes.{h,cc}`) drives `Prune`; the C++20 translation unit (`contractor_odes_codac.{h,cc}`) wraps Codac.
 
 - **`CodacOdeCache`** — opaque to C++17, defined in the C++20 TU. Holds the translated `codac2::AnalyticFunction<VectorType>` and a `codac2::CtcLohner` instance (its `contract` is `const`, safe to share across parallel ICP workers). Constructed once per flow; reused on every `Prune`.
-- **Global per-`OdeFlow*` cache.** Static `unordered_map<const OdeFlow*, shared_ptr<CodacOdeCache>>` under a static `std::mutex`. Keyed by raw `OdeFlow*` (lifetime is `shared_ptr`-managed from the parser onward, so addresses are stable within one solve). Process-scoped; see "Known issues" for the cache-key bug.
+- **Global per-`OdeFlow*` cache.** Static `unordered_map<const OdeFlow*, CacheSlot>` under a static `std::mutex`, where `CacheSlot { shared_ptr<const OdeFlow> flow, shared_ptr<CodacOdeCache> cache }`. Keyed by raw `OdeFlow*` for fast lookup; the slot's `shared_ptr<const OdeFlow>` keeps the keyed flow alive so the address cannot be reused while the entry is live (this closes the pointer-reuse hazard previously listed under "Known issues" — see resolved-issues note). `make_codac_ode_cache` takes `shared_ptr<const OdeFlow>` to make the ownership contract explicit. Process-scoped.
 - **FWD direction** — `run_lohner_integration` uses `CtcLohner` with `TimePropag::FWD_BWD`, `contractions=2`, `eps=0.1`, and adaptive `n_steps = clamp(max(n_steps_hint, ceil(t_ub * 2)), n_steps_hint, 60)` with `n_steps_hint = 20`. Catches `codac2::GlobalEnclosureError` and returns without pruning (sound but incomplete on stiff dynamics).
 - **BWD direction** — `run_lohner_bwd_oneshot` uses `codac2::LohnerAlgorithm(&cache->fn, h, /*forward=*/false, u0)` with `u0 = X_t`, iterating `algo.integrate(1)` for `n_steps` (same adaptive formula). Returns `algo.getLocalEnclosure()` as the backward image of `X_t` at real time 0. Default `contractions=1`. Soundness rests on the BWD swap analysis below.
 - **Trivial-flow short-circuit.** At cache build time, walk the flow's `ode_list`; if every RHS is `is_zero`, set `cache->trivial = true`. `Prune` then takes the `T=0` branch (`X_0 ∩ X_t` componentwise) and never enters CtcLohner. Handles `d/dt[d] = 0` planning benchmarks with 1280 modes.
@@ -152,6 +152,7 @@ ARM64 macOS, `upgrade-ibex` HEAD post-Pass-3. Baselines from `benchmark/baseline
 - **Skipping CtcLohner when `t_ub` is small** (early-out for short tubes where the envelope contains both gates and no narrowing is possible). Cheap check but rarely fired — by the time it would matter, ICP had already narrowed `t_ub`. Removed.
 - **Memoizing `CtcLohner::contract` results by `(X_0, X_t, t_ub)`.** Boxes monotonically shrink during ICP, so cache hit rate ~0. Not implemented.
 - **Splitting FWD into two passes** (`TimePropag::FWD` then `TimePropag::BWD`) to interleave `nl_ctcs` propagation. Bookkeeping in `Prune` (gates from `tube.first_slice()` vs `tube.last_slice()`) doesn't compose cleanly across two contract calls without sharing the tube object. Deferred — see "Open lines of attack" item 5.
+- **`TimePropag::FWD` only on the FWD contractor** (Open lines of attack item 3 — first attempt). Attempted post-Pass-3 on the theory that Pass 3's BWD contractor now lands `X_0` narrowing soundly and the FWD pass's `TimePropag::BWD` direction is now redundant work. `github_oct5_0hz_k4_cardiac_new_cardiac` flipped UNSAT → δ-SAT (3.3 s) — the suspicious soundness-direction flip, surfaced by the new ground-truth-aware classifier. Reverted. Lesson: FWD's BWD pass was carrying narrowing that the BWD contractor alone (with `LohnerAlgorithm` `contractions=1`) doesn't replicate. Re-attempt would need either bumped BWD `contractions` or compensation elsewhere; relock the local baseline first per item 3.
 
 ---
 
@@ -184,7 +185,7 @@ Items below survive into ongoing work. Item 2 from earlier passes (proper backwa
 
 1. **Detect partially-trivial flows.** A flow with `d/dt[x] = 0` for some state vars and non-zero for others currently uses CtcLohner on the whole vector. Splitting into "trivial sub-vector" (just intersect X_0 ∩ X_t) and "active sub-vector" (CtcLohner on the reduced system) shrinks the `AnalyticFunction` dimensionality and per-step work. Implementation cost is higher because the dimension reduction has to be plumbed through the gate reading/writing.
 
-2. **Static `flow_cache_map` eviction at end of solve.** Currently caches accumulate for the lifetime of the process. Fine for a single-query CLI; problematic if dReal is ever embedded in a long-running service. Add a hook in `Context` destruction to clear flow caches whose `OdeFlow*` is no longer referenced. (See also the cache-key bug under "Known issues" — both could be solved together via weak_ptr-based keys.)
+2. **Static `flow_cache_map` eviction at end of solve.** Currently caches accumulate for the lifetime of the process — and the post-fix `CacheSlot` holds a `shared_ptr<const OdeFlow>` that pins each flow in memory until the process exits. Fine for a single-query CLI; problematic if dReal is ever embedded in a long-running service. Add a hook in `Context` destruction to clear flow caches whose `OdeFlow` is no longer referenced elsewhere; a `weak_ptr`-based key (or content-hash key) would let unused entries collect themselves as a follow-on.
 
 3. **`TimePropag::FWD` only on the FWD contractor.** Cuts CtcLohner's internal work in half but only narrows `X_t`. Now that Pass 3's BWD contractor lands `X_0` narrowing soundly via `LohnerAlgorithm(forward=false)`, this is the natural follow-on. Worth measuring on benchmarks where the BWD contractor is the load-bearing narrower (cardiac, prostate). Re-lock the regression baseline before measuring.
 
@@ -193,8 +194,6 @@ Items below survive into ongoing work. Item 2 from earlier passes (proper backwa
 5. **Splitting FWD into two passes** (`TimePropag::FWD` then `TimePropag::BWD`) to interleave `nl_ctcs` propagation between directions. Bookkeeping needs to share the tube object across calls — requires refactoring `run_lohner_integration`. Deferred but tractable.
 
 6. **Fuzz the BWD contractor with sympy-derived polynomial closed-form fixtures.** Pass 3 verified soundness on seven hand-picked fixtures (trivial flow, linear decay, mock-prostate rational coupling). Random RHS within a polynomial template would harden confidence further. Especially valuable on dynamics with closed-form solutions where ground-truth flips are easy to detect.
-
-7. **Fix the cache-key bug** (see "Known issues"). Lowest priority because it doesn't fire in single-query CLI mode, but it's a soundness landmine if the codebase grows.
 
 ---
 
@@ -242,9 +241,9 @@ MockProstateTest.BwdFeasible_PreservesInteriorPoint   PASS / PASS
 
 ## Known issues
 
-### Pre-existing cache-key bug in `make_codac_ode_cache`
+### Resolved: cache-key pointer-reuse bug in `make_codac_ode_cache`
 
-`make_codac_ode_cache` (`contractor_odes_codac.cc:180`) keys its static `flow_cache_map` by raw `OdeFlow*` pointer. If an `OdeFlow` is destroyed and a new one is later allocated at the same address with different dynamics, the cache returns stale data for the new flow. The Pass-3 semantic tests sidestep this by holding `OdeFlow` shared_ptrs in `inline static` class members so they outlive the process. Fix candidates: weak_ptr-based key, content-hash key, or explicit eviction on flow destruction. Not exercised by the single-query CLI; latent landmine for any future embedded-service use. See "Open lines of attack" item 7.
+`make_codac_ode_cache` keyed its static `flow_cache_map` by raw `OdeFlow*`. If an `OdeFlow` was destroyed and a new one later allocated at the same address with different dynamics, the cache returned stale data for the new flow — surfaced reproducibly by the Pass-3 semantic tests when fixtures created and destroyed `OdeFlow`s between `TEST_F` instances. **Fixed in commit `fed8a02a1`**: the map now stores a `CacheSlot { shared_ptr<const OdeFlow> flow, shared_ptr<CodacOdeCache> cache }` keyed by raw pointer; the held `shared_ptr<const OdeFlow>` keeps the keyed flow alive while the cache entry is live, so the address cannot be reused. `make_codac_ode_cache`'s signature changed from `(const OdeFlow&, …)` to `(shared_ptr<const OdeFlow>, …)` to make the ownership contract explicit. Eviction (see "Open lines of attack" item 2) is now the only remaining cache-lifetime concern, relevant only for embedded-service use.
 
 ### Pre-existing correctness flips (not introduced by the migration optimizations)
 
