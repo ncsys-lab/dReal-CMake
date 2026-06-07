@@ -10,7 +10,7 @@ dReal4 is a delta-complete SMT solver for nonlinear arithmetic over the reals. I
 
 **Prerequisites** (macOS — ARM or x86 Homebrew; Rosetta no longer required):
 - bison, flex, gmp, cadical, eigen (install via `/opt/homebrew/bin/brew` on Apple Silicon)
-- CMake fetches and builds IBEX (`lebarsfa/ibex-lib`) and Codac (`codac-team/codac`) automatically
+- CMake downloads prebuilt IBEX and Codac binaries and builds CAPD from source automatically
 
 **Full build** (first time — creates `gcc_build/`):
 ```bash
@@ -93,9 +93,9 @@ Do not modify these unless necessary — they are external projects vendored in:
 ### Auto-downloaded Dependencies
 
 CMake fetches and builds at configure time:
-- **IBEX** (`lebarsfa/ibex-lib@ibex-2.8.9.1`): Built via ExternalProject into `gcc_build/ibex-install/`
-- **Codac** (`codac-team/codac@v2.0.2`, `WITH_CAPD=OFF`): Built via ExternalProject into `gcc_build/codac-install/`
-- **CAPD** (`CAPDGroup/CAPD@b353e170`, master pin for in-development `6.1.0`, `CAPD_INTERVAL_TYPE=NATIVE`): Built via ExternalProject into `gcc_build/capd-install/`. Native intervals (CAPD's own `DoubleRounding`) skip FILIB and work on ARM64.
+- **IBEX** (`lebarsfa/ibex-lib`, prebuilt zip `ibex-2.8.9.20250626`): Configure-time zip download into `gcc_build/ibex-install/`
+- **Codac** (`codac-team/codac`, prebuilt zip `v2.0.2`): Configure-time zip download into `gcc_build/codac-install/`
+- **CAPD** (`CAPDGroup/CAPD@b353e170`, master pin for in-development `6.1.0`, `CAPD_INTERVAL_TYPE=NATIVE`): Built from source via ExternalProject into `gcc_build/capd-install/`. Native intervals (CAPD's own `DoubleRounding`) skip FILIB and work on ARM64.
 - **fmt**, **spdlog**, **nlopt**: Via FetchContent
 - **GTest**: Via FetchContent
 
@@ -126,11 +126,11 @@ This project started as a CMake port of the original dReal4 (which used Bazel). 
 - ODE symbol table in the parser/driver; `LookupOde(double)` for dReal3 compat.
 - `--visualize` flag and JSON flow dumps for ODE trajectory visualization.
 
-**`upgrade-ibex`** (current): Replaces the ODE integration backend on top of `tacas26-odes`. Migrates from `ncsys-lab/capdDynSys-4.0` + `ncsys-lab/ibex-lib` to Codac v2 + `lebarsfa/ibex-lib`. Key implementation choices (full details in `CODAC_MIGRATION.md`):
+**`upgrade-ibex`** (current): Replaces the ODE integration backend on top of `tacas26-odes`. Migrates from `ncsys-lab/capdDynSys-4.0` + `ncsys-lab/ibex-lib` to Codac v2 + `lebarsfa/ibex-lib` + CAPD v6. Key implementation choices (full details in `CODAC_MIGRATION.md`):
 - ODE contractor in `contractor_odes_codac.cc`: FWD via `CtcLohner FWD_BWD` (`contractions=2`, `eps=0.1`, adaptive `n_steps`); BWD via `LohnerAlgorithm(forward=false)` one-shot backward image (`run_lohner_bwd_oneshot`); `LohnerAlgorithm` for `--visualize` traces.
 - Per-flow `CodacOdeCache` (`AnalyticFunction` + `CtcLohner` reuse) keyed by `OdeFlow*` is shared across modes and parallel ICP workers; trivial-flow short-circuit bypasses CtcLohner when every RHS is literal 0 (e.g. the `d/dt[d]=0` planning benchmark with 1280 modes).
 - `contractor_ibex_fwdbwd::Prune` uses an input-restricted thread_local snapshot saving only the constraint's free-var intervals (O(|free_vars(f)|) vs O(|box|)); most non-ODE benchmarks live in this hot path.
-- CAPD v6 direct integration was attempted and abandoned (FILIB x86-only blocker); the working ARM64 patch lives in `CODAC_MIGRATION.md` if the order-2 Codac ceiling becomes critical.
+- CAPD master (`b353e170`, `CAPD_INTERVAL_TYPE=NATIVE`) is a gated second ODE backend: `contractor_odes_capd.{h,cc}` provides order-20 Taylor integration and fires when `t_ub > --capd-t-gate` or `n_state_vars >= --capd-ndim-gate` (defaults `5.0` and `6`). CAPD divergence falls back to Lohner. The FILIB/ARM64 blocker that blocked an earlier attempt is resolved upstream via `CAPD_INTERVAL_TYPE=NATIVE`.
 
 **`cav26`**: Replaces the old trie-based pattern matcher with a fundamentally different approach:
 - **DeBruijn canonicalization** (`debruijn_canonical.cc`): Converts AST terms to a canonical alpha-equivalent form using De Bruijn indices, so structurally identical formulas up to variable renaming hash the same.

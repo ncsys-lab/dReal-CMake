@@ -37,12 +37,14 @@ The key advantage over naive interval Euler methods is control of the **wrapping
 
 ### Configuration in dReal
 
-The contractor runs `CtcLohner` with:
-- `TimePropag::FWD_BWD`: 5 alternating forward/backward contractions
-- 50 integration steps per contraction pass
+The Codac contractor runs `CtcLohner` with:
+- `TimePropag::FWD_BWD`: 2 alternating forward/backward contractions (`contractions=2`)
+- Adaptive `n_steps = clamp(max(20, ceil(t_ub * 2)), 20, 60)` — keeps a 20-step floor for short horizons, adds steps when `t_ub > ~10`
 - Taylor order 2 (Codac default; not configurable without patching Codac)
 
 The `FWD_BWD` mode contracts both the initial conditions (backward from the final state) and the final state (forward from the initial conditions), squeezing the tube from both ends.
+
+For long-horizon or high-dimensional flows the CAPD backend (order-20 Taylor) fires instead — see "CAPD gated hybrid" below.
 
 ---
 
@@ -67,24 +69,23 @@ The benchmark `bouncing_ball_with_drag_10_0.smt2` is a 10-mode bouncing ball —
 
 ## Performance
 
-`bouncing_ball_with_drag_10_0.smt2` (10 modes) runs at ~4.2 s on ARM64 native (post-three-optimization-passes) vs ~0.5 s on the old CAPD order-20 backend (x86 Rosetta). Two root causes:
+`bouncing_ball_with_drag_10_0.smt2` (10 modes) runs at ~4.2 s on ARM64 native under Lohner-only (below the default `--capd-t-gate 5.0`), vs ~0.5 s on the old CAPD order-20 backend (x86 Rosetta). The gap on this benchmark is a Lohner-order-2 ceiling; CAPD (see below) is intended to close it on long-horizon flows where `t_ub` exceeds the gate.
 
-- **Taylor order**: Codac `CtcLohner` is hardcoded to order 2; CAPD used order 20. Order-2 produces wider per-step enclosures, forcing more ICP bisections.
-- **Architecture**: ARM64 native vs x86 emulation partially offsets the algorithmic gap.
+See `CODAC_MIGRATION.md` for the headline benchmark table and full optimization timeline.
 
-See `CODAC_MIGRATION.md` for the headline benchmark table, optimization timeline, and the CAPD v6 ARM64 fallback patch.
+---
+
+## CAPD gated hybrid
+
+`contractor_odes_capd.{h,cc}` provides a second ODE backend using `capd::IOdeSolver` (order 20) + `capd::ITimeMap`. It fires when `t_ub > --capd-t-gate` (default `5.0`) or `n_state_vars >= --capd-ndim-gate` (default `6`). On divergence it falls back to Lohner. The trivial-flow short-circuit takes precedence over the gate.
+
+CAPD runs on ARM64 via `CAPD_INTERVAL_TYPE=NATIVE` (master SHA `b353e170`), which uses CAPD's own `DoubleRounding` and skips FILIB entirely. See `DEPENDENCIES.md` § "CAPD" for the full build-wiring details and `CODAC_MIGRATION.md` § "CAPD-Lohner gated hybrid" for the dispatch policy.
 
 ---
 
 ## What was replaced
 
-`ncsys-lab/ibex-lib` + `ncsys-lab/capdDynSys-4.0` + `contractor_odes.cc` (old, CAPD-based) → `lebarsfa/ibex-lib@ibex-2.8.9.1` + `codac-team/codac@v2.0.2` + `contractor_odes_codac.cc`. Per-library rationale lives in `DEPENDENCIES.md`. The boundary conversions now go through `ibex::Interval` / `ibex::IntervalVector` since Codac v2 shares IBEX's interval arithmetic.
-
----
-
-## CAPD v6 ARM64 path (not taken)
-
-Order-20 CAPD on ARM64 is achievable — CAPD v6 already has ARM64 `DoubleRounding`. The blocker is that CAPD's root `CMakeLists.txt` unconditionally pulls in FILIB, which has a `FATAL_ERROR` for non-x86. The two-file patch that fixes this is documented in `CODAC_MIGRATION.md` under "CAPD v6 ARM64 path (abandoned, but here's how to do it)".
+`ncsys-lab/ibex-lib` + `ncsys-lab/capdDynSys-4.0` + `contractor_odes.cc` (old, CAPD-based) → `lebarsfa/ibex-lib` (prebuilt `ibex-2.8.9.20250626`) + `codac-team/codac@v2.0.2` + `CAPDGroup/CAPD@b353e170` + `contractor_odes_codac.cc` / `contractor_odes_capd.cc`. Per-library rationale lives in `DEPENDENCIES.md`. The boundary conversions now go through `ibex::Interval` / `ibex::IntervalVector` since Codac v2 shares IBEX's interval arithmetic.
 
 ---
 

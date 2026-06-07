@@ -123,7 +123,7 @@ Handles `ForallT` formulas: `∀t ∈ [t₀, t₁]: φ(x, t)`. These appear in O
 
 See `docs/ode-integration.md` for a full description.
 
-At the contractor interface level: given an ODE constraint and a time window, `contractor_ode_lohner::Prune` uses Codac's `CtcLohner` to compute a guaranteed enclosure of all trajectories starting in the current box. It runs the integration both forward and backward in time (`TimePropag::FWD_BWD`), then intersects with any target state constraints.
+At the contractor interface level: given an ODE constraint and a time window, `contractor_ode_lohner::Prune` dispatches to one of two backends. For short-horizon / low-dimensional flows it uses Codac's `CtcLohner` (order-2 Taylor, `TimePropag::FWD_BWD`). For long-horizon flows (`t_ub > --capd-t-gate`, default 5.0) or high-dimensional state (`n_state_vars >= --capd-ndim-gate`, default 6) it fires the CAPD order-20 backend (`contractor_odes_capd.cc`), falling back to Lohner on divergence. Both paths intersect with target state constraints and are sound.
 
 ---
 
