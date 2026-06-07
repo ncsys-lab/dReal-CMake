@@ -246,6 +246,23 @@ void MainProgram::AddOptions() {
            0 /* Delimiter if expecting multiple args. */,
            fmt::format("Set pattern matching timeout in seconds. (default = {})", kDefaultDrpmMaxTime).c_str(),
            "--drpm-max-time", positive_double_option_validator);
+
+  const string kDefaultCapdTGate{fmt::format("{}", Config::kDefaultCapdTGate)};
+  opt_.add(kDefaultCapdTGate.c_str(), false,
+           1, 0,
+           fmt::format("Dispatch CAPD order-20 ODE contractor when t_ub exceeds this value. "
+                       "Set very large (e.g. 1e18) to disable CAPD; set 0 to combine with --capd-ndim-gate=0 "
+                       "and force CAPD on every ODE Prune. (default = {})",
+                       kDefaultCapdTGate).c_str(),
+           "--capd-t-gate", positive_double_option_validator);
+
+  const string kDefaultCapdNdimGate{fmt::format("{}", Config::kDefaultCapdNdimGate)};
+  opt_.add(kDefaultCapdNdimGate.c_str(), false,
+           1, 0,
+           fmt::format("Dispatch CAPD order-20 ODE contractor when the flow's state dimension is at least "
+                       "this value. Combined with --capd-t-gate via OR. (default = {})",
+                       kDefaultCapdNdimGate).c_str(),
+           "--capd-ndim-gate", positive_int_option_validator);
 }
 
 bool MainProgram::ValidateOptions() {
@@ -457,6 +474,20 @@ void MainProgram::ExtractOptions() {
     config_.mutable_drpm_max_time().set_from_command_line(drpm);
     DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --drpm-max-time = {}",
                     config_.drpm_max_time());
+  }
+  if (opt_.isSet("--capd-t-gate")) {
+    double capd_t_gate{Config::kDefaultCapdTGate};
+    opt_.get("--capd-t-gate")->getDouble(capd_t_gate);
+    config_.mutable_capd_t_gate().set_from_command_line(capd_t_gate);
+    DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --capd-t-gate = {}",
+                    config_.capd_t_gate());
+  }
+  if (opt_.isSet("--capd-ndim-gate")) {
+    int capd_ndim_gate{Config::kDefaultCapdNdimGate};
+    opt_.get("--capd-ndim-gate")->getInt(capd_ndim_gate);
+    config_.mutable_capd_ndim_gate().set_from_command_line(capd_ndim_gate);
+    DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --capd-ndim-gate = {}",
+                    config_.capd_ndim_gate());
   }
 }
 

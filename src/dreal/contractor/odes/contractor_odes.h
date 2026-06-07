@@ -23,6 +23,7 @@
 namespace dreal
 {
     class CodacOdeCache;  // opaque; defined in contractor_odes_codac.cc
+    class CapdOdeCache;   // opaque; defined in contractor_odes_capd.cc
 
     std::ostream& operator<<(std::ostream& out, ode_direction const& d);
 
@@ -80,6 +81,22 @@ namespace dreal
         // which case Prune() falls back to the parameter-intersect + invariant
         // contractors only — no ODE-driven narrowing).
         std::shared_ptr<CodacOdeCache> m_codac_cache;
+        // Cached capd::IMap (fwd + bwd via -f(x)) for the same flow. CAPD's
+        // IOdeSolver/ITimeMap carry mutable step state and are constructed
+        // per-call inside contractor_odes_capd.cc; only the IMaps are
+        // shared. Null if either the flow's RHS contains an Expression kind
+        // we don't translate to CAPD's string format, or the capd::IMap
+        // parser rejects the resulting string. Prune() falls back to
+        // Lohner unconditionally on null cache or run_capd_* divergence.
+        std::shared_ptr<CapdOdeCache> m_capd_cache;
+        // CAPD-Lohner gate snapshot copied from Config at ctor time so the
+        // Prune hot path doesn't re-read the config every call. Two flags:
+        //   t_gate  — dispatch CAPD when t_ub > this
+        //   n_gate  — dispatch CAPD when m_vars_0.size() >= this
+        // OR'd together — either condition triggers CAPD. See Config for
+        // the defaults and what the extremes mean.
+        double m_capd_t_gate;
+        int    m_capd_ndim_gate;
     };
 
     std::vector<Formula> unroll_conjunctions(const Formula& f);

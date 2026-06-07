@@ -159,6 +159,16 @@ class Config {
   std::chrono::duration<double, std::chrono::seconds::period> drpm_max_time() const;
   OptionValue<double>& mutable_drpm_max_time();
 
+  // Gate for the CAPD order-20 ODE contractor running alongside Codac's
+  // order-2 CtcLohner. CAPD fires per Prune call when
+  //   t_ub > capd_t_gate()  ||  n_state_vars >= capd_ndim_gate().
+  // Otherwise Lohner is used alone. Set t_gate to a huge value (e.g. 1e18)
+  // to disable CAPD entirely; set both to 0 to force CAPD on every Prune.
+  double capd_t_gate() const;
+  OptionValue<double>& mutable_capd_t_gate();
+  int capd_ndim_gate() const;
+  OptionValue<int>& mutable_capd_ndim_gate();
+
   /// Returns if it's smtlib2_compliant mode.
   bool smtlib2_compliant() const;
 
@@ -173,6 +183,14 @@ class Config {
   static constexpr int kDefaultNloptMaxEval{100};
   static constexpr double kDefaultNloptMaxTime{0.01};
   static constexpr double kDefaultDrpmMaxTime{0.222};
+  // CAPD-Lohner gate defaults — see the comment on capd_t_gate() above.
+  // t > 5s: cardiac long-horizon territory where order-2 widens out of
+  // usefulness even with adaptive n_steps. n_state_vars >= 6: catches
+  // quad/crazyflie-class (15-var sin/cos) and the larger prostate flows.
+  // These initial values are pre-measurement; tune via /benchmark sweeps
+  // before locking the regression baseline.
+  static constexpr double kDefaultCapdTGate{5.0};
+  static constexpr int    kDefaultCapdNdimGate{6};
 
  private:
   // NOTE: Make sure to match the default values specified here with the ones
@@ -238,6 +256,9 @@ class Config {
 
   OptionValue<int> drpm_max_size_{0};
   OptionValue<double> drpm_max_time_{0.222};
+
+  OptionValue<double> capd_t_gate_{kDefaultCapdTGate};
+  OptionValue<int>    capd_ndim_gate_{kDefaultCapdNdimGate};
 
   // Brancher to use. By default it uses `BranchLargestFirst`.
   OptionValue<Brancher> brancher_{BranchLargestFirst};

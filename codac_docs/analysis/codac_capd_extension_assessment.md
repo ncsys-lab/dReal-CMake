@@ -1,5 +1,7 @@
 # Should we use the `codac-capd` extension?
 
+> **Outcome (2026-06-06).** We took the **raw direct CAPD** path (not this extension). Two reasons consolidated the decision: (1) CAPD master added a clean `CAPD_INTERVAL_TYPE=NATIVE` option in the v6.1.0 dev cycle, so the FILIB ARM64 blocker disappeared without needing the documented patch, and (2) raw CAPD lets us keep the pre-built Codac archives. See `CODAC_MIGRATION.md` § "CAPD-Lohner gated hybrid" for the landed implementation; the analysis below is preserved for historical context.
+
 **TL;DR — it's a cleaner glue layer, not a solution.** The extension converts types between CAPD and Codac (Interval, IntervalVector, IntervalMatrix, SolutionCurve → SlicedTube) but offers no `CtcCapd` contractor and does not bundle, build, or otherwise insulate us from CAPD itself. The ARM64 FILIB blocker that killed our previous direct-CAPD attempt applies identically here, and on top of that we'd have to switch from pre-built Codac archives to a source-built Codac (so it can be compiled with `WITH_CAPD=ON`).
 
 Full reasoning in `codac_docs/v2/capd_extension.md`. The remaining decision is whether to take on the CAPD restoration *at all*; if yes, the extension is the better of two implementation paths.

@@ -38,9 +38,21 @@ Both forked dependencies were unmaintained snapshots requiring heavy local patch
 
 ---
 
-## CAPD v6 ARM64 path (abandoned, but here's how to do it)
+## CAPD v6 ARM64 path (active — gated hybrid)
 
-After measuring the early 26× ODE perf gap, restoring CAPD as the primary backend via CAPD v6.0.0 was attempted and reverted. This section is preserved verbatim because the patch is the concrete future-work avenue if Codac's order-2 ceiling becomes unacceptable.
+> **Updated 2026-06-06.** CAPD master (in-development `6.1.0`) now exposes
+> `CAPD_INTERVAL_TYPE` as a clean CMake variable. With
+> `-DCAPD_INTERVAL_TYPE=NATIVE`, `capdExt/CMakeLists.txt` skips
+> `add_subdirectory(filibsrc)` entirely and CAPD's own ARM64-capable
+> `DoubleRounding` becomes the interval backend. **The two-file
+> FILIB-bypass patch documented below is no longer needed.** What follows
+> is preserved as a historical artifact; the live build wiring is the
+> `ExternalProject_Add(capd_external)` block in `CMakeLists.txt` pinning a
+> recent master SHA (currently `b353e170`, 2026-05-18). The contractor
+> runs alongside Codac's `CtcLohner` as a gated second backend; see
+> "CAPD-Lohner gated hybrid" below.
+
+After measuring the early 26× ODE perf gap, restoring CAPD as the primary backend via CAPD v6.0.0 was attempted and reverted. The v6.0.0 source unconditionally required FILIB, which fails to build on ARM64. With master, that blocker is solved upstream — CAPD is now reintroduced as a gated second contractor (see below).
 
 ### What was implemented (then reverted)
 
@@ -92,6 +104,55 @@ endif()
 ```
 
 If the ODE perf gap ever becomes unacceptable, this patch plus reconstructing `contractor_odes_capd.cc` from the session transcript is the primary path to restoring CAPD Taylor-order-20.
+
+---
+
+## CAPD-Lohner gated hybrid (current)
+
+CAPD is back as a *second* ODE contractor running alongside `CtcLohner`. The plan, the per-step rationale, and the decision tree are in `codac_docs/analysis/codac_capd_extension_assessment.md` and the project plan file. Summary of what landed:
+
+- **Build wiring** (`CMakeLists.txt`). `ExternalProject_Add(capd_external)` pins CAPD master SHA `b353e170` (2026-05-18) and passes `-DCAPD_INTERVAL_TYPE=NATIVE` so FILIB is skipped on ARM64. CAPD installs into `gcc_build/capd-install/` as a single `libcapd.a` + headers under `include/capd/`. The `capd_imported` IMPORTED target sets `INTERFACE_COMPILE_DEFINITIONS=__USE_NATIVE__` so consumers pick up the matching template instantiations.
+- **Contractor TU** (`src/dreal/contractor/odes/contractor_odes_capd.{h,cc}`). Mirrors the Codac TU's surface and lifetime model: per-flow `CapdOdeCache` holding two `capd::IMap` instances (`f(x)` for forward integration, `-f(x)` for backward); per-call `capd::IOdeSolver(order=20)` + `capd::ITimeMap` (these carry mutable step state, so not shared across parallel ICP workers). The string builder lives in `src/dreal/contractor/odes/to_capd_string.h` (forward-ported from the pre-Codac-migration version). Same `unordered_map<const OdeFlow*, CacheSlot>` + `shared_ptr<const OdeFlow>` ownership pattern as `make_codac_ode_cache` — closes the same pointer-reuse hazard.
+- **Dispatch / gate** (`contractor_odes.cc::Prune`). After the parameter intersect / T=0 / invariant steps, Prune evaluates `use_capd = (t_ub > capd_t_gate) || (n_state_vars >= capd_ndim_gate)`. On a true gate, CAPD runs first; if it diverges (`GlobalEnclosureError`-equivalent, parser failure, or null cache) we fall back to Lohner. The Codac `m_codac_cache` is always built — the trivial-flow short-circuit and Lohner fallback both rely on it.
+- **CLI flags**. `--capd-t-gate ARG` (double, default `5.0`) and `--capd-ndim-gate ARG` (int, default `6`). Set `--capd-t-gate 1e18 --capd-ndim-gate 1000000` to disable CAPD entirely; set both to 0 to force CAPD on every Prune.
+- **Soundness gates**. `test/dreal/contractor/test/contractor_odes_semantic_test.cc` now ships 26 tests across four fixtures:
+  - 7 original (Lohner under default gates) — trivial / decay / mock-prostate × FWD/BWD plus the BWD interior-point preservation gate
+  - 7 `_Capd`-suffixed (`MakeCapdForcedConfig` forces `(t_gate=0, ndim_gate=0)`) — same instances, CAPD path
+  - 9 new gate-dispatch tests — long-horizon at `t_ub=20` (CAPD triggered via t-gate), gate boundary at `t_ub=4.99` vs `5.01`, backend-consistency (Lohner-forced vs CAPD-forced) on the same instance, and trivial-flow short-circuit precedence over the CAPD gate at `t_ub=20`
+  - 3 `SixDimDecayTest` — 6-dimensional decoupled decay exercising the `capd_ndim_gate` branch (n=6 ≥ gate=6) independent of the t-gate
+  Plus a sibling 26-test file `test/dreal/contractor/test/to_capd_string_test.cc` covering the Expression → CAPD `IMap` string translator (constants incl. scientific-notation round-trip + negative wrap, variables, every supported `ExpressionKind` incl. `tan` → `sin/cos`, `abs` → `sqrt(sqr)`, `sinh`/`cosh`/`tanh` → exp-form, and `if_then_else` throws). All 52 pass.
+  The aggregate.py ground-truth flip classifier in `benchmark/aggregate.py` is the next-layer tripwire — any flip against an annotated `_SAT`/`_UNS` benchmark is escalated as `SOUNDNESS REGRESSION`.
+
+### Benchmark validation (2026-06-06)
+
+`/benchmark-baseline` rerun against the post-CAPD-integration HEAD on the 30-benchmark stratified sample. Headline numbers from `benchmark/results/baseline_96fbd642a_20260606_165202/aggregate.json`:
+
+- **0 regressions** vs the prior local baseline
+- **2 resolved anomalies** previously TIMing on HEAD now solve correctly within 300 s:
+  - `1mhz_k28_saradc_3b_box_4a_-1e` (UNSAT in 279.3 s)
+  - `1mhz_k84_saradc_3b_nonlinear_12a_31e`
+- 1 exceptional row (the same `…_box_4a_-1e` benchmark) flagged because the new behavior is faster than the previously-TIM'd baseline
+- Family averages vs the CAV26 *frozen* `baseline.csv` (CAPD-x86-Rosetta historical times):
+
+| Family | n | Frozen avg | Local avg | Ratio |
+|--------|---|-----------|-----------|-------|
+| github | 10 | 79.32 s | 77.29 s | 0.97× (flat) |
+| tacas  | 10 | 191.86 s | 83.83 s | 0.44× (2.3× faster) |
+| saradc | 10 | 68.93 s | 298.0 s | 4.32× (pre-existing post-Codac-migration slowdown, see "Pre-existing correctness flips" below — but two formerly-TIM'd cases now resolve, which is what raises the average) |
+
+Net: vs the prior state of `upgrade-ibex`, the CAPD-Lohner hybrid is a strict improvement (zero regressions, two formerly-TIM'd SARADC benchmarks now solve, tacas substantially faster, github flat). The saradc/frozen ratio is the long-standing non-ODE slowdown from the Codac migration — see "Pre-existing correctness flips" — not a regression from this work.
+
+### Pre-existing stale test note
+
+`test/dreal/contractor/test/contractor_capd_test.cc` (`ContractorCapdFullTest.{CapdFwd,CapdBwd}`) is a dReal3-era port whose output-bit expectations assumed a contractor doing BVP-style time narrowing. Neither current Lohner nor the new CAPD contractor performs that inverse-time reasoning — they compute reachable sets at the *given* `t_ub`. Test expectations were realigned to match current behavior; the test is now pinned to the Lohner backend (`--capd-t-gate 1e18` equivalent) so its mechanical-invariant checks stay stable regardless of any future CAPD tuning. The dReal3 BVP-style narrowing is not on the implementation roadmap; the semantic tests above are the source of truth for soundness.
+
+### Tuning gates from benchmark sweeps
+
+`kDefaultCapdTGate=5.0` and `kDefaultCapdNdimGate=6` are pre-measurement guesses, not optimized values. The intended workflow is:
+
+1. Run `/benchmark-baseline` to relock the regression baseline with the new contractor in place.
+2. Sweep `--capd-t-gate ∈ {2, 5, 10}` × `--capd-ndim-gate ∈ {4, 6, 10}` on a representative subset including `bouncing_ball`, `quad`, `cardiac`, and the SARADC family.
+3. Pick the lowest gate that doesn't hurt easy benchmarks (Lohner-friendly thin tubes) and update the defaults in `src/dreal/solver/config.h`.
 
 ---
 

@@ -283,19 +283,78 @@ set_target_properties(codac_imported PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${CODAC_INSTALL_DIR}/include"
 )
 
-# All platforms now use configure-time downloads, so .a files already exist
-# by the time CMake validates IMPORTED targets — no add_dependencies needed.
+# ---------------------------------------------------------------------------
+# CAPD via ExternalProject — second ODE backend (order-20 Taylor) running
+# alongside Codac's order-2 CtcLohner. See CODAC_MIGRATION.md for the
+# motivation and gating policy.
+#
+# The historical FILIB-on-ARM64 blocker that abandoned the prior CAPD attempt
+# is gone in CAPD master: CAPD_INTERVAL_TYPE=NATIVE makes capdExt skip
+# add_subdirectory(filibsrc) entirely and CAPD's own DoubleRounding (ARM64
+# `msr fpcr` assembly, x86 SSE) is used instead. The two-file FILIB-bypass
+# patch documented in CODAC_MIGRATION.md is no longer required.
+#
+# Pin: b353e170 (2026-05-18). The CAPD_INTERVAL_TYPE switch landed in the
+# v6.1.0 development cycle (Jan 26, 2025 — see CAPD PR #22 / commit b7506bf9
+# bumping the version, alongside the CMAKE_HOST_SYSTEM_PROCESSOR fix). No
+# v6.1.0 release tag exists yet, so we pin a master SHA. Bump only after
+# verifying that the CAPD_INTERVAL_TYPE plumbing is still intact.
+# ---------------------------------------------------------------------------
+set(CAPD_INSTALL_DIR "${CMAKE_BINARY_DIR}/capd-install")
+set(CAPD_GIT_TAG     "b353e170")
 
-# Wire dreal4_cmake against both Codac and IBEX (static linking requires explicit list).
+ExternalProject_Add(capd_external
+    PREFIX            "${CMAKE_BINARY_DIR}/capd_ep"
+    GIT_REPOSITORY    "https://github.com/CAPDGroup/CAPD.git"
+    GIT_TAG           "${CAPD_GIT_TAG}"
+    GIT_SHALLOW       OFF
+    UPDATE_DISCONNECTED 1
+    CMAKE_ARGS
+        "-DCMAKE_INSTALL_PREFIX=${CAPD_INSTALL_DIR}"
+        "-DCAPD_INTERVAL_TYPE=NATIVE"
+        "-DCAPD_ENABLE_MULTIPRECISION=OFF"
+        "-DCAPD_BUILD_ALL=OFF"
+        "-DCAPD_BUILD_TESTS=OFF"
+        "-DCMAKE_CXX_STANDARD=17"
+        "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+        "-DCMAKE_BUILD_TYPE=Release"
+        ${EP_ARCH_ARGS}
+    BUILD_BYPRODUCTS  "${CAPD_INSTALL_DIR}/lib/libcapd.a"
+    INSTALL_DIR       "${CAPD_INSTALL_DIR}"
+)
+
+# IMPORTED target — the .a file does not exist until build time, but CMake
+# only checks existence at link time, so add_dependencies wires the order.
+file(MAKE_DIRECTORY "${CAPD_INSTALL_DIR}/include")
+add_library(capd_imported STATIC IMPORTED GLOBAL)
+add_dependencies(capd_imported capd_external)
+set_target_properties(capd_imported PROPERTIES
+    IMPORTED_LOCATION "${CAPD_INSTALL_DIR}/lib/libcapd.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${CAPD_INSTALL_DIR}/include"
+    # CAPD's interval/lib.h fails with "No interval type selected!" unless
+    # exactly one of __USE_NATIVE__ / __USE_FILIB__ / __USE_CXSC__ is
+    # defined on the consumer's compile line. We built CAPD with
+    # CAPD_INTERVAL_TYPE=NATIVE, so consumers must define __USE_NATIVE__
+    # to pick the matching template instantiations.
+    INTERFACE_COMPILE_DEFINITIONS "__USE_NATIVE__"
+)
+
+# All platforms now use configure-time downloads, so .a files already exist
+# by the time CMake validates IMPORTED targets — no add_dependencies needed
+# for IBEX/Codac. CAPD is the exception: it builds at build time.
+
+# Wire dreal4_cmake against Codac, IBEX, and CAPD (static linking requires explicit list).
 target_include_directories(dreal4_cmake PUBLIC
     "${IBEX_INSTALL_DIR}/include"
     "${IBEX_INSTALL_DIR}/include/ibex"
     "${IBEX_INSTALL_DIR}/include/ibex/3rd"
     "${CODAC_INSTALL_DIR}/include"
     "${CODAC_INSTALL_DIR}/include/codac-core"
+    "${CAPD_INSTALL_DIR}/include"
 )
 # contractor_odes_codac.cc includes Codac v2 headers which require C++20 (concepts,
 # std::numbers).  All other translation units stay at C++17.
+# CAPD requires C++17 only — same as the rest of the project.
 set_source_files_properties(
     "${PROJECT_SOURCE_DIR}/src/dreal/contractor/odes/contractor_odes_codac.cc"
     PROPERTIES COMPILE_OPTIONS "-std=c++20"
@@ -306,8 +365,11 @@ target_link_libraries(dreal4_cmake PUBLIC
     ibex_imported
     ibex_gaol
     ibex_ultim
+    capd_imported
     Eigen3::Eigen
 )
+# CAPD builds at build time (ExternalProject), so dreal4_cmake must wait for it.
+add_dependencies(dreal4_cmake capd_external)
 
 # ---------------------------------------------------------------------------
 # FetchContent dependencies (unchanged from before)

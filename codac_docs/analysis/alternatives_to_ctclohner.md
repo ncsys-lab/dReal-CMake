@@ -1,5 +1,7 @@
 # Realistic alternatives to v2 CtcLohner
 
+> **Outcome (2026-06-06).** Option #5 (CAPD restoration) was landed as a gated second contractor alongside `CtcLohner`. Build uses CAPD master with `CAPD_INTERVAL_TYPE=NATIVE` — the documented FILIB-bypass patch turned out to be unnecessary because upstream now offers this switch as a first-class CMake variable. See `CODAC_MIGRATION.md` § "CAPD-Lohner gated hybrid" for the landed shape.
+
 A focused look at what other ODE-integration paths are available to dReal right now, given what's actually buildable on the current toolchain.
 
 ## What we have today

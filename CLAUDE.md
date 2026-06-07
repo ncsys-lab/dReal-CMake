@@ -71,7 +71,7 @@ Key flags: `--precision <delta>`, `--produce-models`, `--logic <QF_NRA|QF_NRA_OD
    - `contractor_ibex_polytope`: Polytope relaxation
    - `contractor_fixpoint`: Runs a contractor to fixpoint
    - `contractor_seq` / `contractor_join`: Sequential and disjunctive composition
-   - `contractor_ode_lohner`: ODE contractors (Codac/IBEX-based, replaces old CAPD contractor)
+   - `contractor_ode_lohner`: ODE contractor wrapping two backends. Codac's `CtcLohner` (order-2 Taylor, fast) is the default; CAPD's order-20 `IOdeSolver` (`contractor_odes_capd.{h,cc}`) fires when `t_ub > --capd-t-gate` or `n_state_vars >= --capd-ndim-gate` (defaults `5.0` and `6`). CAPD divergence falls back to Lohner so no narrowing is lost. Set `--capd-t-gate 1e18` to disable CAPD entirely; set both gates to 0 to force CAPD on every Prune. See `CODAC_MIGRATION.md` § "CAPD-Lohner gated hybrid" for the rationale.
 
 6. **Pattern Matching / Lemma Generation** (`src/dreal/util/pattern_matching/`): CAV26 feature — generates lemmas from previously solved subproblems to prune future search via `substitution_tree` and `lemma_generator`. Randomization in `substitution_tree.cc` iteration is a recent optimization.
 
@@ -95,6 +95,7 @@ Do not modify these unless necessary — they are external projects vendored in:
 CMake fetches and builds at configure time:
 - **IBEX** (`lebarsfa/ibex-lib@ibex-2.8.9.1`): Built via ExternalProject into `gcc_build/ibex-install/`
 - **Codac** (`codac-team/codac@v2.0.2`, `WITH_CAPD=OFF`): Built via ExternalProject into `gcc_build/codac-install/`
+- **CAPD** (`CAPDGroup/CAPD@b353e170`, master pin for in-development `6.1.0`, `CAPD_INTERVAL_TYPE=NATIVE`): Built via ExternalProject into `gcc_build/capd-install/`. Native intervals (CAPD's own `DoubleRounding`) skip FILIB and work on ARM64.
 - **fmt**, **spdlog**, **nlopt**: Via FetchContent
 - **GTest**: Via FetchContent
 
@@ -182,6 +183,6 @@ python3 benchmark/aggregate.py <results_dir>
 
 **`filter_assertion` soundness**: There was a soundness bug where strict upper bounds were handled incorrectly due to a wrong `nextafter()` call. The `forward`/`backward` naming in `substitutions_map` also had a soundness bug that was fixed. Be careful around strict vs. non-strict inequality handling in contractors and the SAT interval logic.
 
-**ODE performance baseline**: `bouncing_ball_with_drag_10_0.smt2` (10 modes) runs at ~4.2 s on `upgrade-ibex` (ARM64 macOS, post-three-optimization-passes), vs ~0.5 s on the old CAPD order-20 backend (x86 Rosetta). The ~8× gap is the Codac order-2 Taylor floor and is accepted because CAV26 research focus is pattern-matching/lemma reuse, not ODE integration speed. Long-horizon benchmarks (cardiac, t_ub up to 30) recovered to baseline via adaptive `n_steps`; complex 10+-var flows (quad, crazyflie, prostate) remain order-2-bound. See `CODAC_MIGRATION.md` for the headline table, full optimization timeline, and the CAPD v6 ARM64 fallback patch.
+**ODE performance baseline**: `bouncing_ball_with_drag_10_0.smt2` (10 modes) runs at ~4.2 s on `upgrade-ibex` under Lohner-only; the new gated CAPD path keeps small-`t_ub` benchmarks on Lohner so this number is unchanged. CAPD's order-20 path is intended to close the gap on `quad`, `crazyflie`, and long-horizon `cardiac` / `prostate` flows where Lohner's order-2 Taylor widens out of usefulness — needs a benchmark sweep to confirm. `bouncing_ball_with_drag_10_0` historically ran at ~0.5 s under x86-Rosetta CAPD order-20; the CAPD branch can be forced on with `--capd-t-gate 0 --capd-ndim-gate 0` to measure the current-stack equivalent. See `CODAC_MIGRATION.md` § "CAPD-Lohner gated hybrid" for tuning workflow.
 
 **Benchmarking instrumentation**: Several `std::cerr` prints and JSON dumps exist specifically for benchmarking runs. Log levels (TRACE/DEBUG/INFO) are tuned so that `--verbose` (DEBUG) is useful for development without flooding output on large queries. TRACE is for deep debugging only.

@@ -6,6 +6,7 @@
 
 #include "contractor_odes.h"
 #include "contractor_odes_codac.h"
+#include "contractor_odes_capd.h"
 
 #include <cassert>
 #include <chrono>
@@ -17,6 +18,7 @@
 #include <vector>
 
 #include "dreal/contractor/contractor_ibex_fwdbwd.h"
+#include "dreal/solver/config.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"
@@ -145,7 +147,16 @@ namespace dreal
         {
             RoundingModeGuard g(FE_TONEAREST);
             m_codac_cache = make_codac_ode_cache(icc->get_flow(), m_ode_state_vars);
+            // Build the CAPD cache eagerly too. CAPD's IMap parser is
+            // moderately expensive; doing it here keeps Prune off the
+            // cold path of per-flow translation. If the parser rejects
+            // the string (unsupported function, malformed RHS), m_capd_cache
+            // stays null and the gate naturally skips CAPD dispatch.
+            m_capd_cache = make_capd_ode_cache(icc->get_flow(), m_ode_state_vars);
         }
+        // Snapshot the gate values so Prune doesn't re-read Config.
+        m_capd_t_gate    = config.capd_t_gate();
+        m_capd_ndim_gate = config.capd_ndim_gate();
     }
 
     // ---------------------------------------------------------------------------
@@ -303,23 +314,61 @@ namespace dreal
             u0_bounds.emplace_back(iv.lb(), iv.ub());
         }
 
+        // Gate: dispatch CAPD's order-20 contractor for long-horizon or
+        // high-dimensional flows where Codac's order-2 Lohner widens out
+        // of usefulness; otherwise stay on Lohner. CAPD divergence /
+        // null-cache → fall back to Lohner so we never lose narrowing.
+        // See Config::kDefaultCapdTGate / kDefaultCapdNdimGate for the
+        // defaults and the CLI flags for tuning at runtime.
+        const bool capd_gated =
+            m_capd_cache &&
+            ((t_ub > m_capd_t_gate) ||
+             (n   >= m_capd_ndim_gate));
+
         CodacOdeResult res;
+
+        // Prepare X_t bounds once (used by both backends in FWD; ignored in BWD).
+        std::vector<std::pair<double, double>> X_t_bounds;
         if (m_dir == ode_direction::FWD) {
-            // Target: end-of-integration intervals (m_vars_t = original X_t)
-            std::vector<std::pair<double, double>> X_t_bounds;
             X_t_bounds.reserve(static_cast<size_t>(n));
             for (int i = 0; i < n; ++i) {
                 const ibex::Interval& iv = cs->box()[m_vars_t[static_cast<size_t>(i)]];
                 X_t_bounds.emplace_back(iv.lb(), iv.ub());
             }
-            res = run_lohner_integration(
-                m_codac_cache, u0_bounds, X_t_bounds, t_ub, /*forward=*/true);
-        } else {
-            // BWD: backward image of u0 = original X_t. The result's
-            // vars_t_narrowed corresponds to the state at real time 0
-            // (= original X_0 = current m_vars_t).
-            res = run_lohner_bwd_oneshot(
-                m_codac_cache, u0_bounds, t_ub);
+        }
+
+        if (capd_gated) {
+            CapdOdeResult cr;
+            if (m_dir == ode_direction::FWD) {
+                cr = run_capd_fwd(m_capd_cache, u0_bounds, X_t_bounds, t_ub);
+            } else {
+                cr = run_capd_bwd(m_capd_cache, u0_bounds, t_ub);
+            }
+            if (cr.found) {
+                // Adopt CAPD's result. Field shapes match CodacOdeResult.
+                res.vars_t_narrowed = std::move(cr.vars_t_narrowed);
+                res.vars_0_narrowed = std::move(cr.vars_0_narrowed);
+                res.t_new_lb = cr.t_new_lb;
+                res.t_new_ub = cr.t_new_ub;
+                res.found = true;
+                DREAL_LOG_DEBUG("contractor_ode_lohner::Prune - CAPD path took narrowing (t_ub={}, n={})",
+                                t_ub, n);
+            } else {
+                DREAL_LOG_DEBUG("contractor_ode_lohner::Prune - CAPD diverged / null result; falling back to Lohner");
+            }
+        }
+
+        if (!res.found) {
+            if (m_dir == ode_direction::FWD) {
+                res = run_lohner_integration(
+                    m_codac_cache, u0_bounds, X_t_bounds, t_ub, /*forward=*/true);
+            } else {
+                // BWD: backward image of u0 = original X_t. The result's
+                // vars_t_narrowed corresponds to the state at real time 0
+                // (= original X_0 = current m_vars_t).
+                res = run_lohner_bwd_oneshot(
+                    m_codac_cache, u0_bounds, t_ub);
+            }
         }
 
         if (!res.found) return;
