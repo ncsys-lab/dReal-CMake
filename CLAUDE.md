@@ -159,7 +159,7 @@ Run `/benchmark` after every meaningful code change. This is the primary regress
 - `/benchmark` — runs ~8-12 benchmarks in parallel, spawns a Haiku subagent to interpret results, reports back 2-4 sentence summary with regression/exceptional counts
 - `/benchmark-baseline` — runs ~30 benchmarks to establish a fresh local baseline (use before branch merges or when exceptional list grows stale)
 
-**Thresholds**: regression if wall time >1.5× baseline or result changes; exceptional if <0.6× baseline. Correctness flips (SAT↔UNSAT) are always escalated immediately regardless of timing.
+**Thresholds**: regression if PAR2 time >1.5× baseline (PAR2 = actual time if solved, 2× timeout = 600 s if TIM/OOM/ERR); exceptional if PAR2 time <0.6× baseline. Correctness flips (SAT↔UNSAT) are always escalated immediately regardless of timing.
 
 **Benchmark sources** (raw `.smt2` files, not in this repo):
 - `~/Documents/new_dreal/nraode_to_nra/drealgithub_sunoct5/rolled/` — github_oct5_ family

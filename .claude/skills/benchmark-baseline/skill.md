@@ -25,7 +25,7 @@ The `aggregate.json` contains a `family_comparison` key with per-family frozen v
 
 Return a formatted summary as your only output:
 - Header: `Baseline established from <baseline_sha> — <n_ran> benchmarks across 3 families`
-- Table: one row per family from `family_comparison` — family | n | frozen avg | local avg | ratio
+- Table: one row per family from `family_comparison` — family | n | frozen PAR2 avg | local PAR2 avg | ratio (keys: `frozen_avg_par2`, `local_avg_par2`)
 - One sentence: faster/slower/comparable? Flag >20% systematic differences as potentially a build config issue.
 - Last line: `baseline_local: benchmark/baseline_local.csv`
 

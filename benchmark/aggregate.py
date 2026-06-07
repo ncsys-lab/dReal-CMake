@@ -16,8 +16,18 @@ from datetime import datetime, timezone
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-REGRESSION_RATIO = 1.5   # wall time > 1.5x baseline → regression
-EXCEPTIONAL_RATIO = 0.6  # wall time < 0.6x baseline → exceptional
+REGRESSION_RATIO = 1.5   # PAR2 time > 1.5x baseline → regression
+EXCEPTIONAL_RATIO = 0.6  # PAR2 time < 0.6x baseline → exceptional
+
+SOLVER_TIMEOUT_S = 300   # must match run_batch.sh `timeout 300`
+PAR2_PENALTY_S = 2 * SOLVER_TIMEOUT_S  # 600 s
+
+
+def par2_time(result: str, wall_time_s: float | None) -> float:
+    """PAR2-penalized time: actual time if solved, 2x timeout (600 s) otherwise."""
+    if result in ("SAT", "UNSAT") and wall_time_s is not None:
+        return wall_time_s
+    return PAR2_PENALTY_S
 
 
 def load_baseline(baseline_csv: str, column: str = "DRPM_0L") -> dict[str, dict]:
@@ -116,40 +126,47 @@ def family_of(name: str) -> str | None:
 
 
 def compute_family_comparison(frozen_csv: str, local_summary: list[dict]) -> dict:
-    """Compare per-family averages between frozen baseline and new local run."""
+    """Compare per-family PAR2 averages between frozen baseline and new local run.
+
+    Every benchmark present in both sets contributes its PAR2 time (actual time
+    if solved, PAR2_PENALTY_S=600 s if TIM/OOM/ERR). This ensures that
+    formerly-TIM'd benchmarks that now solve lower the average rather than
+    appearing to raise it.
+    """
     frozen = load_baseline(frozen_csv, "DRPM_0L")
 
     from collections import defaultdict
-    frozen_times: dict[str, list[float]] = defaultdict(list)
-    local_times: dict[str, list[float]] = defaultdict(list)
+    frozen_par2: dict[str, list[float]] = defaultdict(list)
+    local_par2: dict[str, list[float]] = defaultdict(list)
 
     for row in local_summary:
         name = row["benchmark_name"]
         fam = family_of(name)
         if fam is None:
             continue
-        cur_time = float(row["wall_time_s"]) if row.get("wall_time_s") else None
         base = frozen.get(name)
-        base_time = base["time_s"] if base else None
-        if cur_time is not None and base_time is not None:
-            local_times[fam].append(cur_time)
-            frozen_times[fam].append(base_time)
+        if base is None:
+            continue
+        cur_result = row.get("solver_result", "")
+        cur_time = float(row["wall_time_s"]) if row.get("wall_time_s") else None
+        local_par2[fam].append(par2_time(cur_result, cur_time))
+        frozen_par2[fam].append(par2_time(base["result"], base["time_s"]))
 
     result = {}
     for fam in ("saradc", "github", "tacas"):
-        lt = local_times.get(fam, [])
-        ft = frozen_times.get(fam, [])
-        if lt and ft:
-            local_avg = sum(lt) / len(lt)
-            frozen_avg = sum(ft) / len(ft)
+        lp = local_par2.get(fam, [])
+        fp = frozen_par2.get(fam, [])
+        if lp and fp:
+            local_avg = sum(lp) / len(lp)
+            frozen_avg = sum(fp) / len(fp)
             result[fam] = {
-                "frozen_avg": round(frozen_avg, 2),
-                "local_avg": round(local_avg, 2),
+                "frozen_avg_par2": round(frozen_avg, 2),
+                "local_avg_par2": round(local_avg, 2),
                 "ratio": round(local_avg / frozen_avg, 3),
-                "n": len(lt),
+                "n": len(lp),
             }
         else:
-            result[fam] = {"frozen_avg": None, "local_avg": None, "ratio": None, "n": 0}
+            result[fam] = {"frozen_avg_par2": None, "local_avg_par2": None, "ratio": None, "n": 0}
     return result
 
 
@@ -227,7 +244,6 @@ def main():
 
         base_time = base["time_s"]
         base_result = base["result"]
-        base_timed_out = base_result in ("TIM", "MEM", "UNK") or (base_time is not None and base_time >= 180)
 
         # --- SAT↔UNSAT flip: classify against ground_truth ---
         # dReal is sound + delta-complete, so a flip can be either a true
@@ -276,62 +292,41 @@ def main():
 
         from_frozen = base.get("from_frozen", False)
 
-        # --- Solve→timeout/OOM regression ---
-        # Skip on frozen-fallback rows: a TIM locally vs SAT in the frozen ref
-        # may just reflect a slower machine, not a code regression.
-        if (not result_flip and not from_frozen and
-                base_result in ("SAT", "UNSAT") and cur_result in ("TIM", "OOM", "ERR")):
-            regressions.append({
-                "name": name,
-                "priority": "HIGH",
-                "reason": f"Baseline solved ({base_result}) but current {cur_result}",
-                "baseline_time": base_time,
-                "current_time": cur_time,
-                "baseline_result": base_result,
-                "current_result": cur_result,
-            })
-            new_anomalies.add(name)
+        # --- PAR2 timing comparison ---
+        # Skipped for from_frozen rows (different machine, timing unreliable) and
+        # correctness flips (already classified above).
+        # PAR2 time = actual wall time if solved, PAR2_PENALTY_S (600 s) otherwise.
+        # This unifies solve→TIM regressions, TIM→solve improvements, and plain
+        # timing regressions/speedups into a single ratio check.
+        if not from_frozen and not result_flip:
+            par2_base = par2_time(base_result, base_time)
+            par2_cur  = par2_time(cur_result, cur_time)
+            ratio = par2_cur / par2_base
+            raw_note = (f" [raw: {cur_time:.1f}s]" if cur_time is not None else " [TIM/OOM/ERR]")
 
-        # --- Timeout→solve improvement ---
-        elif base_timed_out and cur_result in ("SAT", "UNSAT"):
-            exceptional_list.append({
-                "name": name,
-                "reason": f"Baseline {base_result} but current solved as {cur_result} in {cur_time:.1f}s",
-                "baseline_time": base_time,
-                "current_time": cur_time,
-            })
-            new_exceptional.add(name)
-            if name in new_anomalies:
+            if ratio > REGRESSION_RATIO:
+                priority = ("HIGH" if base_result in ("SAT", "UNSAT")
+                            and cur_result in ("TIM", "OOM", "ERR") else "TIMING")
+                regressions.append({
+                    "name": name,
+                    "priority": priority,
+                    "reason": f"PAR2: {par2_cur:.0f}s vs baseline {par2_base:.0f}s ({ratio:.2f}x){raw_note}",
+                    "baseline_time": base_time,
+                    "current_time": cur_time,
+                    "baseline_result": base_result,
+                    "current_result": cur_result,
+                })
+                new_anomalies.add(name)
+
+            elif ratio < EXCEPTIONAL_RATIO:
+                exceptional_list.append({
+                    "name": name,
+                    "reason": f"PAR2: {par2_cur:.0f}s vs baseline {par2_base:.0f}s ({ratio:.2f}x){raw_note}",
+                    "baseline_time": base_time,
+                    "current_time": cur_time,
+                })
+                new_exceptional.add(name)
                 new_anomalies.discard(name)
-
-        # --- Timing regression (only when baseline also solved) ---
-        elif (not result_flip and not base_timed_out and
-              cur_time is not None and base_time is not None and
-              cur_result in ("SAT", "UNSAT") and
-              cur_time > REGRESSION_RATIO * base_time):
-            regressions.append({
-                "name": name,
-                "priority": "TIMING",
-                "reason": f"{cur_time:.1f}s vs baseline {base_time:.1f}s ({cur_time/base_time:.2f}x)",
-                "baseline_time": base_time,
-                "current_time": cur_time,
-                "baseline_result": base_result,
-                "current_result": cur_result,
-            })
-            new_anomalies.add(name)
-
-        # --- Exceptional speedup ---
-        elif (not base_timed_out and
-              cur_time is not None and base_time is not None and
-              cur_result in ("SAT", "UNSAT") and
-              cur_time < EXCEPTIONAL_RATIO * base_time):
-            exceptional_list.append({
-                "name": name,
-                "reason": f"{cur_time:.1f}s vs baseline {base_time:.1f}s ({cur_time/base_time:.2f}x)",
-                "baseline_time": base_time,
-                "current_time": cur_time,
-            })
-            new_exceptional.add(name)
 
         # --- Resolved anomaly ---
         if name in prev_anomalies and name not in {r["name"] for r in regressions}:

@@ -123,24 +123,19 @@ CAPD is back as a *second* ODE contractor running alongside `CtcLohner`. The pla
   Plus a sibling 26-test file `test/dreal/contractor/test/to_capd_string_test.cc` covering the Expression → CAPD `IMap` string translator (constants incl. scientific-notation round-trip + negative wrap, variables, every supported `ExpressionKind` incl. `tan` → `sin/cos`, `abs` → `sqrt(sqr)`, `sinh`/`cosh`/`tanh` → exp-form, and `if_then_else` throws). All 52 pass.
   The aggregate.py ground-truth flip classifier in `benchmark/aggregate.py` is the next-layer tripwire — any flip against an annotated `_SAT`/`_UNS` benchmark is escalated as `SOUNDNESS REGRESSION`.
 
-### Benchmark validation (2026-06-06)
+### Benchmark validation (2026-06-07, PAR2-corrected)
 
-`/benchmark-baseline` rerun against the post-CAPD-integration HEAD on the 30-benchmark stratified sample. Headline numbers from `benchmark/results/baseline_96fbd642a_20260606_165202/aggregate.json`:
+`/benchmark-baseline` rerun against HEAD (`bd8a7ce99`) on the 30-benchmark stratified sample with PAR2 scoring (TIM/OOM/ERR entries penalized at 2× timeout = 600 s). PAR2 is the correct metric for SMT benchmarking: a benchmark that transitions from TIM to solved *lowers* the PAR2 average, while the old raw-average approach silently excluded timed-out entries from both sides and gave a misleading picture.
 
-- **0 regressions** vs the prior local baseline
-- **2 resolved anomalies** previously TIMing on HEAD now solve correctly within 300 s:
-  - `1mhz_k28_saradc_3b_box_4a_-1e` (UNSAT in 279.3 s)
-  - `1mhz_k84_saradc_3b_nonlinear_12a_31e`
-- 1 exceptional row (the same `…_box_4a_-1e` benchmark) flagged because the new behavior is faster than the previously-TIM'd baseline
-- Family averages vs the CAV26 *frozen* `baseline.csv` (CAPD-x86-Rosetta historical times):
+Family PAR2 averages vs the CAV26 *frozen* `baseline.csv` (CAPD-x86-Rosetta historical times):
 
-| Family | n | Frozen avg | Local avg | Ratio |
-|--------|---|-----------|-----------|-------|
-| github | 10 | 79.32 s | 77.29 s | 0.97× (flat) |
-| tacas  | 10 | 191.86 s | 83.83 s | 0.44× (2.3× faster) |
-| saradc | 10 | 68.93 s | 298.0 s | 4.32× (pre-existing post-Codac-migration slowdown, see "Pre-existing correctness flips" below — but two formerly-TIM'd cases now resolve, which is what raises the average) |
+| Family | n | Frozen PAR2 avg | Local PAR2 avg | Ratio |
+|--------|---|-----------------|----------------|-------|
+| github | 10 | 74.69 s | 425.30 s | 5.69× |
+| tacas  | 10 | 115.03 s | 300.41 s | 2.61× |
+| saradc | 10 | 73.17 s | 567.11 s | 7.75× |
 
-Net: vs the prior state of `upgrade-ibex`, the CAPD-Lohner hybrid is a strict improvement (zero regressions, two formerly-TIM'd SARADC benchmarks now solve, tacas substantially faster, github flat). The saradc/frozen ratio is the long-standing non-ODE slowdown from the Codac migration — see "Pre-existing correctness flips" — not a regression from this work.
+Net: the ARM64/Codac-v2 stack is substantially slower than the old x86/Rosetta CAPD+IBEX stack across all three families under PAR2 scoring. The prior analysis (which showed github "flat" at 0.97× and tacas "2.3× faster") was an artifact of excluding timed-out benchmarks from the family average on both sides — those benchmarks now correctly contribute 600 s each to the local PAR2 average. The saradc slowdown is the long-standing non-ODE post-Codac-migration issue (see "Pre-existing correctness flips"). The CAPD-Lohner hybrid vs the prior Lohner-only state of `upgrade-ibex` is still a strict improvement (zero regressions; the two formerly-TIM'd SARADC benchmarks now solve, lowering their contribution from 600 s each to their actual solve times).
 
 ### Pre-existing stale test note
 

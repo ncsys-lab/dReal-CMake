@@ -19,7 +19,7 @@ The script prints OUT_DIR to stdout when done. Use the Read tool to read `<OUT_D
 Return a formatted summary as your only output:
 - If `correctness_flips` is non-empty, lead with: **CORRECTNESS REGRESSION**: [names] changed SAT/UNSAT result.
 - First line: `N ran, M regressions, K exceptional`
-- 2–4 sentences: (1) overall health, (2) notable timing changes, (3) whether exceptional speedups look real or noise
+- 2–4 sentences: (1) overall health, (2) notable timing changes using PAR2 scores (e.g. "PAR2: 50 s vs 600 s (0.08×, formerly TIM)" for a benchmark that went from timeout to solve), (3) whether exceptional speedups look real or noise
 - One sentence: what needs investigation before continuing, if anything
 - Last line: `anomaly_report: <OUT_DIR>/anomaly_report.txt`
 
