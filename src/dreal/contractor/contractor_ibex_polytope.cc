@@ -21,7 +21,10 @@
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
 #include "dreal/util/math.h"
+#include "dreal/util/stat.h"
+#include "dreal/util/timer.h"
 
+using std::cout;
 using std::make_unique;
 using std::ostream;
 using std::ostringstream;
@@ -29,6 +32,39 @@ using std::unique_ptr;
 using std::vector;
 
 namespace dreal {
+
+namespace {
+// Temporary instrumentation for the non-ODE-slowdown investigation. Mirrors
+// the stat block in contractor_ibex_fwdbwd.cc. Drop once profiling is done.
+class ContractorIbexPolytopeStat : public Stat {
+ public:
+  explicit ContractorIbexPolytopeStat(const bool enabled) : Stat{enabled} {};
+  ContractorIbexPolytopeStat(const ContractorIbexPolytopeStat&) = delete;
+  ContractorIbexPolytopeStat(ContractorIbexPolytopeStat&&) = delete;
+  ContractorIbexPolytopeStat& operator=(const ContractorIbexPolytopeStat&) = delete;
+  ContractorIbexPolytopeStat& operator=(ContractorIbexPolytopeStat&&) = delete;
+  ~ContractorIbexPolytopeStat() override {
+    if (enabled()) {
+      using fmt::print;
+      print(cout, "{:<45} @ {:<20} = {:>15}\n",
+            "Total # of ibex-polytope Pruning", "Pruning level", num_pruning_);
+      print(cout, "{:<45} @ {:<20} = {:>15}\n",
+            "Total # of ibex-polytope Pruning (zero-effect)", "Pruning level",
+            num_zero_effect_pruning_);
+      if (num_pruning_) {
+        print(cout, "{:<45} @ {:<20} = {:>15f} sec\n",
+              "Total time spent in Pruning (polytope)", "Pruning level",
+              timer_pruning_.seconds());
+      }
+    }
+  }
+
+  int num_zero_effect_pruning_{0};
+  int num_pruning_{0};
+
+  Timer timer_pruning_;
+};
+}  // namespace
 
 //---------------------------------------
 // Implementation of ContractorIbexPolytope
@@ -83,20 +119,42 @@ ContractorIbexPolytope::ContractorIbexPolytope(vector<Formula> formulas,
 }
 
 void ContractorIbexPolytope::Prune(ContractorStatus* cs) const {
+  thread_local ContractorIbexPolytopeStat stat{DREAL_LOG_INFO_ENABLED};
   DREAL_ASSERT(!is_dummy_ && ctc_);
   Box::IntervalVector& iv{cs->mutable_box().mutable_interval_vector()};
-  const Box::IntervalVector old_iv = iv;
   DREAL_LOG_TRACE("ContractorIbexPolytope::Prune");
+
+  // Input-restricted snapshot: save only the intervals at the constraint
+  // set's free-var indices instead of copying the whole IntervalVector.
+  // Mirrors the Pass-2 trick from contractor_ibex_fwdbwd.cc. Polytope's
+  // input() bitset aggregates free vars across formulas_; whenever that's
+  // smaller than the full box, this is a strict win. thread_local keeps the
+  // buffer's capacity so steady-state Prune does zero heap activity.
+  thread_local std::vector<std::pair<int, ibex::Interval>> saved_inputs;
+  saved_inputs.clear();
+  {
+    DynamicBitset::size_type i_bit = input().find_first();
+    while (i_bit != DynamicBitset::npos) {
+      saved_inputs.emplace_back(static_cast<int>(i_bit), iv[i_bit]);
+      i_bit = input().find_next(i_bit);
+    }
+  }
+
+  stat.timer_pruning_.resume();
   ctc_->contract(iv);
+  stat.timer_pruning_.pause();
+  if (stat.enabled()) {
+    stat.num_pruning_++;
+  }
   bool changed{false};
   // Update output.
   if (iv.is_empty()) {
     changed = true;
     cs->mutable_output().set();
   } else {
-    for (int i = 0; i < old_iv.size(); ++i) {
-      if (old_iv[i] != iv[i]) {
-        cs->mutable_output().set(i);
+    for (const auto& [idx, saved] : saved_inputs) {
+      if (iv[idx] != saved) {
+        cs->mutable_output().set(static_cast<DynamicBitset::size_type>(idx));
         changed = true;
       }
     }
@@ -105,11 +163,21 @@ void ContractorIbexPolytope::Prune(ContractorStatus* cs) const {
   if (changed) {
     cs->AddUsedConstraint(formulas_);
     if (DREAL_LOG_TRACE_ENABLED) {
+      // Reconstruct old_iv only when tracing — the input-restricted snapshot
+      // is enough for the changed-bit update above. DisplayDiff still wants
+      // the full pair for human readability.
+      Box::IntervalVector old_iv = iv;
+      for (const auto& [idx, saved] : saved_inputs) {
+        old_iv[idx] = saved;
+      }
       ostringstream oss;
       DisplayDiff(oss, cs->box().variables(), old_iv, iv);
       DREAL_LOG_TRACE("Changed\n{}", oss.str());
     }
   } else {
+    if (stat.enabled()) {
+      stat.num_zero_effect_pruning_++;
+    }
     DREAL_LOG_TRACE("NO CHANGE");
   }
 }

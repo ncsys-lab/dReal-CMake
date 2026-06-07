@@ -33,8 +33,14 @@ custom patches are no longer needed:
 - The ARM64 FPU fixes are handled by lebarsfa and Codac natively.
 - The `Function::backward` callback is replaced by a pre/post box comparison in
   `contractor_ibex_fwdbwd.cc` (see Phase 2 in `CODAC_MIGRATION.md`).
-- The gradient null-out hack is dropped; upstream IBEX always allocates the gradient
-  and the performance impact is acceptable.
+- The gradient null-out hack is dropped; upstream IBEX always allocates the gradient.
+  **Performance impact is not acceptable** — the 2026-06-07 re-investigation
+  (`CODAC_MIGRATION.md` § "Re-investigation 2026-06-07") shows ~65% of saradc wall
+  time is spent in `ibex::Function::init` building a gradient that
+  `Function::backward` (our only IBEX entry point on the fwdbwd hot path) never
+  reads. Restoring the hack is "Open lines of attack" item 7 in
+  `CODAC_MIGRATION.md` and requires switching `ibex_external` in `CMakeLists.txt`
+  from prebuilt-zip to a source `ExternalProject_Add` with a small `PATCH_COMMAND`.
 
 ---
 

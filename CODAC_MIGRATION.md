@@ -11,7 +11,7 @@ Both forked dependencies were unmaintained snapshots requiring heavy local patch
 | Trade-off | Notes |
 |---|---|
 | One extra `IntervalVector` copy per `fwdbwd` backward pass | Restores pre-callback behavior; critical for lemma quality (see Migration phases below) |
-| Gradient always allocated in upstream IBEX | Minor memory overhead; our fork's `_grad = nullptr` hack disappears |
+| Gradient always allocated in upstream IBEX | **Major CPU cost, not memory.** `sample` profiling on `1mhz_k20_saradc_2b_box_4a_-1e` (see "Re-investigation 2026-06-07" below) shows ~65% of total wall time inside `ibex::Gradient::Gradient(ibex::Eval&)` and `ibex::ExprLinearity::ExprLinearity`, both called unconditionally from `ibex::Function::init`. `Function::backward` (the only IBEX entry point fwdbwd actually uses) takes the `_hc4revise` path and never touches `_grad`. ncsys-lab's `_grad = nullptr` hack was load-bearing for this Prune-time cost; lebarsfa's stock build pays it on every cache miss in `TheorySolver::contractor_cache_`. **This is the dominant component of the post-migration non-ODE slowdown.** See "Open lines of attack" item 7 for the IBEX-source-patch path. |
 | Tube-based ODE semantics | Codac's `CtcLohner` operates on `SlicedTube`s, not step-by-step CAPD integration |
 | Taylor order 2 (vs CAPD's order 20) | Hardcoded in Codac internals; primary source of ODE-benchmark slowdown |
 
@@ -135,7 +135,7 @@ Family PAR2 averages vs the CAV26 *frozen* `baseline.csv` (CAPD-x86-Rosetta hist
 | tacas  | 10 | 115.03 s | 300.41 s | 2.61× |
 | saradc | 10 | 73.17 s | 567.11 s | 7.75× |
 
-Net: the ARM64/Codac-v2 stack is substantially slower than the old x86/Rosetta CAPD+IBEX stack across all three families under PAR2 scoring. The prior analysis (which showed github "flat" at 0.97× and tacas "2.3× faster") was an artifact of excluding timed-out benchmarks from the family average on both sides — those benchmarks now correctly contribute 600 s each to the local PAR2 average. The saradc slowdown is the long-standing non-ODE post-Codac-migration issue (see "Pre-existing correctness flips"). The CAPD-Lohner hybrid vs the prior Lohner-only state of `upgrade-ibex` is still a strict improvement (zero regressions; the two formerly-TIM'd SARADC benchmarks now solve, lowering their contribution from 600 s each to their actual solve times).
+Net: the ARM64/Codac-v2 stack is substantially slower than the old x86/Rosetta CAPD+IBEX stack across all three families under PAR2 scoring. The prior analysis (which showed github "flat" at 0.97× and tacas "2.3× faster") was an artifact of excluding timed-out benchmarks from the family average on both sides — those benchmarks now correctly contribute 600 s each to the local PAR2 average. The dominant component of the across-the-board non-ODE slowdown is now root-caused: see "Re-investigation 2026-06-07" below for the gradient-allocation finding and "Open lines of attack" item 7 for the fix. The CAPD-Lohner hybrid vs the prior Lohner-only state of `upgrade-ibex` is still a strict improvement (zero regressions; the two formerly-TIM'd SARADC benchmarks now solve, lowering their contribution from 600 s each to their actual solve times).
 
 ### Pre-existing stale test note
 
@@ -251,6 +251,64 @@ Items below survive into ongoing work. Item 2 from earlier passes (proper backwa
 
 6. **Fuzz the BWD contractor with sympy-derived polynomial closed-form fixtures.** Pass 3 verified soundness on seven hand-picked fixtures (trivial flow, linear decay, mock-prostate rational coupling). Random RHS within a polynomial template would harden confidence further. Especially valuable on dynamics with closed-form solutions where ground-truth flips are easy to detect.
 
+7. **Restore the `_grad = nullptr` patch on IBEX.** Highest-payoff non-ODE item. The 2026-06-07 re-investigation (see section below) showed ~65% of saradc wall time is spent in `ibex::Function::init` building `_grad` (`Gradient` ctor + `ExprLinearity` analysis) — work `Function::backward` never uses. The original ncsys-lab fork suppressed this with a one-liner; lebarsfa's stock build doesn't. The fix requires:
+   - Switching `ibex_external` in `CMakeLists.txt` from the prebuilt-zip download (lines 175-235) to `ExternalProject_Add` building `lebarsfa/ibex-lib` from source (matching tag `ibex-2.8.9.20250626`) with a `PATCH_COMMAND` that applies a local diff.
+   - The diff is small: either (a) lazy-init `_grad` in `Function::gradient(...)` / `Function::deriv_calculator()` (set to nullptr in `init`, build on first use), or (b) add an `IBEX_NO_GRAD_INIT` CMake option that gates the gradient construction. (a) is the cleaner default since other IBEX consumers (`LinearizerXTaylor` in our `contractor_ibex_polytope.cc`) keep working transparently. Skipping `ExprLinearity` is a separate ~37% win on top.
+   - Build wiring: source IBEX build on ARM64 macOS needs `gaol` and `ultim` sub-projects, both already shipped under `lebarsfa/ibex-lib` — no FILIB dependency for the gradient patch. Reuse the codac install layout (`gcc_build/ibex-install/`) so downstream consumers don't shift.
+   - Verification: re-run `1mhz_k20_saradc_2b_box_4a_-1e` + `/benchmark-baseline` post-patch; expect saradc family PAR2 average to drop ~3× from 567 s toward ~190 s, github similarly.
+   Effort: ~half-day for a careful patch; the change is contained to `CMakeLists.txt` + a small upstream-IBEX diff. The trade-off table at the top of this doc is updated to flag the magnitude.
+
+---
+
+## Re-investigation 2026-06-07: root-causing the non-ODE slowdown
+
+Triggered by the user observation that "long-standing non-ODE slowdown from the Codac migration" was written before Pass 2 landed and had never been independently re-profiled. The 2026-06-07 PAR2 numbers (github 5.69×, tacas 2.61×, saradc 7.75×) made the gap large enough to be worth a focused investigation.
+
+### Method
+
+- `1mhz_k20_saradc_2b_box_4a_-1e.smt2` chosen as probe — frozen baseline 48 s, small enough to iterate on.
+- Saradc benchmarks were checked first for `(integral_...)` / `(forall_t ...)` terms — zero matches. The `(set-logic QF_NRA_ODE)` header is dReal3-compat boilerplate; the actual ODE contractor never fires. So the ODE-side rewrites (CtcLohner, CAPD hybrid, BWD restoration) are mechanically irrelevant for saradc.
+- A temporary `ContractorIbexPolytopeStat` was added to `contractor_ibex_polytope.cc` mirroring the fwdbwd one. `--polytope` is off by default — polytope never fires on saradc, so the polytope full-box snapshot at the old `contractor_ibex_polytope.cc:88` was not on the saradc critical path. (The Pass-2-equivalent fix landed anyway, since it's a strict improvement for `--polytope` users.)
+- `dreal4 --verbose info` stat dumps + `sample <pid> 30` (macOS profiler) on the probe.
+
+### Findings
+
+| Stat (from `--verbose info` end-of-run dump) | Value |
+|---|---|
+| Total CheckSat (Theory level) | 400 |
+| Total time in CheckSat | **77.20 s** |
+| Total ibex-fwdbwd Pruning calls | 109,819 |
+| Total time in Pruning | 0.022 s |
+| Total ibex-converter Convert calls | 877 |
+| Total time in Converting | 0.004 s |
+| Total ibex-polytope Pruning | (never fired — polytope disabled by default) |
+
+The pruning hot path is essentially free (0.022 s for 110 K calls). The ~77 s in theory CheckSat is unaccounted for by any existing stat.
+
+`sample` resolves the missing 77 s precisely:
+- 100% of samples → `dreal::TheorySolver::CheckSat` → `BuildContractor` → `make_contractor_ibex_fwdbwd` → `ContractorIbexFwdbwd::ContractorIbexFwdbwd` → `ibex::Function::Function` → `ibex::Function::init`
+- **~65% inside `ibex::Gradient::Gradient(ibex::Eval&)`** — called unconditionally from `Function::init`
+- **~37% inside `ibex::ExprLinearity::ExprLinearity`** (a child of Gradient ctor; walks the expression tree categorizing each sub-tree as linear / nonlinear / constant via `visit(ExprMul)`, `visit(ExprAdd)` etc.)
+- The dominant micro-cost is `operator new` for `TemplateDomain<Interval>` builds inside each `visit(ExprMul)` — many small heap allocations per gradient construction.
+
+These costs are paid on every cache miss in `TheorySolver::contractor_cache_` (the per-formula contractor cache at `theory_solver.cc:179, 198`). For this probe: 877 cache misses × ~88 ms each = ~77 s, matching the unaccounted CheckSat time. `Function::backward` (the path fwdbwd actually uses for HC4Revise contraction) **never reads `_grad`** — the gradient is constructed, immediately discarded, and rebuilt the next time a new formula is seen.
+
+### Diagnosis vs the original "Pre-existing correctness flips" framing
+
+The original framing (this doc lines 308-320 pre-update) said the `.n` correctness flips were "likely IBEX fork upgrade + Phase-2 callback removal" — same broad attribution but no specific mechanism. The 2026-06-07 profile is more precise: the *timing* component of the regression is the gradient-allocation cost. The *correctness* component (SAT↔UNSAT flips on water-double-network, airplane-single-network, gen, thermostat) is unrelated to the gradient finding and remains open as a separate soundness investigation.
+
+The "saradc/frozen ratio is the long-standing non-ODE slowdown from the Codac migration" line that prompted this investigation was **correct in attribution** (the migration introduced it via the IBEX fork swap) but **wrong in framing** (it was treated as a fundamental loss when in fact the upstream-IBEX `_grad = nullptr` patch is a small, well-understood fix). The trade-off table at the top of this doc is updated to reflect this. The "Open lines of attack" item 7 captures the fix path.
+
+### What landed in this round
+
+- Polytope contractor at `src/dreal/contractor/contractor_ibex_polytope.cc::Prune` now uses the input-restricted thread_local snapshot recipe from `contractor_ibex_fwdbwd.cc` (Pass-2 trick). Quiet win for `--polytope` users; no effect on default-config saradc which never hits polytope.
+- Temporary `ContractorIbexPolytopeStat` block left in place — useful for future investigations under `--polytope --verbose info`. Drop if/when it becomes noise.
+- Stale claim at the pre-update line 320 ("`1mhz_k28_saradc_3b_box_4a_-1e` family TIMs at HEAD without any of the optimization-pass changes") was wrong: that benchmark now solves in 279 s per the 2026-06-06 baseline. Updated.
+
+### What did *not* land (deferred to a follow-on session)
+
+The IBEX-source-patch path described in "Open lines of attack" item 7. That work is contained but requires switching `ibex_external` from prebuilt-zip to source-build + applying a small upstream diff + verifying it doesn't break gaol/ultim — substantial enough to be its own session.
+
 ---
 
 ## Soundness analyses
@@ -303,7 +361,7 @@ MockProstateTest.BwdFeasible_PreservesInteriorPoint   PASS / PASS
 
 ### Pre-existing correctness flips (not introduced by the migration optimizations)
 
-These benchmarks flip vs. the CAV26 baseline. The `.n` (non-ODE) cases cannot be the ODE contractor's fault and are the most likely candidates for the next investigation — they suggest a soundness issue in the post-migration `contractor_ibex_fwdbwd` / polytope / abstraction path that predates the ODE optimization passes.
+These benchmarks flip vs. the CAV26 baseline. The `.n` (non-ODE) cases cannot be the ODE contractor's fault. The `→ TIM` rows are the *timing* component of this regression and are now root-caused (see "Re-investigation 2026-06-07" above — gradient-allocation cost in `Function::init`, fixed by "Open lines of attack" item 7). The genuine SAT↔UNSAT flips (water-double-network, airplane-single-network) are a separate *soundness* concern that the timing fix does not address.
 
 | Benchmark | Baseline | Current | Notes |
 |---|---|---|---|
@@ -317,4 +375,4 @@ These benchmarks flip vs. the CAV26 baseline. The `.n` (non-ODE) cases cannot be
 
 Removing an unsound contractor can only **introduce** correctness flips by allowing the search into a false-SAT branch that the false-UNSAT was masking. Empirically this did not happen on any benchmark in the sampled batches across the three passes — every new EXCEPTIONAL was simply a benchmark finishing faster on a path that already exists. The prostate-family flips are best explained by the BWD restoration refuting spurious δ-witnesses, not by a regression.
 
-The `1mhz_k28_saradc_3b_box_4a_-1e` family TIMs at HEAD without any of the optimization-pass changes, so it's a separate non-ODE issue (SAT solver / IBEX hot path).
+`1mhz_k28_saradc_3b_box_4a_-1e` was previously claimed to TIM at HEAD; it now solves in 279 s per the 2026-06-06 baseline. The remaining gap on this benchmark is the same gradient-allocation cost identified in "Re-investigation 2026-06-07" (~65% of wall time inside `ibex::Function::init`), not a separate SAT-layer issue. Open lines of attack item 7 closes the rest of the gap.
