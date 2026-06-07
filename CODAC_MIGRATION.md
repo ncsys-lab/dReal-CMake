@@ -114,7 +114,7 @@ CAPD is back as a *second* ODE contractor running alongside `CtcLohner`. The pla
 - **Build wiring** (`CMakeLists.txt`). `ExternalProject_Add(capd_external)` pins CAPD master SHA `b353e170` (2026-05-18) and passes `-DCAPD_INTERVAL_TYPE=NATIVE` so FILIB is skipped on ARM64. CAPD installs into `gcc_build/capd-install/` as a single `libcapd.a` + headers under `include/capd/`. The `capd_imported` IMPORTED target sets `INTERFACE_COMPILE_DEFINITIONS=__USE_NATIVE__` so consumers pick up the matching template instantiations.
 - **Contractor TU** (`src/dreal/contractor/odes/contractor_odes_capd.{h,cc}`). Mirrors the Codac TU's surface and lifetime model: per-flow `CapdOdeCache` holding two `capd::IMap` instances (`f(x)` for forward integration, `-f(x)` for backward); per-call `capd::IOdeSolver(order=20)` + `capd::ITimeMap` (these carry mutable step state, so not shared across parallel ICP workers). The string builder lives in `src/dreal/contractor/odes/to_capd_string.h` (forward-ported from the pre-Codac-migration version). Same `unordered_map<const OdeFlow*, CacheSlot>` + `shared_ptr<const OdeFlow>` ownership pattern as `make_codac_ode_cache` — closes the same pointer-reuse hazard.
 - **Dispatch / gate** (`contractor_odes.cc::Prune`). After the parameter intersect / T=0 / invariant steps, Prune evaluates `use_capd = (t_ub > capd_t_gate) || (n_state_vars >= capd_ndim_gate)`. On a true gate, CAPD runs first; if it diverges (`GlobalEnclosureError`-equivalent, parser failure, or null cache) we fall back to Lohner. The Codac `m_codac_cache` is always built — the trivial-flow short-circuit and Lohner fallback both rely on it.
-- **CLI flags**. `--capd-t-gate ARG` (double, default `5.0`) and `--capd-ndim-gate ARG` (int, default `6`). Set `--capd-t-gate 1e18 --capd-ndim-gate 1000000` to disable CAPD entirely; set both to 0 to force CAPD on every Prune.
+- **CLI flags**. `--capd-t-gate ARG` (double, default `5.0`) and `--capd-ndim-gate ARG` (int, default `6`). Set `--capd-t-gate 1e18 --capd-ndim-gate 1000000` to disable CAPD entirely; use `--capd-t-gate 1e-300 --capd-ndim-gate 1` to force CAPD on every Prune. Note: both flags use positive-value validators and reject `0` — the help text saying "set 0" is wrong.
 - **Soundness gates**. `test/dreal/contractor/test/contractor_odes_semantic_test.cc` now ships 26 tests across four fixtures:
   - 7 original (Lohner under default gates) — trivial / decay / mock-prostate × FWD/BWD plus the BWD interior-point preservation gate
   - 7 `_Capd`-suffixed (`MakeCapdForcedConfig` forces `(t_gate=0, ndim_gate=0)`) — same instances, CAPD path
@@ -251,12 +251,14 @@ Items below survive into ongoing work. Item 2 from earlier passes (proper backwa
 
 6. **Fuzz the BWD contractor with sympy-derived polynomial closed-form fixtures.** Pass 3 verified soundness on seven hand-picked fixtures (trivial flow, linear decay, mock-prostate rational coupling). Random RHS within a polynomial template would harden confidence further. Especially valuable on dynamics with closed-form solutions where ground-truth flips are easy to detect.
 
-7. **Restore the `_grad = nullptr` patch on IBEX.** Highest-payoff non-ODE item. The 2026-06-07 re-investigation (see section below) showed ~65% of saradc wall time is spent in `ibex::Function::init` building `_grad` (`Gradient` ctor + `ExprLinearity` analysis) — work `Function::backward` never uses. The original ncsys-lab fork suppressed this with a one-liner; lebarsfa's stock build doesn't. The fix requires:
-   - Switching `ibex_external` in `CMakeLists.txt` from the prebuilt-zip download (lines 175-235) to `ExternalProject_Add` building `lebarsfa/ibex-lib` from source (matching tag `ibex-2.8.9.20250626`) with a `PATCH_COMMAND` that applies a local diff.
-   - The diff is small: either (a) lazy-init `_grad` in `Function::gradient(...)` / `Function::deriv_calculator()` (set to nullptr in `init`, build on first use), or (b) add an `IBEX_NO_GRAD_INIT` CMake option that gates the gradient construction. (a) is the cleaner default since other IBEX consumers (`LinearizerXTaylor` in our `contractor_ibex_polytope.cc`) keep working transparently. Skipping `ExprLinearity` is a separate ~37% win on top.
-   - Build wiring: source IBEX build on ARM64 macOS needs `gaol` and `ultim` sub-projects, both already shipped under `lebarsfa/ibex-lib` — no FILIB dependency for the gradient patch. Reuse the codac install layout (`gcc_build/ibex-install/`) so downstream consumers don't shift.
-   - Verification: re-run `1mhz_k20_saradc_2b_box_4a_-1e` + `/benchmark-baseline` post-patch; expect saradc family PAR2 average to drop ~3× from 567 s toward ~190 s, github similarly.
-   Effort: ~half-day for a careful patch; the change is contained to `CMakeLists.txt` + a small upstream-IBEX diff. The trade-off table at the top of this doc is updated to flag the magnitude.
+7. **Restore the `_grad = nullptr` patch on IBEX — via a fork of `ibex-team/ibex-lib`.** Highest-payoff non-ODE item. The 2026-06-07 re-investigation showed ~65% of saradc wall time is spent in `ibex::Function::init` building `_grad` — work `Function::backward` never uses. **The recommended path is now to fork `ibex-team/ibex-lib` directly and drop Codac entirely** (see "Strategic reassessment 2026-06-07" below for the full rationale and benchmark evidence). The fix then requires:
+   - Fork `ibex-team/ibex-lib` (not `lebarsfa/ibex-lib` — see below for why).
+   - Apply gradient patch to the fork: lazy-init `_grad` in `Function::gradient(...)` / `Function::deriv_calculator()` (set to nullptr in `init`, build on first use). Option (b) — `IBEX_NO_GRAD_INIT` CMake flag — also works but is noisier. Skipping `ExprLinearity` init is a separate ~37% win on top; same lazy-init pattern applies to `_lin`.
+   - Switch `ibex_external` in `CMakeLists.txt` from the prebuilt-zip download to `ExternalProject_Add` building from our fork's source with appropriate ARM64 configure flags (gaol/ultim, no FILIB). Drop the `codac_external` block entirely; remove `contractor_odes_codac.{h,cc}` and `codac-install/` references. CAPD becomes the sole ODE backend.
+   - No `IBEXConfig.cmake` is needed — dreal4's CMakeLists.txt already wires IBEX manually as `ibex_imported` / `ibex_gaol` / `ibex_ultim` IMPORTED targets, bypassing `find_package(IBEX)`. The `IBEXConfig.cmake` requirement was only for Codac's own build.
+   - Address the `std::apply` ADL conflict in IBEX's Bison-generated parser (affects both macOS and Linux source builds; a one-liner forward-declaration patch).
+   - Verification: re-run `1mhz_k20_saradc_2b_box_4a_-1e` + `/benchmark-baseline` post-patch; expect saradc PAR2 average to drop ~3× from 567 s toward ~190 s, github similarly.
+   Effort: ~half-day for a careful patch; changes are contained to `CMakeLists.txt` + a small upstream-IBEX diff + removal of the `contractor_odes_codac.{h,cc}` TU.
 
 ---
 
@@ -376,3 +378,53 @@ These benchmarks flip vs. the CAV26 baseline. The `.n` (non-ODE) cases cannot be
 Removing an unsound contractor can only **introduce** correctness flips by allowing the search into a false-SAT branch that the false-UNSAT was masking. Empirically this did not happen on any benchmark in the sampled batches across the three passes — every new EXCEPTIONAL was simply a benchmark finishing faster on a path that already exists. The prostate-family flips are best explained by the BWD restoration refuting spurious δ-witnesses, not by a regression.
 
 `1mhz_k28_saradc_3b_box_4a_-1e` was previously claimed to TIM at HEAD; it now solves in 279 s per the 2026-06-06 baseline. The remaining gap on this benchmark is the same gradient-allocation cost identified in "Re-investigation 2026-06-07" (~65% of wall time inside `ibex::Function::init`), not a separate SAT-layer issue. Open lines of attack item 7 closes the rest of the gap.
+
+---
+
+## Strategic reassessment 2026-06-07: fork `ibex-team/ibex-lib` + eliminate Codac
+
+### Context
+
+Two paths exist for applying the gradient fix (Open lines of attack item 7) and resolving the fork-of-a-fork dependency chain:
+
+- **Option A** — Fork `lebarsfa/ibex-lib`, apply gradient patch, keep Codac. `lebarsfa` is 100+ commits behind `ibex-team/ibex-lib`, is not controlled by this project, and could fall arbitrarily far behind the mainline. Rebasing to ibex-team would require also porting lebarsfa's divergence. Codac itself is a prebuilt ZIP per-arch-per-OS that becomes a maintenance liability if it breaks on a new macOS or glibc release.
+
+- **Option B** — Fork `ibex-team/ibex-lib` directly, apply gradient patch, drop Codac. `IBEXConfig.cmake` (the only feature lebarsfa adds that we need) is only required by Codac's own CMake build — dropping Codac makes it unnecessary. dreal4's CMakeLists.txt already wires IBEX via manual IMPORTED targets and never calls `find_package(IBEX)`. This path gives full control, direct rebase access to the ibex-team mainline, and reduces the dependency tree to: our ibex-team fork + CAPD + dreal4.
+
+### Experiment: CAPD-forced vs Codac-default on ODE benchmarks
+
+Before committing to Option B, the performance of native ARM64 CAPD (order-20) was measured against Codac `CtcLohner` (order-2) across all available `integral`-based ODE benchmarks. Each benchmark run twice: once with default settings (Codac fires when `t_ub ≤ 5` and `n_state_vars < 6`) and once with `--capd-t-gate 1e-300 --capd-ndim-gate 1` (CAPD forced on every Prune).
+
+| Benchmark | State vars | Codac default | CAPD forced | Verdict |
+|---|---|---|---|---|
+| `bouncing_ball_with_drag_10_0` (10 modes, t_ub=3) | 2 | **4410 ms** | **3391 ms** | identical (δ-sat) |
+| `cardiac_new_cardiac` (4 modes) | 5 | **8935 ms** | **8972 ms** | identical (unsat) |
+| `prostate_h2` (2 modes) | ~4 | **19400 ms** | **18520 ms** | identical (δ-sat) |
+| `prostate_h1` (32 modes) | ~4 | **14110 ms** | **14070 ms** | identical (unsat) |
+| `prostate_cancer_scaled` (2 modes) | ~4 | **148 ms** | **149 ms** | identical (unsat) |
+
+**CAPD is never slower than Codac across all tested benchmarks, and is 23% faster on the canonical reference case (`bouncing_ball`) where Codac was supposed to be the fast path.** The reason: CAPD's higher Taylor order (20 vs 2) requires fewer timesteps per integration, and on native ARM64 the per-step overhead is low enough that fewer steps wins. No verdict differences were observed.
+
+The remainder of wall time on all benchmarks (including bouncing_ball) is dominated by the SAT layer, IBEX fwdbwd, and `forall_t` contractors — not the ODE backend — so the ODE-backend choice is not the performance bottleneck regardless.
+
+### Decision
+
+**Option B.** The performance argument for keeping Codac is eliminated by the experiment above. The remaining strategic considerations all favor Option B:
+
+- Full control over the IBEX dependency; direct rebase path from ibex-team mainline.
+- Dropping Codac removes a per-arch-per-OS prebuilt ZIP and eliminates the lebarsfa dependency entirely.
+- CAPD is already the better ODE backend. The gated-hybrid complexity (`contractor_odes_codac.{h,cc}`, `CodacOdeCache`, the dispatch logic in `contractor_odes.cc`) can be deleted; CAPD becomes the unconditional ODE contractor.
+- The `contractor_odes_codac.cc` 471-line TU was load-bearing only as the "fast path." That role is gone.
+
+### Implementation checklist (not yet started)
+
+- [ ] Fork `ibex-team/ibex-lib`; verify ARM64 source build (gaol/ultim, no FILIB).
+- [ ] Apply gradient lazy-init patch + ExprLinearity lazy-init patch.
+- [ ] Address `std::apply` ADL conflict in Bison-generated parser (macOS + Linux).
+- [ ] Switch `ibex_external` in `CMakeLists.txt` from prebuilt-ZIP to `ExternalProject_Add` from our fork.
+- [ ] Remove `codac_external` block and `codac-install/` references from `CMakeLists.txt`.
+- [ ] Delete `contractor_odes_codac.{h,cc}`; remove Codac includes and link targets.
+- [ ] Update `contractor_odes.cc` dispatch to remove the Codac path and gate logic (CAPD is unconditional).
+- [ ] Update tests: remove Codac-specific fixtures; confirm CAPD-path semantic tests still pass.
+- [ ] Run `/benchmark-baseline`; expect saradc PAR2 average to drop ~3× from 567 s.
+- [ ] Update `CLAUDE.md` and this file to reflect the new dependency stack.
