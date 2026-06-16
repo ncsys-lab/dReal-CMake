@@ -60,8 +60,8 @@
   ],
   "baseline_column": "wall_time_s",
   "baseline_source": "benchmark/baseline_local.csv",
-  "last_run": "2026-06-07T07:59:59.880268+00:00",
-  "last_run_dir": "/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/baseline_bd8a7ce99_20260607_004959",
+  "last_run": "2026-06-16T20:39:15.034239+00:00",
+  "last_run_dir": "/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/baseline_7a64db8ad_20260616_133410",
   "runs": [
     {
       "timestamp": "2026-06-05T07:21:12.703204+00:00",
@@ -408,7 +408,18 @@
       "n_correctness_improvements": 0,
       "n_undetermined_flips": 0,
       "correctness_flips": []
+    },
+    {
+      "timestamp": "2026-06-16T20:39:15.034239+00:00",
+      "results_dir": "/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/baseline_7a64db8ad_20260616_133410",
+      "n_ran": 30,
+      "n_regressions": 0,
+      "n_exceptional": 0,
+      "n_resolved": 0,
+      "n_correctness_improvements": 0,
+      "n_undetermined_flips": 0,
+      "correctness_flips": []
     }
   ],
-  "baseline_sha": "bd8a7ce99"
+  "baseline_sha": "7a64db8ad"
 }
