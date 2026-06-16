@@ -95,7 +95,7 @@ FilterAssertionResult UpdateStrictLowerBound(const Variable& var,
                               box);
     case Variable::Type::INTEGER:
   case Variable::Type::BINARY:
-    return {.filtered = false, UpdateLowerBound(var, v, box).changed};
+    return {.filtered = false, .changed = UpdateLowerBound(var, v, box).changed};
     case Variable::Type::BOOLEAN:
       DREAL_UNREACHABLE();
   }
