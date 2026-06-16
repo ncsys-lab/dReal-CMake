@@ -134,14 +134,6 @@ std::chrono::duration<double, std::chrono::seconds::period> Config::drpm_max_tim
 
 OptionValue<double>& Config::mutable_drpm_max_time() { return drpm_max_time_; }
 
-double Config::capd_t_gate() const { return capd_t_gate_.get(); }
-
-OptionValue<double>& Config::mutable_capd_t_gate() { return capd_t_gate_; }
-
-int Config::capd_ndim_gate() const { return capd_ndim_gate_.get(); }
-
-OptionValue<int>& Config::mutable_capd_ndim_gate() { return capd_ndim_gate_; }
-
 std::ostream& operator<<(std::ostream& os,
                          const Config::SatDefaultPhase& sat_default_phase) {
   switch (sat_default_phase) {

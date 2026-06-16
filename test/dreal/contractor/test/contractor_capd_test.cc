@@ -101,13 +101,6 @@ namespace dreal
             box_[p0_] = Box::Interval(0.0);
 
             Config config; // precision etc. if you want to tweak
-            // This test was calibrated against the Codac CtcLohner contractor's
-            // narrowing + output-bit pattern. Default gates push t_ub=40 into
-            // the CAPD branch, which gives legitimately different (still sound)
-            // narrowing. Disable CAPD here to keep the regression test stable
-            // against the Lohner backend it was written for.
-            config.mutable_capd_t_gate().set_from_command_line(1e18);
-            config.mutable_capd_ndim_gate().set_from_command_line(1000000);
             ContractorStatus cs{box_};
 
             const auto ic = MakeIntegralConstraint();
@@ -170,9 +163,6 @@ namespace dreal
             box_[pt_] = Box::Interval(1.0);
 
             Config config;
-            // See CapdFwd: pin to Lohner backend, this test predates CAPD.
-            config.mutable_capd_t_gate().set_from_command_line(1e18);
-            config.mutable_capd_ndim_gate().set_from_command_line(1000000);
             ContractorStatus cs{box_};
 
             const auto ic = MakeIntegralConstraint();
@@ -201,20 +191,21 @@ namespace dreal
 
             // Outputs after pruning. See CapdFwd for the rationale: the
             // dReal3 originals assumed BVP time-narrowing which no current
-            // contractor performs. Under Lohner, p0 narrows correctly via
-            // the BWD pass, but t0 is left untouched.
+            // contractor performs. CAPD's BWD path is one-way (returns only
+            // vars_t_narrowed, leaves vars_0_narrowed empty — see
+            // contractor_odes_capd.h), so p0 is not narrowed on this pass.
             EXPECT_FALSE(cs.output()[0]); // x
             EXPECT_FALSE(cs.output()[1]); // x0
             EXPECT_FALSE(cs.output()[2]); // xt
             EXPECT_FALSE(cs.output()[3]); // p
-            EXPECT_TRUE(cs.output()[4]); // p0 — Lohner BWD narrows this
+            EXPECT_FALSE(cs.output()[4]); // p0 — CAPD BWD does not narrow
             EXPECT_FALSE(cs.output()[5]); // pt
             EXPECT_FALSE(cs.output()[6]); // t0 — no BVP time narrowing
 
-            // Used-constraints: exactly one (ic), because p0 narrowed.
+            // Used-constraints: zero, since CAPD BWD didn't change the box.
             const auto& used = cs.UsedConstraints();
-            EXPECT_EQ(used.size(), 1u);
-            EXPECT_TRUE(used.find(ic) != used.end());
+            EXPECT_EQ(used.size(), 0u);
+            EXPECT_TRUE(used.find(ic) == used.end());
         }
     } // namespace
 } // namespace dreal

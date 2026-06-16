@@ -1,11 +1,9 @@
 //
 // Created by Kunal Sheth on 9/2/25.
-// Updated for Codac migration: ODE integration via Codac v2 LohnerAlgorithm.
-// Codac integration code lives in contractor_odes_codac.cc (compiled C++20).
+// Post-Codac elimination: CAPD is the sole ODE backend (order-20 Taylor).
 //
 
 #include "contractor_odes.h"
-#include "contractor_odes_codac.h"
 #include "contractor_odes_capd.h"
 
 #include <cassert>
@@ -139,24 +137,20 @@ namespace dreal
             m_need_to_check_inv = true;
         }
 
-        // Precompute the ode_state_vars ordering and build the Codac
-        // AnalyticFunction + CtcLohner once. Prune() reuses these on every call.
+        // Precompute the ode_state_vars ordering and build the CAPD IMap
+        // cache once. Prune() reuses it on every call.
         m_ode_state_vars.reserve(icc->get_flow()->ode_list.size());
         for (const auto& [ode_var, _rhs] : icc->get_flow()->ode_list)
             m_ode_state_vars.push_back(ode_var);
         {
             RoundingModeGuard g(FE_TONEAREST);
-            m_codac_cache = make_codac_ode_cache(icc->get_flow(), m_ode_state_vars);
-            // Build the CAPD cache eagerly too. CAPD's IMap parser is
-            // moderately expensive; doing it here keeps Prune off the
-            // cold path of per-flow translation. If the parser rejects
-            // the string (unsupported function, malformed RHS), m_capd_cache
-            // stays null and the gate naturally skips CAPD dispatch.
+            // CAPD's IMap parser is moderately expensive; doing it here
+            // keeps Prune off the cold per-flow translation path. If the
+            // parser rejects the string (unsupported function, malformed
+            // RHS), m_capd_cache stays null and Prune skips integration.
             m_capd_cache = make_capd_ode_cache(icc->get_flow(), m_ode_state_vars);
         }
-        // Snapshot the gate values so Prune doesn't re-read Config.
-        m_capd_t_gate    = config.capd_t_gate();
-        m_capd_ndim_gate = config.capd_ndim_gate();
+        (void)config;
     }
 
     // ---------------------------------------------------------------------------
@@ -234,39 +228,31 @@ namespace dreal
             }
         }
 
-        // --- Step 4: ODE trajectory integration via Codac v2 LohnerAlgorithm ---
-
+        // --- Step 4: ODE trajectory integration via CAPD order-20 Taylor ---
+        //
         // Direction handling:
         //
         // FWD contractor (m_dir == FWD): m_vars_0 = original X_0,
-        //   m_vars_t = original X_t. We call run_lohner_integration which
-        //   uses CtcLohner with TimePropag::FWD_BWD to narrow both gates
-        //   jointly.
+        //   m_vars_t = original X_t. We call run_capd_fwd which forward-
+        //   integrates f(x) from X_0 over [0, t_ub], intersects the
+        //   terminal enclosure with X_t (→ vars_t_narrowed), then backward-
+        //   integrates -f(x) from the narrowed terminal back to t=0 to
+        //   recover the joint narrowing on X_0 (→ vars_0_narrowed).
         //
         // BWD contractor (m_dir == BWD): the constructor swapped variables
         //   so m_vars_0 = original X_t, m_vars_t = original X_0. We call
-        //   run_lohner_bwd_oneshot which uses LohnerAlgorithm(forward=false)
-        //   to integrate dx/dt = f(x) in reverse time from X_t back to t=0.
-        //   The resulting enclosure is the sound backward image of X_t,
-        //   used to narrow m_vars_t (= original X_0). One-way narrowing
-        //   only — m_vars_0 (= original X_t) is not touched on this pass
-        //   because the FWD contractor's CtcLohner FWD_BWD already narrows
-        //   both endpoints from the X_0 side.
+        //   run_capd_bwd, which integrates -f(x) from u0 (= original X_t)
+        //   over [0, t_ub] using the negated IMap stored in the cache.
+        //   The terminal enclosure is the backward image — the set of
+        //   states at real time 0 whose forward trajectory under f(x)
+        //   reaches the original X_t. Intersecting this with m_vars_t
+        //   (= original X_0) is sound by construction.
         //
-        // Soundness of the BWD path: integrating f(x) backward in time
-        //   from a state in X_t is mathematically equivalent to integrating
-        //   -f(x) forward, which is exactly how the old CAPD BWD contractor
-        //   computed backward images. Any state x_0 ∈ X_0 that participates
-        //   in a feasible witness must lie in the backward image, so
-        //   intersecting with the LohnerAlgorithm enclosure can only remove
-        //   infeasible states.
-        //
-        // The pre-Codac-migration BWD contractor was disabled entirely
-        // because CtcLohner has no -f(x) mode and the swapped-tube approach
-        // was unsound. LohnerAlgorithm's forward=false flag (used here)
-        // restores the sound backward-direction narrowing.
+        // If CAPD diverges (step-control failure / over-approximation
+        // explodes), the run returns found=false and we silently skip
+        // narrowing on this pass. There is no other backend to fall back to.
 
-        if (!m_codac_cache) return;  // expression translation failed at construction
+        if (!m_capd_cache) return;  // RHS not translatable to capd::IMap
         if (!is_variable(icct)) return;
         const Variable time_var = get_variable(icct);
         const double t_ub = cs->box()[time_var].ub();
@@ -277,11 +263,10 @@ namespace dreal
         // Trivial-flow short-circuit: every RHS is the literal constant 0, so
         // every state variable is constant along the trajectory. The original
         // constraint reduces to X_0 == X_t componentwise — identical to the
-        // time_is_zero case handled above. Without this, CtcLohner is called
-        // ~N_modes times per ICP step and dominates Prune cost on the k1280
-        // planning benchmark. Direction-agnostic: the swap of m_vars_0/m_vars_t
-        // does not affect X_0 ∩ X_t componentwise.
-        if (codac_ode_cache_is_trivial(m_codac_cache)) {
+        // time_is_zero case handled above. Without this, CAPD's IOdeSolver
+        // is called ~N_modes times per ICP step and dominates Prune cost on
+        // the k1280 planning benchmark. Direction-agnostic.
+        if (capd_ode_cache_is_trivial(m_capd_cache)) {
             const Box old_box = cs->box();
             for (size_t i = 0; i < m_vars_0.size(); ++i) {
                 ibex::Interval& iv_0 = cs->mutable_box()[m_vars_0[i]];
@@ -314,20 +299,7 @@ namespace dreal
             u0_bounds.emplace_back(iv.lb(), iv.ub());
         }
 
-        // Gate: dispatch CAPD's order-20 contractor for long-horizon or
-        // high-dimensional flows where Codac's order-2 Lohner widens out
-        // of usefulness; otherwise stay on Lohner. CAPD divergence /
-        // null-cache → fall back to Lohner so we never lose narrowing.
-        // See Config::kDefaultCapdTGate / kDefaultCapdNdimGate for the
-        // defaults and the CLI flags for tuning at runtime.
-        const bool capd_gated =
-            m_capd_cache &&
-            ((t_ub > m_capd_t_gate) ||
-             (n   >= m_capd_ndim_gate));
-
-        CodacOdeResult res;
-
-        // Prepare X_t bounds once (used by both backends in FWD; ignored in BWD).
+        // Prepare X_t bounds (used only in FWD; ignored in BWD).
         std::vector<std::pair<double, double>> X_t_bounds;
         if (m_dir == ode_direction::FWD) {
             X_t_bounds.reserve(static_cast<size_t>(n));
@@ -337,38 +309,11 @@ namespace dreal
             }
         }
 
-        if (capd_gated) {
-            CapdOdeResult cr;
-            if (m_dir == ode_direction::FWD) {
-                cr = run_capd_fwd(m_capd_cache, u0_bounds, X_t_bounds, t_ub);
-            } else {
-                cr = run_capd_bwd(m_capd_cache, u0_bounds, t_ub);
-            }
-            if (cr.found) {
-                // Adopt CAPD's result. Field shapes match CodacOdeResult.
-                res.vars_t_narrowed = std::move(cr.vars_t_narrowed);
-                res.vars_0_narrowed = std::move(cr.vars_0_narrowed);
-                res.t_new_lb = cr.t_new_lb;
-                res.t_new_ub = cr.t_new_ub;
-                res.found = true;
-                DREAL_LOG_DEBUG("contractor_ode_lohner::Prune - CAPD path took narrowing (t_ub={}, n={})",
-                                t_ub, n);
-            } else {
-                DREAL_LOG_DEBUG("contractor_ode_lohner::Prune - CAPD diverged / null result; falling back to Lohner");
-            }
-        }
-
-        if (!res.found) {
-            if (m_dir == ode_direction::FWD) {
-                res = run_lohner_integration(
-                    m_codac_cache, u0_bounds, X_t_bounds, t_ub, /*forward=*/true);
-            } else {
-                // BWD: backward image of u0 = original X_t. The result's
-                // vars_t_narrowed corresponds to the state at real time 0
-                // (= original X_0 = current m_vars_t).
-                res = run_lohner_bwd_oneshot(
-                    m_codac_cache, u0_bounds, t_ub);
-            }
+        CapdOdeResult res;
+        if (m_dir == ode_direction::FWD) {
+            res = run_capd_fwd(m_capd_cache, u0_bounds, X_t_bounds, t_ub);
+        } else {
+            res = run_capd_bwd(m_capd_cache, u0_bounds, t_ub);
         }
 
         if (!res.found) return;
@@ -447,9 +392,10 @@ namespace dreal
             u0_bounds.emplace_back(iv.lb(), iv.ub());
         }
 
+        if (!m_capd_cache) return json::array();
         const bool forward = (m_dir == ode_direction::FWD);
-        const CodacTraceResult trace = run_lohner_trace(
-            m_codac_cache, u0_bounds, t_ub, forward);
+        const CapdTraceResult trace = run_capd_trace(
+            m_capd_cache, u0_bounds, t_ub, forward);
 
         if (trace.points.empty()) return json::array();
 

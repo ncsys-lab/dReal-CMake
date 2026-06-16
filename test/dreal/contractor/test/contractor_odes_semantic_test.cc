@@ -278,151 +278,17 @@ TEST_F(MockProstateTest, BwdFeasible_PreservesInteriorPoint) {
 }
 
 // =============================================================================
-// CAPD-forced variants of the 7 semantic gates above.
+// Long-horizon soundness tests.
 //
-// Default Config gates are (capd_t_gate=5.0, capd_ndim_gate=6), so the
-// fixtures above all run through Codac's CtcLohner. These _Capd suffixed
-// tests force CAPD on by setting both gates to 0, exercising
-// run_capd_fwd / run_capd_bwd on the same closed-form fixtures.
-//
-// Soundness contract: CAPD must give the same pass/fail pattern as Lohner
-// on these instances. Any divergence is a hard failure of either the
-// CAPD contractor itself or the gate-dispatch wiring.
+// Post-Codac elimination, CAPD is the sole backend — the previously-needed
+// A/B "_Capd"-suffixed variants and gate-dispatch tests have been removed.
+// What remains are long-horizon soundness gates: CAPD must keep SAT
+// instances non-empty even on t_ub = 20 (decay) and t_ub = 6 (prostate).
 // =============================================================================
 
-namespace {
-Config MakeCapdForcedConfig() {
-  Config c;
-  c.mutable_capd_t_gate().set_from_command_line(0.0);
-  c.mutable_capd_ndim_gate().set_from_command_line(0);
-  return c;
-}
-}  // namespace
-
-TEST_F(TrivialFlowTest, FwdInfeasible_BoxEmpties_Capd) {
-  SetBounds(0.0, 1.0, 2.0, 3.0, 1.0);
-  Config config = MakeCapdForcedConfig();
-  ContractorStatus cs{box_};
-  const auto ic = MakeIc();
-  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
-                                            config, 0.0);
-  ctc.Prune(&cs);
-  EXPECT_TRUE(cs.box().empty())
-      << "trivial flow (FWD, CAPD-forced) should empty via short-circuit";
-}
-
-TEST_F(TrivialFlowTest, BwdInfeasible_BoxEmpties_Capd) {
-  SetBounds(0.0, 1.0, 2.0, 3.0, 1.0);
-  Config config = MakeCapdForcedConfig();
-  ContractorStatus cs{box_};
-  const auto ic = MakeIc();
-  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
-                                            config, 0.0);
-  ctc.Prune(&cs);
-  EXPECT_TRUE(cs.box().empty())
-      << "trivial flow (BWD, CAPD-forced) should empty via short-circuit";
-}
-
-TEST_F(DecayFlowTest, FwdFeasible_BoxRemains_Capd) {
-  SetBounds(1.0, 2.0, 0.3, 0.8, 1.0);
-  Config config = MakeCapdForcedConfig();
-  ContractorStatus cs{box_};
-  const auto ic = MakeIc();
-  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
-                                            config, 0.0);
-  ctc.Prune(&cs);
-  ASSERT_FALSE(cs.box().empty())
-      << "decay feasible (FWD, CAPD-forced): box should remain non-empty [SOUNDNESS GATE]";
-  EXPECT_LE(cs.box()[xt_].lb(), std::exp(-1.0))
-      << "FWD must not over-prune x_t below 1*e^-1";
-  EXPECT_GE(cs.box()[xt_].ub(), 2.0 * std::exp(-1.0))
-      << "FWD must not over-prune x_t above 2*e^-1";
-}
-
-TEST_F(DecayFlowTest, BwdFeasible_BoxRemains_Capd) {
-  SetBounds(1.0, 2.0, 0.3, 0.8, 1.0);
-  Config config = MakeCapdForcedConfig();
-  ContractorStatus cs{box_};
-  const auto ic = MakeIc();
-  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
-                                            config, 0.0);
-  ctc.Prune(&cs);
-  ASSERT_FALSE(cs.box().empty())
-      << "decay feasible (BWD, CAPD-forced): box should remain non-empty [SOUNDNESS GATE]";
-  EXPECT_LE(cs.box()[x0_].lb(), 1.0)
-      << "BWD must not over-prune x_0 above 1 (drops the true point x_0=1)";
-  EXPECT_GE(cs.box()[x0_].ub(), 2.0)
-      << "BWD must not over-prune x_0 below 2 (drops the true point x_0=2)";
-}
-
-TEST_F(MockProstateTest, FwdFeasible_BoxRemains_Capd) {
-  SetBounds(5.0, 10.0, 1.0, 2.0, 0.5, 10.0, 0.2, 0.9, 1.0);
-  Config config = MakeCapdForcedConfig();
-  ContractorStatus cs{box_};
-  const auto ic = MakeIc();
-  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
-                                            config, 0.0);
-  ctc.Prune(&cs);
-  EXPECT_FALSE(cs.box().empty())
-      << "mock-prostate feasible (FWD, CAPD-forced): box should remain non-empty "
-         "[SOUNDNESS GATE for rational coupling]";
-}
-
-TEST_F(MockProstateTest, BwdFeasible_BoxRemains_Capd) {
-  SetBounds(5.0, 10.0, 1.0, 2.0, 0.5, 10.0, 0.2, 0.9, 1.0);
-  Config config = MakeCapdForcedConfig();
-  ContractorStatus cs{box_};
-  const auto ic = MakeIc();
-  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
-                                            config, 0.0);
-  ctc.Prune(&cs);
-  EXPECT_FALSE(cs.box().empty())
-      << "mock-prostate feasible (BWD, CAPD-forced): box should remain non-empty "
-         "[SOUNDNESS GATE for rational coupling, BWD path]";
-}
-
-TEST_F(MockProstateTest, BwdFeasible_PreservesInteriorPoint_Capd) {
-  SetBounds(5.0, 10.0, 1.0, 2.0, 0.5, 10.0, 0.2, 0.9, 1.0);
-  Config config = MakeCapdForcedConfig();
-  ContractorStatus cs{box_};
-  const auto ic = MakeIc();
-  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
-                                            config, 0.0);
-  ctc.Prune(&cs);
-  ASSERT_FALSE(cs.box().empty())
-      << "mock-prostate feasible (BWD, CAPD-forced): box should remain non-empty";
-  EXPECT_TRUE(cs.box()[x0_].contains(7.5))
-      << "BWD must not prune x_0 = 7.5 under CAPD";
-  EXPECT_TRUE(cs.box()[z0_].contains(1.5))
-      << "BWD must not prune z_0 = 1.5 under CAPD";
-}
-
-// =============================================================================
-// Long-horizon and gate-boundary tests.
-//
-// These exercise the gate dispatch logic with realistic Config values rather
-// than forcing one backend or the other. The decay-flow fixtures use t_ub
-// values that straddle the default capd_t_gate (5.0), so we get coverage of
-// both branches via the natural dispatch path.
-//
-// MakeLohnerForcedConfig pins CAPD off, matching what would happen at very
-// short horizons under default gates — useful for backend-consistency tests
-// that need to exercise Lohner alone on the same fixture instance.
-// =============================================================================
-
-namespace {
-Config MakeLohnerForcedConfig() {
-  Config c;
-  c.mutable_capd_t_gate().set_from_command_line(1e18);
-  c.mutable_capd_ndim_gate().set_from_command_line(1000000);
-  return c;
-}
-}  // namespace
-
-// Long-horizon decay: x(t) = x_0 * e^-t, t_ub = 20 > default capd_t_gate.
+// Long-horizon decay: x(t) = x_0 * e^-t, t_ub = 20.
 // Closed form: x(20) ∈ [e^-20, 2*e^-20] ≈ [2.06e-9, 4.12e-9].
-// Default gates route this to CAPD; verify the backend handles it soundly.
-TEST_F(DecayFlowTest, FwdFeasible_LongHorizon_DefaultGatesTriggerCapd) {
+TEST_F(DecayFlowTest, FwdFeasible_LongHorizonSoundness) {
   SetBounds(1.0, 2.0, 0.0, 1.0e-7, 20.0);
   Config config;  // default gates → CAPD triggers (t_ub=20 > 5.0)
   ContractorStatus cs{box_};
@@ -440,7 +306,7 @@ TEST_F(DecayFlowTest, FwdFeasible_LongHorizon_DefaultGatesTriggerCapd) {
       << "FWD over-pruned x_t above 2*e^-20";
 }
 
-TEST_F(DecayFlowTest, BwdFeasible_LongHorizon_DefaultGatesTriggerCapd) {
+TEST_F(DecayFlowTest, BwdFeasible_LongHorizonSoundness) {
   SetBounds(1.0, 2.0, 0.0, 1.0e-7, 20.0);
   Config config;
   ContractorStatus cs{box_};
@@ -460,7 +326,7 @@ TEST_F(DecayFlowTest, BwdFeasible_LongHorizon_DefaultGatesTriggerCapd) {
 // Long-horizon mock-prostate: rational coupling, t_ub = 6 just over the
 // default gate. Tests the load-bearing fixture (rational dynamics) on
 // the CAPD backward path.
-TEST_F(MockProstateTest, FwdFeasible_LongHorizon_DefaultGatesTriggerCapd) {
+TEST_F(MockProstateTest, FwdFeasible_LongHorizonSoundness) {
   // z(6) ≈ [z0*e^-6, 2*z0*e^-6] ≈ [2.48e-3, 4.96e-3] ⊂ [0, 0.01]
   // x is monotonically decreasing → x(6) ∈ [some pos value, 10]
   SetBounds(5.0, 10.0, 1.0, 2.0, 0.001, 10.0, 0.0, 0.01, 6.0);
@@ -475,7 +341,7 @@ TEST_F(MockProstateTest, FwdFeasible_LongHorizon_DefaultGatesTriggerCapd) {
          "should remain non-empty [SOUNDNESS GATE]";
 }
 
-TEST_F(MockProstateTest, BwdFeasible_LongHorizon_DefaultGatesTriggerCapd) {
+TEST_F(MockProstateTest, BwdFeasible_LongHorizonSoundness) {
   SetBounds(5.0, 10.0, 1.0, 2.0, 0.001, 10.0, 0.0, 0.01, 6.0);
   Config config;
   ContractorStatus cs{box_};
@@ -488,109 +354,12 @@ TEST_F(MockProstateTest, BwdFeasible_LongHorizon_DefaultGatesTriggerCapd) {
          "should remain non-empty [SOUNDNESS GATE]";
 }
 
-// Gate-boundary tests: verify the contractor produces sound results both
-// just below and just above the t_gate threshold. We can't directly observe
-// which backend ran without instrumentation, but we can verify the box
-// behavior matches expectations at both sides.
-TEST_F(DecayFlowTest, GateBoundary_JustBelowTGate) {
-  // t_ub = 4.99 (default gate = 5.0). Lohner branch.
-  SetBounds(1.0, 2.0, 0.0, 0.1, 4.99);
-  Config config;
-  ContractorStatus cs{box_};
-  const auto ic = MakeIc();
-  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
-                                            config, 0.0);
-  ctc.Prune(&cs);
-  ASSERT_FALSE(cs.box().empty())
-      << "decay at t=4.99 (Lohner branch): box must stay non-empty";
-  EXPECT_LE(cs.box()[xt_].lb(), std::exp(-4.99));
-  EXPECT_GE(cs.box()[xt_].ub(), 2.0 * std::exp(-4.99));
-}
-
-TEST_F(DecayFlowTest, GateBoundary_JustAboveTGate) {
-  // t_ub = 5.01 (default gate = 5.0). CAPD branch.
-  SetBounds(1.0, 2.0, 0.0, 0.1, 5.01);
-  Config config;
-  ContractorStatus cs{box_};
-  const auto ic = MakeIc();
-  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
-                                            config, 0.0);
-  ctc.Prune(&cs);
-  ASSERT_FALSE(cs.box().empty())
-      << "decay at t=5.01 (CAPD branch): box must stay non-empty";
-  EXPECT_LE(cs.box()[xt_].lb(), std::exp(-5.01));
-  EXPECT_GE(cs.box()[xt_].ub(), 2.0 * std::exp(-5.01));
-}
-
-// Backend-consistency tests: on the same SAT instance, both Lohner-forced
-// and CAPD-forced backends must keep the box non-empty. Any divergence is
-// a soundness gap in one of the backends.
-TEST_F(DecayFlowTest, BackendConsistency_FwdFeasible) {
-  // Use t_ub = 3 so Lohner is competent and CAPD's gate setting doesn't
-  // affect the underlying fixture's solvability.
-  SetBounds(1.0, 2.0, 0.0, 0.5, 3.0);
-
-  // Lohner branch.
-  {
-    Config config = MakeLohnerForcedConfig();
-    ContractorStatus cs{box_};
-    const auto ic = MakeIc();
-    const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
-                                              config, 0.0);
-    ctc.Prune(&cs);
-    ASSERT_FALSE(cs.box().empty())
-        << "Lohner backend declared the SAT instance infeasible (FWD)";
-  }
-  // CAPD branch on identical inputs.
-  {
-    Config config = MakeCapdForcedConfig();
-    ContractorStatus cs{box_};
-    const auto ic = MakeIc();
-    const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
-                                              config, 0.0);
-    ctc.Prune(&cs);
-    ASSERT_FALSE(cs.box().empty())
-        << "CAPD backend declared the SAT instance infeasible (FWD)";
-  }
-}
-
-TEST_F(MockProstateTest, BackendConsistency_BwdFeasible) {
-  SetBounds(5.0, 10.0, 1.0, 2.0, 0.5, 10.0, 0.2, 0.9, 1.0);
-
-  // Lohner branch.
-  {
-    Config config = MakeLohnerForcedConfig();
-    ContractorStatus cs{box_};
-    const auto ic = MakeIc();
-    const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
-                                              config, 0.0);
-    ctc.Prune(&cs);
-    ASSERT_FALSE(cs.box().empty())
-        << "Lohner backend declared SAT instance infeasible (BWD, mock-prostate)";
-    EXPECT_TRUE(cs.box()[x0_].contains(7.5))
-        << "Lohner pruned interior point x_0=7.5 (BWD)";
-  }
-  // CAPD branch on identical inputs.
-  {
-    Config config = MakeCapdForcedConfig();
-    ContractorStatus cs{box_};
-    const auto ic = MakeIc();
-    const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
-                                              config, 0.0);
-    ctc.Prune(&cs);
-    ASSERT_FALSE(cs.box().empty())
-        << "CAPD backend declared SAT instance infeasible (BWD, mock-prostate)";
-    EXPECT_TRUE(cs.box()[x0_].contains(7.5))
-        << "CAPD pruned interior point x_0=7.5 (BWD)";
-  }
-}
-
 // Trivial-flow short-circuit precedence: the d/dt[x]=0 short-circuit must
 // fire BEFORE the CAPD gate dispatch, even when the gate would otherwise
 // trigger CAPD. Box should empty via the short-circuit's set_empty(), not
 // fall through to CAPD integration of a zero RHS (which works but is wasted
 // effort and not the right code path).
-TEST_F(TrivialFlowTest, LongHorizon_ShortCircuitTakesPrecedenceOverCapdGate) {
+TEST_F(TrivialFlowTest, LongHorizon_ShortCircuitFires) {
   // t_ub = 20 would gate CAPD by default; trivial flow must short-circuit.
   SetBounds(0.0, 1.0, 2.0, 3.0, 20.0);
   Config config;  // default gates
@@ -607,8 +376,7 @@ TEST_F(TrivialFlowTest, LongHorizon_ShortCircuitTakesPrecedenceOverCapdGate) {
 // =============================================================================
 // Fixture 4: 6D decoupled decay.
 // Each x_i obeys dx_i/dt = -x_i. Closed form: x_i(t) = x_i(0) * e^-t.
-// Six dimensions hit the default capd_ndim_gate=6 even when t_ub is small.
-// Verifies the ndim branch of the gate independent of the t-branch.
+// Six dimensions stresses CAPD on a moderate-state-space flow.
 // =============================================================================
 
 class SixDimDecayTest : public ::testing::Test {
@@ -668,11 +436,10 @@ class SixDimDecayTest : public ::testing::Test {
   }
 };
 
-// Default gates: capd_ndim_gate=6, n_state_vars=6 → triggers CAPD purely on
-// the ndim branch even with a short t_ub (t_ub=1 < 5.0 t_gate).
-TEST_F(SixDimDecayTest, FwdFeasible_NdimGateTriggersCapd) {
-  SetFeasible(1.0);  // t_ub small enough that t-gate alone wouldn't fire
-  Config config;  // default gates → ndim gate triggers (n=6 >= 6)
+// 6 state vars at t_ub=1 — exercise CAPD on a moderate-dimensional flow.
+TEST_F(SixDimDecayTest, FwdFeasible_HighDim) {
+  SetFeasible(1.0);
+  Config config;
   ContractorStatus cs{box_};
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
@@ -689,7 +456,7 @@ TEST_F(SixDimDecayTest, FwdFeasible_NdimGateTriggersCapd) {
   }
 }
 
-TEST_F(SixDimDecayTest, BwdFeasible_NdimGateTriggersCapd) {
+TEST_F(SixDimDecayTest, BwdFeasible_HighDim) {
   SetFeasible(1.0);
   Config config;
   ContractorStatus cs{box_};
@@ -704,22 +471,6 @@ TEST_F(SixDimDecayTest, BwdFeasible_NdimGateTriggersCapd) {
     EXPECT_LE(cs.box()[v0].lb(), 1.0) << "BWD over-pruned " << v0;
     EXPECT_GE(cs.box()[v0].ub(), 2.0) << "BWD over-pruned " << v0;
   }
-}
-
-// Verify the ndim gate doesn't fire when n_state_vars < capd_ndim_gate.
-// The 6D system at ndim_gate=10 stays on Lohner; box must still be sound.
-TEST_F(SixDimDecayTest, NdimGateAboveStateDim_StaysOnLohner) {
-  SetFeasible(1.0);
-  Config config;
-  config.mutable_capd_ndim_gate().set_from_command_line(10);  // 6 < 10 → Lohner
-  config.mutable_capd_t_gate().set_from_command_line(1e18);   // disable t-gate
-  ContractorStatus cs{box_};
-  const auto ic = MakeIc();
-  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
-                                            config, 0.0);
-  ctc.Prune(&cs);
-  ASSERT_FALSE(cs.box().empty())
-      << "6D decay (FWD, both gates suppress CAPD → Lohner): must stay non-empty";
 }
 
 }  // namespace

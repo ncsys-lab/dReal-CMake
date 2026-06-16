@@ -1,6 +1,6 @@
 //
 // Created by Kunal Sheth on 9/2/25.
-// Updated for Codac migration: removed CAPD dependency.
+// Post-Codac elimination: CAPD is the sole ODE backend.
 //
 
 #ifndef DREAL4_CMAKE_CONTRACTOR_ODES_H
@@ -22,12 +22,11 @@
 
 namespace dreal
 {
-    class CodacOdeCache;  // opaque; defined in contractor_odes_codac.cc
     class CapdOdeCache;   // opaque; defined in contractor_odes_capd.cc
 
     std::ostream& operator<<(std::ostream& out, ode_direction const& d);
 
-    // ODE contractor using IBEX interval arithmetic + Codac CtcLohner.
+    // ODE contractor using IBEX interval arithmetic + CAPD order-20 Taylor.
     //
     // Prune() runs the following steps in order:
     //   1. Parameter consistency: pars_0 ∩ pars_t (parameters are constant
@@ -36,14 +35,14 @@ namespace dreal
     //      when time horizon is zero).
     //   3. ForallT invariant checking at the X_0 endpoint via IBEX HC4
     //      contractors built in the ctor.
-    //   4. ODE trajectory integration via Codac's CtcLohner with
-    //      TimePropag::FWD_BWD, narrowing both X_0 and X_t jointly.
+    //   4. Trivial-flow short-circuit: if every RHS is the literal 0, just
+    //      intersect X_0 ∩ X_t (no integration needed — variables are
+    //      constant along the trajectory).
+    //   5. ODE trajectory integration via CAPD's IOdeSolver (order 20) +
+    //      ITimeMap, with backward integration via the negated -f(x) map.
     //
-    // Sound and complete for ODE problems: CtcLohner FWD_BWD provides a
-    // guaranteed enclosure of all trajectories from X_0, enabling real
-    // UNSAT proofs for ODE-infeasible regions. See CODAC_MIGRATION.md
-    // for the per-flow cache, BWD-skip rationale, and adaptive-n_steps
-    // tuning notes.
+    // Sound for ODE problems: CAPD's order-20 Taylor enclosure provides a
+    // guaranteed over-approximation of all trajectories from X_0.
     class contractor_ode_lohner : public ContractorCell
     {
     public:
@@ -53,8 +52,8 @@ namespace dreal
         std::ostream& display(std::ostream& out) const override;
 
         // Generate a JSON trace of the ODE trajectory for visualization
-        // (the `--visualize` flag). Uses Codac's LohnerAlgorithm in trace
-        // mode (one enclosure per step) rather than CtcLohner.
+        // (the `--visualize` flag). Uses CAPD step-by-step IOdeSolver
+        // (one enclosure per slice).
         nlohmann::json generate_trace(ContractorStatus cs_copy);
 
         void Prune(ContractorStatus* cs) const override;
@@ -75,28 +74,11 @@ namespace dreal
         // m_vars_0/m_vars_t). Precomputed in the constructor so Prune() doesn't
         // rebuild it on every call.
         std::vector<Variable> m_ode_state_vars;
-        // Cached AnalyticFunction + CtcLohner for this flow. Built once;
-        // CtcLohner::contract is const so it can be safely shared across
-        // parallel ICP workers. Null if expression translation failed (in
-        // which case Prune() falls back to the parameter-intersect + invariant
-        // contractors only — no ODE-driven narrowing).
-        std::shared_ptr<CodacOdeCache> m_codac_cache;
-        // Cached capd::IMap (fwd + bwd via -f(x)) for the same flow. CAPD's
-        // IOdeSolver/ITimeMap carry mutable step state and are constructed
-        // per-call inside contractor_odes_capd.cc; only the IMaps are
-        // shared. Null if either the flow's RHS contains an Expression kind
-        // we don't translate to CAPD's string format, or the capd::IMap
-        // parser rejects the resulting string. Prune() falls back to
-        // Lohner unconditionally on null cache or run_capd_* divergence.
+        // Cached capd::IMap (fwd + bwd via -f(x)) for this flow. Null if the
+        // RHS contains an Expression kind we don't translate to CAPD's
+        // string format, or the capd::IMap parser rejects the result. When
+        // null, Prune() runs steps 1-4 only (no ODE narrowing).
         std::shared_ptr<CapdOdeCache> m_capd_cache;
-        // CAPD-Lohner gate snapshot copied from Config at ctor time so the
-        // Prune hot path doesn't re-read the config every call. Two flags:
-        //   t_gate  — dispatch CAPD when t_ub > this
-        //   n_gate  — dispatch CAPD when m_vars_0.size() >= this
-        // OR'd together — either condition triggers CAPD. See Config for
-        // the defaults and what the extremes mean.
-        double m_capd_t_gate;
-        int    m_capd_ndim_gate;
     };
 
     std::vector<Formula> unroll_conjunctions(const Formula& f);

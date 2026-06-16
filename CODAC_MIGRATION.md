@@ -1,5 +1,17 @@
 # Codac Migration
 
+> **STATUS (2026-06-08): RESOLVED — Codac has been removed.** This document is
+> retained as historical context. The current architecture: source-built IBEX
+> from `ncsys-lab/ibex-lib@dreal-perf-patches` (7 surgical patches on top of
+> mainline; see `../ibex-fork/MIGRATION.md`) + CAPD master (sole ODE backend,
+> with a CAPD-based `run_capd_trace` for `--visualize`). See `DEPENDENCIES.md`
+> for the current stack.
+>
+> The performance regression analysis below correctly identified the
+> `Function::init` gradient allocation as the dominant cost. The resolution
+> (the lazy-grad patch) is now a candidate upstream PR rather than a
+> downstream-only hack.
+
 Replaced `ncsys-lab/ibex-lib` + `ncsys-lab/capdDynSys-4.0` with Codac v2 + `lebarsfa/ibex-lib`.
 
 ## Motivation

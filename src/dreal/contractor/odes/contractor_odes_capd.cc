@@ -373,4 +373,68 @@ namespace dreal
         return result;
     }
 
+    // -------------------------------------------------------------------------
+    // run_capd_trace
+    //
+    // Integrate the chosen RHS (fn_fwd / fn_bwd) from u0 over [0, t_ub] and
+    // record one CapdTracePoint per equally-spaced sub-slice. Each point
+    // captures the slice (t_prev, t_now) and the enclosure at t_now (which
+    // covers all states reachable up to that time since the previous slice).
+    //
+    // ITimeMap advances `set` in place across successive calls. We rely on
+    // that: the i-th call returns the enclosure at t_i = i * (t_ub / n_steps),
+    // having advanced `set` from the result of call i-1.
+    // -------------------------------------------------------------------------
+
+    CapdTraceResult run_capd_trace(
+        const std::shared_ptr<CapdOdeCache>& cache,
+        const std::vector<std::pair<double, double>>& u0,
+        double t_ub,
+        bool forward,
+        int n_steps)
+    {
+        CapdTraceResult result;
+        if (!cache) return result;
+        const int n = cache->n_state_vars;
+        if (n == 0 || t_ub <= 0.0 || n_steps <= 0) return result;
+        if (u0.size() != static_cast<size_t>(n)) return result;
+
+        capd::IMap& chosen_map = forward ? cache->fn_fwd : cache->fn_bwd;
+
+        try {
+            capd::IOdeSolver solver(chosen_map, /*order=*/20);
+            solver.setAbsoluteTolerance(1e-10);
+            solver.setRelativeTolerance(1e-10);
+            capd::ITimeMap time_map(solver);
+
+            capd::C0Rect2Set set(to_ivector(u0));
+
+            const double dt = t_ub / static_cast<double>(n_steps);
+            double t_prev = 0.0;
+            result.points.reserve(static_cast<size_t>(n_steps));
+
+            for (int i = 1; i <= n_steps; ++i) {
+                const double t_i = (i == n_steps) ? t_ub
+                                                  : static_cast<double>(i) * dt;
+                const capd::IVector encl = time_map(t_i, set);
+
+                CapdTracePoint pt;
+                pt.t_lb = t_prev;
+                pt.t_ub = t_i;
+                pt.var_enclosures.reserve(static_cast<size_t>(n));
+                for (int j = 0; j < n; ++j) {
+                    pt.var_enclosures.emplace_back(encl[j].leftBound(),
+                                                   encl[j].rightBound());
+                }
+                result.points.push_back(std::move(pt));
+                t_prev = t_i;
+            }
+            result.succeeded = true;
+        } catch (const std::exception&) {
+            // Partial trace remains in result.points; succeeded stays false.
+        }
+
+        return result;
+    }
+
 } // namespace dreal

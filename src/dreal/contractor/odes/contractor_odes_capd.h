@@ -2,12 +2,8 @@
 // C++17 interface for the CAPD v6 ODE integration backend.
 // The implementation (contractor_odes_capd.cc) is also compiled at C++17.
 //
-// This contractor runs alongside the Codac CtcLohner contractor as a second
-// ODE backend. CAPD's Taylor-order-20 integrator handles long-horizon and
-// high-dimensional flows where Codac's order-2 ceiling causes the per-step
-// enclosure to widen out of usefulness. The dispatch is gated in
-// contractor_odes.cc by (t_ub, n_state_vars); see CLAUDE.md and the plan
-// notes for the gating policy.
+// CAPD's Taylor-order-20 integrator is the sole ODE backend for dReal after
+// the Codac elimination — see ../../../../CODAC_MIGRATION.md.
 
 #include <memory>
 #include <utility>
@@ -18,8 +14,7 @@
 
 namespace dreal
 {
-    // Result type mirroring CodacOdeResult so contractor_odes.cc can dispatch
-    // to either backend with no shape change in the caller.
+    // Result type returned by the integration entry points.
     struct CapdOdeResult {
         // Element i: narrowed [lb, ub] for m_vars_t[i] (terminal state).
         std::vector<std::pair<double, double>> vars_t_narrowed;
@@ -108,5 +103,41 @@ namespace dreal
         const std::vector<std::pair<double, double>>& Xt_bounds,
         double t_ub,
         int n_steps_hint = 20);
+
+    // -------------------------------------------------------------------------
+    // Trace generation (for `dreal4 --visualize`).
+    // -------------------------------------------------------------------------
+
+    // One slice of the integrated trajectory. The slice spans real time
+    // [t_lb, t_ub] and var_enclosures[i] is the over-approximating box of
+    // state variable i over that slice.
+    struct CapdTracePoint {
+        double t_lb;
+        double t_ub;
+        std::vector<std::pair<double, double>> var_enclosures;
+    };
+
+    struct CapdTraceResult {
+        std::vector<CapdTracePoint> points;
+        bool succeeded{false};
+    };
+
+    // Integrate the cached flow from `u0` over [0, t_ub] and record an
+    // enclosure for each of n_steps equally-spaced sub-slices. Mirrors the
+    // JSON shape of the now-deleted Codac run_lohner_trace() so the
+    // visualizer's input contract is preserved.
+    //
+    // forward = true  → integrate f(x)  (cache->fn_fwd)
+    // forward = false → integrate -f(x) (cache->fn_bwd) for reverse-time view
+    //
+    // Returns succeeded=false if the cache is null or the integrator diverges
+    // before reaching t_ub. The points actually recorded up to the divergence
+    // are still populated so partial traces remain visualizable.
+    CapdTraceResult run_capd_trace(
+        const std::shared_ptr<CapdOdeCache>& cache,
+        const std::vector<std::pair<double, double>>& u0,
+        double t_ub,
+        bool forward,
+        int n_steps = 50);
 
 } // namespace dreal
