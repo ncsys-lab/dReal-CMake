@@ -97,48 +97,33 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs) const {
   DREAL_LOG_TRACE("F = {}", f_);
   stat.timer_pruning_.resume();
 
-  // Snapshot the constraint's input intervals before contraction so we can
-  // detect which variables were pruned. The pre-Codac callback into our IBEX
-  // fork did this with no allocation; upstream IBEX has no such hook, so we
-  // must compare before/after. The previous implementation copied the *entire*
-  // interval vector (O(box_size)) and used std::set<int> for change tracking,
-  // which dominated cost on non-ODE benchmarks: boxes are typically 50-500
-  // variables but a single fwdbwd constraint touches only 2-10.
-  //
-  // Restricted snapshot: save only the input bits' intervals. Cost is
-  // O(|free_vars(f)|) instead of O(|box|), and the std::set's per-node heap
-  // alloc disappears. thread_local keeps the buffer's capacity across calls
-  // so steady-state Prune does zero allocations.
-  thread_local std::vector<std::pair<int, ibex::Interval>> saved_inputs;
-  saved_inputs.clear();
-  {
-    DynamicBitset::size_type i_bit = input().find_first();
-    while (i_bit != DynamicBitset::npos) {
-      saved_inputs.emplace_back(static_cast<int>(i_bit), iv[i_bit]);
-      i_bit = input().find_next(i_bit);
-    }
-  }
+  // Track which variables narrowed via the ibex fork's backward-callback
+  // (commit 4d61b841 of the dreal-perf-patches branch). The callback fires
+  // once per narrowed variable with (var_idx, before, after), which lets us
+  // populate the output bitset directly without a before/after snapshot.
+  // For boxes with 50-500 variables and a fwdbwd constraint touching only
+  // 2-10, this beats the snapshot pattern by both allocation count and
+  // comparison cost.
+  bool changed{false};
   const bool is_inner{
-    num_ctr_->f.backward(num_ctr_->right_hand_side(), iv)
+    num_ctr_->f.backward(
+      num_ctr_->right_hand_side(), iv,
+      [cs, &changed](int var_idx,
+                     const ibex::Interval& /*before*/,
+                     const ibex::Interval& /*after*/) {
+        cs->mutable_output().set(static_cast<DynamicBitset::size_type>(var_idx));
+        changed = true;
+      })
   }; // true if iv was already inner (unchanged).
   stat.timer_pruning_.pause();
   if (stat.enabled()) {
     stat.num_pruning_++;
   }
-  bool changed{false};
-  // Update output.
-  if (!is_inner) {
-    if (iv.is_empty()) {
-      changed = true;
-      cs->mutable_output().set();
-    } else {
-      for (const auto& [idx, old_iv] : saved_inputs) {
-        if (iv[idx] != old_iv) {
-          cs->mutable_output().set(static_cast<DynamicBitset::size_type>(idx));
-          changed = true;
-        }
-      }
-    }
+  // iv.is_empty() can be true without any per-variable callback firing if
+  // the constraint is infeasible globally — set every output bit in that case.
+  if (!is_inner && iv.is_empty()) {
+    cs->mutable_output().set();
+    changed = true;
   }
   // Update used constraints.
   if (changed) {
