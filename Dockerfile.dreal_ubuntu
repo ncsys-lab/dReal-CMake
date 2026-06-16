@@ -69,9 +69,15 @@ RUN rm /usr/local/lib/libfl.so*
 RUN rm /usr/local/lib/libgmp.so*
 RUN rm /usr/local/lib/libgmpxx.so*
 
-RUN apt-get update && apt-get install -y libeigen3-dev
-
 # BEGIN DREAL BUILD
+# The IBEX source-build ExternalProject clones from
+# https://github.com/ncsys-lab/ibex-lib at the dreal-perf-patches branch
+# (see CMakeLists.txt's IBEX_GIT_REPOSITORY / IBEX_GIT_TAG cache variables).
+# Override either at `docker build --build-arg` time if pointing at a local
+# checkout — the default needs only outbound HTTPS from the build sandbox.
+#
+# Invocation:
+#   docker build -f Dockerfile.dreal_ubuntu -t dreal-linux-verify .
 RUN  mkdir /dreal/
 COPY src/ /dreal/src
 COPY test/ /dreal/test

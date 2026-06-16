@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-dReal4 is a delta-complete SMT solver for nonlinear arithmetic over the reals. It takes SMT-LIB2 (`.smt2`) or Delta-Real (`.dr`) formatted formulas and checks satisfiability up to a precision parameter delta. The `cav26` branch holds pattern-matching/lemma-reuse research; `upgrade-ibex` replaces the ODE integration backend with Codac v2.
+dReal4 is a delta-complete SMT solver for nonlinear arithmetic over the reals. It takes SMT-LIB2 (`.smt2`) or Delta-Real (`.dr`) formatted formulas and checks satisfiability up to a precision parameter delta. The `cav26` branch holds pattern-matching/lemma-reuse research; `upgrade-ibex` (current) source-builds IBEX from the `ncsys-lab/ibex-lib@dreal-perf-patches` fork and uses CAPD as the sole ODE backend.
 
 ## Build
 
 **Prerequisites** (macOS — ARM or x86 Homebrew; Rosetta no longer required):
-- bison, flex, gmp, cadical, eigen (install via `/opt/homebrew/bin/brew` on Apple Silicon)
-- CMake downloads prebuilt IBEX and Codac binaries and builds CAPD from source automatically
+- bison, flex, gmp, cadical (install via `/opt/homebrew/bin/brew` on Apple Silicon)
+- CMake source-builds IBEX from `https://github.com/ncsys-lab/ibex-lib.git@dreal-perf-patches` (override the URL via `-DIBEX_GIT_REPOSITORY=file:///path/to/ibex-fork` for local-dev iteration against an unpushed checkout) and builds CAPD from source automatically
 
 **Full build** (first time — creates `gcc_build/`):
 ```bash
@@ -24,14 +24,17 @@ dReal4 is a delta-complete SMT solver for nonlinear arithmetic over the reals. I
 
 Both scripts build target `dreal4` with `-j8`. The binary is at `gcc_build/dreal4`.
 
-**macOS note**: The Codac migration (see `CODAC_MIGRATION.md`) removed the x86/Rosetta requirement. CMakeLists.txt now detects ARM or x86 Homebrew automatically. The old `rosetta_cmake.sh`/`rosetta_lldb.sh` wrappers are still present but no longer needed for builds that don't use the old CAPD/FILIB dependencies.
+**macOS note**: arm64-native builds work without Rosetta — IBEX `971f8eb0` (March 2025) added arm64-gaol support, and CAPD master uses its own `DoubleRounding` (via `CAPD_INTERVAL_TYPE=NATIVE`) so FILIB is not pulled in. The old `rosetta_cmake.sh`/`rosetta_lldb.sh` wrappers are vestigial.
 
-**Docker** (avoids local dependency setup):
+**Docker** (Linux hermetic verification via `Dockerfile.dreal_ubuntu`):
 ```bash
-docker build --platform linux/amd64 -t dreal/my_dreal_image:1.0 -f Dockerfile.dreal_ubuntu .
-cat query.smt2 | docker run --platform linux/amd64 --rm -i dreal/my_dreal_image:1.0 ./dreal4 --in --model
+# The container's IBEX source-build clones from the GitHub fork; the build
+# sandbox needs outbound HTTPS. For local-dev against an unpushed checkout,
+# pass --build-arg or edit IBEX_GIT_REPOSITORY in CMakeLists.txt before build.
+docker build -f Dockerfile.dreal_ubuntu -t dreal-linux-verify .
+cat query.smt2 | docker run --rm -i dreal-linux-verify ./dreal4 --in --model
 ```
-Note: Docker on macOS may have `-j` filesystem bugs — reduce to `-j1` if you see bad file descriptor errors.
+Ubuntu 24.04 + clang-18 + bison-3.8.2 + flex-2.6.4 + cadical-3.0.0 + GMP 6.3.0 (all source-built inside the container). Docker on macOS may have `-j` filesystem bugs — reduce parallelism if you see bad file descriptor errors.
 
 ## Running Tests
 
@@ -71,7 +74,7 @@ Key flags: `--precision <delta>`, `--produce-models`, `--logic <QF_NRA|QF_NRA_OD
    - `contractor_ibex_polytope`: Polytope relaxation
    - `contractor_fixpoint`: Runs a contractor to fixpoint
    - `contractor_seq` / `contractor_join`: Sequential and disjunctive composition
-   - `contractor_ode_lohner`: ODE contractor wrapping two backends. Codac's `CtcLohner` (order-2 Taylor, fast) is the default; CAPD's order-20 `IOdeSolver` (`contractor_odes_capd.{h,cc}`) fires when `t_ub > --capd-t-gate` or `n_state_vars >= --capd-ndim-gate` (defaults `5.0` and `6`). CAPD divergence falls back to Lohner so no narrowing is lost. Set `--capd-t-gate 1e18` to disable CAPD entirely; use `--capd-t-gate 1e-300 --capd-ndim-gate 1` to force CAPD on every Prune (note: `0` is rejected by the positive-value validator). See `CODAC_MIGRATION.md` § "CAPD-Lohner gated hybrid" for the rationale.
+   - `contractor_ode_lohner`: ODE contractor wrapping CAPD's order-20 `IOdeSolver` + `ITimeMap` (`contractor_odes_capd.{h,cc}`). The trivial-flow short-circuit (every RHS is literal 0) bypasses CAPD and just intersects X_0 ∩ X_t. `--visualize` produces step-by-step CAPD enclosures via `run_capd_trace`. CAPD divergence on a Prune call silently skips narrowing for that call. The previous Codac/CAPD gated hybrid was retired; see `CODAC_MIGRATION.md`.
 
 6. **Pattern Matching / Lemma Generation** (`src/dreal/util/pattern_matching/`): CAV26 feature — generates lemmas from previously solved subproblems to prune future search via `substitution_tree` and `lemma_generator`. Randomization in `substitution_tree.cc` iteration is a recent optimization.
 
@@ -93,14 +96,12 @@ Do not modify these unless necessary — they are external projects vendored in:
 ### Auto-downloaded Dependencies
 
 CMake fetches and builds at configure time:
-- **IBEX** (`lebarsfa/ibex-lib`, prebuilt zip `ibex-2.8.9.20250626`): Configure-time zip download into `gcc_build/ibex-install/`
-- **Codac** (`codac-team/codac`, prebuilt zip `v2.0.2`): Configure-time zip download into `gcc_build/codac-install/`
+- **IBEX** (`ncsys-lab/ibex-lib@dreal-perf-patches`, source-built via ExternalProject from `${IBEX_GIT_REPOSITORY}` defaulting to `https://github.com/ncsys-lab/ibex-lib.git`; override to `file:///path/to/ibex-fork` for local-dev iteration). 7 surgical patches on top of mainline `ibex-team/ibex-lib` (lazy-grad, backward callback, parser.yc ADL fix, mathlib arm64-Linux, plus 3 callback audit fixes for vector/matrix args, reference aliasing, and `EmptyBoxException` precision); see `../ibex-fork/MIGRATION.md`. Installed into `gcc_build/ibex-install/`.
 - **CAPD** (`CAPDGroup/CAPD@b353e170`, master pin for in-development `6.1.0`, `CAPD_INTERVAL_TYPE=NATIVE`): Built from source via ExternalProject into `gcc_build/capd-install/`. Native intervals (CAPD's own `DoubleRounding`) skip FILIB and work on ARM64.
 - **fmt**, **spdlog**, **nlopt**: Via FetchContent
 - **GTest**: Via FetchContent
 
-The old `ncsys-lab/ibex-lib`, `ncsys-lab/capdDynSys-4.0`, and FILIB have been replaced.
-See `CODAC_MIGRATION.md` for the full migration plan and current status.
+Codac and Eigen3 are no longer dependencies. See `DEPENDENCIES.md` for the current stack and `CODAC_MIGRATION.md` for the historical migration narrative.
 
 ### Vendored PicoSAT
 
@@ -126,11 +127,10 @@ This project started as a CMake port of the original dReal4 (which used Bazel). 
 - ODE symbol table in the parser/driver; `LookupOde(double)` for dReal3 compat.
 - `--visualize` flag and JSON flow dumps for ODE trajectory visualization.
 
-**`upgrade-ibex`** (current): Replaces the ODE integration backend on top of `tacas26-odes`. Migrates from `ncsys-lab/capdDynSys-4.0` + `ncsys-lab/ibex-lib` to Codac v2 + `lebarsfa/ibex-lib` + CAPD v6. **Strategic direction (2026-06-07)**: benchmarking confirmed CAPD native ARM64 is at least as fast as Codac on all tested ODE benchmarks; the plan is to fork `ibex-team/ibex-lib` directly and eliminate Codac entirely (see `CODAC_MIGRATION.md` § "Strategic reassessment 2026-06-07"). Key implementation choices for current code:
-- ODE contractor in `contractor_odes_codac.cc`: FWD via `CtcLohner FWD_BWD` (`contractions=2`, `eps=0.1`, adaptive `n_steps`); BWD via `LohnerAlgorithm(forward=false)` one-shot backward image (`run_lohner_bwd_oneshot`); `LohnerAlgorithm` for `--visualize` traces.
-- Per-flow `CodacOdeCache` (`AnalyticFunction` + `CtcLohner` reuse) keyed by `OdeFlow*` is shared across modes and parallel ICP workers; trivial-flow short-circuit bypasses CtcLohner when every RHS is literal 0 (e.g. the `d/dt[d]=0` planning benchmark with 1280 modes).
-- `contractor_ibex_fwdbwd::Prune` uses an input-restricted thread_local snapshot saving only the constraint's free-var intervals (O(|free_vars(f)|) vs O(|box|)); most non-ODE benchmarks live in this hot path.
-- CAPD master (`b353e170`, `CAPD_INTERVAL_TYPE=NATIVE`) is a gated second ODE backend: `contractor_odes_capd.{h,cc}` provides order-20 Taylor integration and fires when `t_ub > --capd-t-gate` or `n_state_vars >= --capd-ndim-gate` (defaults `5.0` and `6`). CAPD divergence falls back to Lohner. The FILIB/ARM64 blocker that blocked an earlier attempt is resolved upstream via `CAPD_INTERVAL_TYPE=NATIVE`.
+**`upgrade-ibex`** (current): The post-Codac-elimination architecture, on top of `tacas26-odes`. IBEX is source-built from `ncsys-lab/ibex-lib@dreal-perf-patches` (7 surgical patches catalogued in `../ibex-fork/MIGRATION.md`). CAPD master is the sole ODE backend.
+- ODE contractor in `contractor_odes.cc`: forward via `run_capd_fwd` (CAPD `IOdeSolver` order-20, forward integration of `f(x)`, terminal intersection with X_t, backward sweep from narrowed X_t via `-f(x)` for joint narrowing of X_0); backward via `run_capd_bwd` (one-shot backward image via the cached `-f(x)` IMap); `run_capd_trace` for `--visualize`.
+- Per-flow `CapdOdeCache` holds both the forward `f(x)` and the negated `-f(x)` `capd::IMap` objects, built once and reused per flow. `IOdeSolver` instances are constructed per-call because they carry mutable step state. The trivial-flow short-circuit bypasses CAPD entirely when every RHS is literal 0.
+- `contractor_ibex_fwdbwd::Prune` uses the IBEX fork's `Function::backward` callback patch to populate the output bitset directly without a before/after snapshot.
 
 **`cav26`**: Replaces the old trie-based pattern matcher with a fundamentally different approach:
 - **DeBruijn canonicalization** (`debruijn_canonical.cc`): Converts AST terms to a canonical alpha-equivalent form using De Bruijn indices, so structurally identical formulas up to variable renaming hash the same.
@@ -173,6 +173,12 @@ python3 benchmark/parse_results.py <results_dir>
 python3 benchmark/aggregate.py <results_dir>
 ```
 
+## Verification discipline
+
+When reporting "tests pass" or "build green," confirm which artifact (commit, build dir, container image) the verification actually ran against. The trap to avoid: ctest reports a pass against `build-old-pin/` (a proven baseline) while changes are on a new branch with a fresh build dir — the report says "tests pass" but the new code was never exercised.
+
+Always run the verification command against the new artifact explicitly and cite the build dir / commit / image tag in the report (e.g. "ctest against `build-final/` at HEAD `<sha>`: 537/539").
+
 ## Key Design Notes
 
 **dReal3 backward compatibility is intentional.** The DR parser (`src/dreal/dr/`) handles the older dReal3 ODE syntax. Don't break this.
@@ -183,6 +189,6 @@ python3 benchmark/aggregate.py <results_dir>
 
 **`filter_assertion` soundness**: There was a soundness bug where strict upper bounds were handled incorrectly due to a wrong `nextafter()` call. The `forward`/`backward` naming in `substitutions_map` also had a soundness bug that was fixed. Be careful around strict vs. non-strict inequality handling in contractors and the SAT interval logic.
 
-**ODE performance baseline**: `bouncing_ball_with_drag_10_0.smt2` (10 modes) runs at ~4.4 s under Codac CtcLohner (default) and ~3.4 s under forced CAPD order-20 on native ARM64 — CAPD is 23% faster even on this small case where Codac was the intended fast path. CAPD is at or below Codac on all tested benchmarks (cardiac, prostate families). To force CAPD on every Prune: `--capd-t-gate 1e-300 --capd-ndim-gate 1` (note: `0` is rejected by the positive-value validator; use `1e-300`/`1` as the practical zero). See `CODAC_MIGRATION.md` § "Strategic reassessment 2026-06-07" for the full benchmark table and the rationale for eliminating Codac.
+**ODE performance baseline**: Pre-Codac-elimination benchmarking confirmed CAPD order-20 was at or below Codac CtcLohner runtime on all tested ODE benchmarks (cardiac, prostate, bouncing-ball families). See `CODAC_MIGRATION.md` for the historical benchmark tables. The `--capd-t-gate` / `--capd-ndim-gate` CLI flags have been removed — they were only meaningful under the old Codac/CAPD gated hybrid.
 
 **Benchmarking instrumentation**: Several `std::cerr` prints and JSON dumps exist specifically for benchmarking runs. Log levels (TRACE/DEBUG/INFO) are tuned so that `--verbose` (DEBUG) is useful for development without flooding output on large queries. TRACE is for deep debugging only.

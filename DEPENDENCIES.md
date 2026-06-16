@@ -1,152 +1,72 @@
 # Dependency Notes
 
-This document describes the external libraries that dReal4 depends on, including the
+This document describes the external libraries dReal4 depends on, including the
 rationale for choosing specific versions and the changes made from upstream.
 
----
-
-## IBEX (`lebarsfa/ibex-lib`)
-
-**Version**: `ibex-2.8.9.20250626` (prebuilt release zip)  
-**Build**: Configure-time zip download, extracts into `gcc_build/ibex-install/`  
-**Role**: Interval constraint propagation. Provides `IntervalVector`, `Function`,
-`HC4Revise` (the forward-backward contractor), and `CtcPolytopeHull`.
-
-This replaces the old `ncsys-lab/ibex-lib` fork (based on ibex-2.8.8).
-
-### Why This Fork
-
-`lebarsfa/ibex-lib` is the actively maintained IBEX fork that Codac is designed to
-work with. It has native ARM64 support (no Rosetta required), is kept in sync with
-upstream IBEX bug fixes, and uses a standard CMake build system (no autotools).
-
-The old `ncsys-lab/ibex-lib` fork required heavy patches (ARM64 FPU fixes, C++17
-namespace fixes, a custom `Function::backward` callback, and a gradient null-out
-hack) and had no active maintainer. See the git history of `ncsys-lab/ibex-lib` for
-the full patch history.
-
-### Changes from Upstream lebarsfa/ibex-lib
-
-None. We use the upstream lebarsfa fork directly without any local patches. The old
-custom patches are no longer needed:
-- The C++17 namespace fixes are present in lebarsfa/ibex-lib upstream.
-- The ARM64 FPU fixes are handled by lebarsfa and Codac natively.
-- The `Function::backward` callback is replaced by a pre/post box comparison in
-  `contractor_ibex_fwdbwd.cc` (see Phase 2 in `CODAC_MIGRATION.md`).
-- The gradient null-out hack is dropped; upstream IBEX always allocates the gradient.
-  **Performance impact is not acceptable** — the 2026-06-07 re-investigation
-  (`CODAC_MIGRATION.md` § "Re-investigation 2026-06-07") shows ~65% of saradc wall
-  time is spent in `ibex::Function::init` building a gradient that
-  `Function::backward` (our only IBEX entry point on the fwdbwd hot path) never
-  reads. Restoring the hack is "Open lines of attack" item 7 in
-  `CODAC_MIGRATION.md` and requires switching `ibex_external` in `CMakeLists.txt`
-  from prebuilt-zip to a source `ExternalProject_Add` with a small `PATCH_COMMAND`.
+> **Status (2026-06-08):** Codac is no longer used. IBEX is now source-built
+> from the dReal team's fork (`ncsys-lab/ibex-lib@dreal-perf-patches`) and
+> CAPD is the sole ODE backend. See `CODAC_MIGRATION.md` for the historical
+> context and `../ibex-fork/MIGRATION.md` for the (minimal) patch catalog of
+> the IBEX fork.
 
 ---
 
-## Codac (`codac-team/codac`)
+## IBEX (`ncsys-lab/ibex-lib`)
 
-**Version**: `v2.0.2` (prebuilt release zip)  
-**Build**: Configure-time zip download, extracts into `gcc_build/codac-install/`  
-**Role**: ODE interval integration (Lohner method via `CtcLohner`), plus `CtcFunction`
-(HC4 forward-backward) from the Codac 2.x API. Acts as the default/fallback ODE
-backend in the gated hybrid; CAPD (see below) fires on long-horizon or high-dimensional
-flows.
+**Version**: branch `dreal-perf-patches` (7 patches on top of mainline `ibex-team/ibex-lib@65ed5877`).
+**Build**: `ExternalProject_Add` source-build from `https://github.com/ncsys-lab/ibex-lib.git` (cache var `IBEX_GIT_REPOSITORY`, overridable to a `file://` path for local-dev iteration against `../ibex-fork`), installed into `gcc_build/ibex-install/`.
+**Role**: Interval arithmetic + constraint propagation. Provides `IntervalVector`, `Function`, `HC4Revise` (the forward-backward contractor), polytope hull (`CtcPolytopeHull`), and the symbolic expression tree.
 
-This replaces the old `ncsys-lab/capdDynSys-4.0` CAPD 4.x fork.
+### Why a fork at all
 
-### Why Codac
+The fork hosts seven surgical patches that aren't yet upstream (see `../ibex-fork/MIGRATION.md` for the full catalog):
 
-CAPD 4.x was a 2016 snapshot that required autotools, was x86-only, and depended on
-FILIB for directed rounding. Codac v2 is actively maintained, supports ARM64 natively,
-provides a cleaner C++ API for ODE integration (`CtcLohner`), and runs on top of IBEX
-(no separate interval arithmetic backend needed).
+1. **`function: lazy-init gradient`** (2 files, ~24 lines). `Function::init` no longer eagerly allocates the `Gradient` object; an inline `lazy_grad()` accessor builds it on first use. Profiling in `CODAC_MIGRATION.md` traced ~65% of `Function::init` wall time to this allocation when dReal never touches the gradient API.
+2. **`Function::backward callback`** (4 files, ~16 lines). Adds an optional `std::function<void(int, const Interval&, const Interval&)>` argument to `Function::backward`. dReal's HC4 contractor (`contractor_ibex_fwdbwd.cc`) uses the callback to track narrowed variables without an `IntervalVector` snapshot.
+3. **`parser.yc namespace fix`** (2 files, ~6 lines). Qualifies two unqualified `apply(...)` calls in the Bison-generated parser as `ibex::parser::apply(...)`, which avoids ADL ambiguities on modern toolchains (clang-18 + libc++ and GCC 13 + libstdc++).
+4. **`mathlib: support aarch64/arm64 Linux`** (1 file, ~8 lines). Mainline mathlib's `CMakeLists.txt` doesn't recognize arm64 Linux as a supported platform; without this, `Dockerfile.dreal_ubuntu` fails to build on Apple Silicon (Docker defaults to native `linux/arm64`).
+5. **`function: fire backward callback for non-scalar args`** (2 files, ~100 lines additive). Audit fix for patch #2: the non-scalar branch of `read_arg_domains` previously bypassed the callback for vector/matrix-typed function arguments. SMT theory-lemma generation relies on per-variable change events for soundness; this patch closes the gap via a new callback-aware `load()` overload in `ibex_TemplateDomain.h`.
+6. **`function: copy old-value in backward callback to avoid alias`** (1 file, 1 line). Audit fix for patch #2: the scalar branch bound `old_value` as a const reference to a memory cell that the next line overwrote. Callers that retain `old_value` would see stale data. Copy by value.
+7. **`HC4Revise: report partial narrowings on EmptyBoxException`** (1 file, ~7 lines). Audit fix for patch #2: when backward propagation throws `EmptyBoxException`, surface any narrowings that completed before the contradiction before calling `set_empty()`. Tightens theory-lemma precision for callers (dReal stays sound either way via its own empty-box handling).
 
-### Changes from Upstream Codac
+Total fork diff vs mainline: 9 files, +166/−19 (excluding docs).
 
-None. We use the upstream `codac-team/codac` prebuilt binary at `v2.0.2` without
-local patches.
+All seven are intended as upstream PRs. Once any/all merge, drop the corresponding commit; when all seven land, swap the `GIT_REPOSITORY` back to `ibex-team/ibex-lib` and delete the fork.
 
-### ODE Contractor Status
+### Source-build invocation (from `CMakeLists.txt`)
 
-`contractor_odes_codac.cc` provides three entry points: `run_lohner_integration` (FWD
-via `CtcLohner FWD_BWD`, `contractions=2`, `eps=0.1`, adaptive `n_steps`),
-`run_lohner_bwd_oneshot` (BWD via `LohnerAlgorithm(forward=false)`), and
-`run_lohner_trace` (`--visualize`). Sound; complete modulo `GlobalEnclosureError`
-fallbacks on stiff dynamics. Codac's Taylor order is hardcoded to 2; CAPD
-(see below) closes the perf gap on long-horizon / high-dimensional flows.
+`ExternalProject_Add(ibex_external)` configures with `-DINTERVAL_LIB=gaol -DLP_LIB=none -DBUILD_TESTING=0 -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON`. arm64 native macOS is supported by mainline `971f8eb0` (March 2025) — no Rosetta needed. Linux source-build under clang-18 / GCC 13 needs the parser-fix patch from the fork, which is why the source pin is to the fork rather than mainline.
 
-The trivial-flow short-circuit (`cache->trivial = true` when every ODE RHS is literal
-zero) bypasses `CtcLohner` entirely — critical for planning benchmarks with thousands
-of trivial modes.
-
-See `CODAC_MIGRATION.md` for the full migration history, performance timeline, and
-soundness analyses.
+The `IBEX_GIT_REPOSITORY` CMake cache variable defaults to `https://github.com/ncsys-lab/ibex-lib.git`. Override with `-DIBEX_GIT_REPOSITORY=file:///path/to/ibex-fork` for local-dev iteration against an unpushed working tree, or `-DIBEX_GIT_TAG=<sha>` for testing alternate revisions.
 
 ---
 
 ## CAPD (`CAPDGroup/CAPD`)
 
-**Version**: master SHA `b353e170` (2026-05-18; in-development v6.1.0)  
-**Build**: ExternalProject, builds from source into `gcc_build/capd-install/`  
-**Build flags**: `-DCAPD_INTERVAL_TYPE=NATIVE -DCAPD_ENABLE_MULTIPRECISION=OFF -DCAPD_BUILD_ALL=OFF -DCAPD_BUILD_TESTS=OFF`  
-**Role**: Second ODE backend — order-20 Taylor integration via `capd::IOdeSolver` +
-`capd::ITimeMap`. Fires in the gated hybrid when a flow's time horizon exceeds
-`--capd-t-gate` (default `5.0`) or its state-space dimension reaches `--capd-ndim-gate`
-(default `6`). Falls back to Lohner on `GlobalEnclosureError`-equivalent failures.
+**Version**: master SHA `b353e170` (2026-05-18; in-development v6.1.0)
+**Build**: `ExternalProject_Add`, builds from source into `gcc_build/capd-install/`.
+**Build flags**: `-DCAPD_INTERVAL_TYPE=NATIVE -DCAPD_ENABLE_MULTIPRECISION=OFF -DCAPD_BUILD_ALL=OFF -DCAPD_BUILD_TESTS=OFF`
+**Role**: Sole ODE backend (after Codac removal). Order-20 Taylor integration via `capd::IOdeSolver` + `capd::ITimeMap`. Backward integration uses the negated `-f(x)` map stored alongside the forward map in the per-flow cache.
 
-### Why CAPD is back (v6 master, not v4.x)
+### Why CAPD master (not v4.x or v6.0)
 
-Codac's `CtcLohner` is hardcoded to Taylor order 2. On long-horizon or
-high-dimensional ODE flows (e.g. `quad`, `cardiac`, `prostate`), order-2 Taylor
-enclosures widen quickly, driving more ICP bisections. CAPD's order-20 integrator
-produces much tighter enclosures on those flows.
-
-CAPD 4.x (the old `ncsys-lab/capdDynSys-4.0` fork) was x86-only due to an
-unconditional FILIB dependency. CAPD master (in-development v6.1.0) exposes
-`CAPD_INTERVAL_TYPE=NATIVE`, which causes `capdExt/CMakeLists.txt` to skip
-`add_subdirectory(filibsrc)` entirely and use CAPD's own `DoubleRounding`
-(`msr fpcr` assembly on ARM64, SSE on x86) as the interval backend. This closes
-the ARM64 blocker.
-
-### Why master SHA instead of a release tag
-
-No `v6.1.0` release tag exists yet. The `CAPD_INTERVAL_TYPE` CMake switch landed
-during the v6.1.0 development cycle (Jan 2025). SHA `b353e170` is pinned at a
-known-good point after that switch. Bump only after verifying `CAPD_INTERVAL_TYPE`
-plumbing is still intact in the new commit.
-
-### Changes from Upstream CAPD
-
-None. The `-DCAPD_INTERVAL_TYPE=NATIVE` build flag is a standard upstream CMake
-option — no source patches required.
+CAPD 4.x (the old `ncsys-lab/capdDynSys-4.0` fork) was x86-only due to an unconditional FILIB dependency. CAPD master exposes `CAPD_INTERVAL_TYPE=NATIVE`, which causes `capdExt/CMakeLists.txt` to skip `add_subdirectory(filibsrc)` entirely and use CAPD's own `DoubleRounding` (`msr fpcr` on ARM64, SSE on x86) as the interval backend. No `v6.1.0` release tag exists yet, so we pin a master SHA at a known-good post-switch point. Bump only after re-verifying the `CAPD_INTERVAL_TYPE` plumbing in the new commit.
 
 ### Interval backend note
 
-Consumers of `capd_imported` must define `__USE_NATIVE__` to select the matching
-template instantiations. The `INTERFACE_COMPILE_DEFINITIONS "__USE_NATIVE__"` on
-the `capd_imported` IMPORTED target in CMakeLists.txt propagates this automatically.
+Consumers of `capd_imported` must define `__USE_NATIVE__` to select the matching template instantiations. The `INTERFACE_COMPILE_DEFINITIONS "__USE_NATIVE__"` on the `capd_imported` IMPORTED target propagates this automatically.
 
-### Gating policy
+### Why CAPD-only (no more Codac fallback)
 
-`contractor_odes.cc::Prune` evaluates `use_capd = (t_ub > capd_t_gate) || (n_state_vars >= capd_ndim_gate)`. Gates are CLI-configurable:
+Codac's `CtcLohner` was order-2 Taylor and cheap on short horizons but widened out of usefulness on longer ones. The previous "gated hybrid" (Codac for short horizons, CAPD for long) added complexity to `contractor_odes.cc` and a `--capd-t-gate`/`--capd-ndim-gate` CLI surface. After removing Codac, CAPD's order-20 enclosures are tight enough that the gate is no longer beneficial; the trivial-flow short-circuit covers the truly degenerate cases.
 
-- `--capd-t-gate ARG` (double, default `5.0`): CAPD fires when time horizon exceeds this.
-- `--capd-ndim-gate ARG` (int, default `6`): CAPD fires when state dimension meets or exceeds this.
-- Set `--capd-t-gate 1e18` (or both gates high) to disable CAPD entirely.
-- Set both gates to `0` to force CAPD on every `Prune`.
-
-The trivial-flow short-circuit takes precedence over the CAPD gate — flows whose
-every RHS is literal zero skip both backends.
-
-`kDefaultCapdTGate=5.0` and `kDefaultCapdNdimGate=6` are pre-measurement guesses;
-see `CODAC_MIGRATION.md` § "Tuning gates" for the intended sweep workflow.
+A CAPD-based trace generator (`run_capd_trace`) preserves the `--visualize` flag's output: step-by-step CAPD `IOdeSolver` invocations produce per-slice enclosures matching the JSON shape of the now-removed `run_lohner_trace`.
 
 ---
 
 ## Other Dependencies
 
-The following dependencies are unchanged from before the Codac migration:
+Unchanged from before the Codac migration:
 
 | Dependency | Source | Role |
 |---|---|---|
@@ -161,9 +81,38 @@ The following dependencies are unchanged from before the Codac migration:
 | Drake symbolic | Vendored (`src/third_party/`) | Expression/formula symbolic layer |
 | ezoptionparser | Vendored (`src/third_party/`) | CLI option parsing |
 
+Eigen3 has been dropped from the dependency list — it was required only by Codac.
+
+---
+
+## Build invocation
+
+### macOS (arm64 native, no Rosetta)
+
+```bash
+cd dreal4-cmake
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make -j
+ctest --output-on-failure
+```
+
+Brew packages (auto-detected by `find_brew_package` in `CMakeLists.txt`): `bison`, `flex`, `gmp`, `cadical`.
+
+### Linux (Ubuntu 24.04 + clang-18) via Docker
+
+The `Dockerfile.dreal_ubuntu` is the hermetic Linux test harness. Because the IBEX source-build needs `../ibex-fork` available inside the container, the Docker build context must be the parent of `dreal4-cmake/`:
+
+```bash
+cd <parent containing dreal4-cmake and ibex-fork>
+docker build -f dreal4-cmake/Dockerfile.dreal_ubuntu -t dreal-linux-verify .
+```
+
+The container builds CaDiCaL 3.0.0, GMP 6.3.0, Bison 3.8.2, and Flex 2.6.4 from source (matching the project's pinned versions), then runs `FULL_BUILD.sh` which configures + builds dreal4. End-to-end success is the Linux verification gate.
+
 ---
 
 ## Migration History
 
-For the detailed migration plan from `ncsys-lab/ibex-lib` + `ncsys-lab/capdDynSys-4.0`
-to Codac, see `CODAC_MIGRATION.md`.
+- `CODAC_MIGRATION.md` — the original migration off `ncsys-lab/ibex-lib` to Codac, the perf-regression analysis that motivated returning to a fork, and the final resolution.
+- `../ibex-fork/MIGRATION.md` — divergence catalog of the IBEX fork (7-patch series).
