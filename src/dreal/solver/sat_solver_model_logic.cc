@@ -5,6 +5,12 @@ namespace dreal {
 
 int SatSolver::get_partial_model(std::vector<int> &model_is) {
   DREAL_ASSERT(model_is.size() == cadical->vars() + 1);
+  // BRITTLE: every cadical->vars() loop in this function (the model_is sizing
+  // assert above, plus the flippable/flip/is_decision/val sweeps below) assumes
+  // CaDiCaL's factor/BVA is OFF (disabled in the SatSolver ctor). With factor
+  // on, cadical->vars() includes solver-internal extension vars and val() on
+  // them aborts; these loops would then have to be bounded by
+  // (cadical_next_var - 1) instead.
 
   // make sure not to mix `flip` and `val` calls... slows things down.
   // do all the "flipping" first, then call "val" in one sweep at the end.
@@ -42,7 +48,7 @@ int SatSolver::get_partial_model(std::vector<int> &model_is) {
       num_omitted_literals++;
       model_is[i] = 0;
     } else {
-      model_is[i] = cadical->val(i) > 0 ? +1 : -1;
+      model_is[i] = cadical->val(i) > 0 ? +1 : -1;  // BRITTLE: see factor/BVA note at top of function
     }
   }
 

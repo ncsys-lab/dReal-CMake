@@ -48,14 +48,20 @@ namespace dreal
     public:
         capd::IMap fn_fwd;   // f(x)
         capd::IMap fn_bwd;   // -f(x), used for backward integration
-        int        n_state_vars;
+        int        n_state_vars;  // # of TRUE state vars (= var: count = set dim)
         bool       trivial; // every RHS is the literal 0
+        // CAPD parameter names (flow variables with d/dt == 0), in ode_list
+        // order. Bound per-call from the box via setParameter. The integrated
+        // system has dimension n_state_vars; parameters are NOT integrated.
+        std::vector<std::string> par_names;
 
-        CapdOdeCache(capd::IMap f, capd::IMap f_neg, int n, bool is_trivial)
+        CapdOdeCache(capd::IMap f, capd::IMap f_neg, int n, bool is_trivial,
+                     std::vector<std::string> pars)
             : fn_fwd(std::move(f)),
               fn_bwd(std::move(f_neg)),
               n_state_vars(n),
-              trivial(is_trivial) {}
+              trivial(is_trivial),
+              par_names(std::move(pars)) {}
     };
 
     bool capd_ode_cache_is_trivial(const std::shared_ptr<CapdOdeCache>& c) {
@@ -65,63 +71,128 @@ namespace dreal
     // -------------------------------------------------------------------------
     // Build the capd::IMap string from the OdeFlow.
     //
-    // Format: "var:x,v;fun:v,(-9.8);"
+    // Format: "var:x,v;par:a;fun:(a*v),(-9.8);"
     //
-    // Parameters: the original CAPD contractor used "par:a,b;" for flow
-    // parameters; we don't have free symbolic parameters in this ODE flow
-    // (all parameters are intersected at flow construction time, see
-    // intersect_params in contractor_odes.cc), so the var-only form is
-    // sufficient.
+    // Parameters: flow variables whose d/dt is the literal 0 are constant along
+    // the trajectory (OdeFlow classifies these as "pars"). They are emitted in
+    // a "par:" section and bound per-call via setParameter, NOT integrated.
+    // This must match the C0Rect2Set, which is built from only the true state
+    // variables: if parameters were emitted as integration variables the IMap
+    // dimension (and its n×n Jacobian) would exceed the set's buffers and
+    // overrun the heap. (The previous var-only form had exactly that bug,
+    // crashing on automaton models that carry mode/guard parameters.)
     // -------------------------------------------------------------------------
 
     namespace {
         struct ImapStrings {
             std::string fwd;
             std::string bwd;
+            // CAPD parameter names (d/dt == 0 flow vars), in ode_list order.
+            std::vector<std::string> par_names;
+            // Number of TRUE state variables = var: count = integration dim.
+            int n_vars{0};
         };
 
-        // Build "var:...;fun:f1,...,fn;" (forward) and the same with each
-        // RHS negated (backward). Throws on translation failure of any RHS.
+        // Build "var:...;par:...;fun:f1,...,fn;" (forward) and the same with
+        // each RHS negated (backward). Throws on translation failure of any
+        // RHS.
+        //
+        // Flow variables split into two roles (see OdeFlow ctor: a var is a
+        // "par" iff its d/dt is the literal 0, i.e. it is constant along the
+        // flow):
+        //   - true state variables -> "var:" + an entry in "fun:"; integrated.
+        //   - parameters           -> "par:"; constant, bound per-call via
+        //                             setParameter, NOT integrated.
+        // Emitting parameters as integration variables (the previous behavior)
+        // made the IMap dimension exceed the C0Rect2Set built from only the
+        // true-var bounds, so CAPD's n×n Jacobian write overran the set's
+        // buffers -> heap corruption / crash on automaton models.
         ImapStrings build_imap_strings(
             const OdeFlow& flow,
             const std::vector<Variable>& ordered_vars)
         {
-            std::ostringstream var_part;
-            var_part << "var:";
-            for (size_t i = 0; i < ordered_vars.size(); ++i) {
-                if (i) var_part << ',';
-                var_part << ordered_vars[i].get_name();
-            }
-            var_part << ';';
-
             std::unordered_map<Variable::Id, Expression> rhs_map;
             for (const auto& [var, rhs] : flow.ode_list)
                 rhs_map[var.get_id()] = rhs;
 
-            std::ostringstream fwd_fn;
-            std::ostringstream bwd_fn;
+            // All-parameter (trivial) flow: CAPD rejects an empty var:/fun:.
+            // Such flows are intercepted by the trivial-flow short-circuit in
+            // contractor_odes.cc and never reach run_capd_*, but we still need
+            // a valid (non-null) IMap so the cache is built. Fall back to the
+            // every-variable-is-an-integration-variable form (no par:).
+            bool any_var = false;
+            for (const auto& var : ordered_vars)
+                if (!flow.is_par(var)) { any_var = true; break; }
+            const bool all_par = !any_var;
+
+            std::vector<std::string> par_names;
+            std::ostringstream var_part, par_part, fwd_fn, bwd_fn;
+            var_part << "var:";
             fwd_fn << "fun:";
             bwd_fn << "fun:";
-            for (size_t i = 0; i < ordered_vars.size(); ++i) {
-                if (i) {
+            bool first_var = true;
+            int n_vars = 0;
+            for (const auto& var : ordered_vars) {
+                if (!all_par && flow.is_par(var)) {
+                    par_names.push_back(var.get_name());
+                    continue;
+                }
+                if (!first_var) {
+                    var_part << ',';
                     fwd_fn << ',';
                     bwd_fn << ',';
                 }
-                const std::string rhs_str =
-                    to_capd_string(rhs_map.at(ordered_vars[i].get_id()));
+                first_var = false;
+                ++n_vars;
+                var_part << var.get_name();
+                const std::string rhs_str = to_capd_string(rhs_map.at(var.get_id()));
                 fwd_fn << rhs_str;
-                // Wrap negation in (0-(...)) — `-(...)` is also valid in
-                // capd::IMap but the (0-...) form sidesteps any
-                // unary-minus parsing ambiguity in older CAPD parsers.
                 bwd_fn << "(0-(" << rhs_str << "))";
             }
+            var_part << ';';
             fwd_fn << ';';
             bwd_fn << ';';
 
+            std::string par_section;
+            if (!par_names.empty()) {
+                par_part << "par:";
+                for (size_t i = 0; i < par_names.size(); ++i) {
+                    if (i) par_part << ',';
+                    par_part << par_names[i];
+                }
+                par_part << ';';
+                par_section = par_part.str();
+            }
+
             ImapStrings out;
-            out.fwd = var_part.str() + fwd_fn.str();
-            out.bwd = var_part.str() + bwd_fn.str();
+            out.fwd = var_part.str() + par_section + fwd_fn.str();
+            out.bwd = var_part.str() + par_section + bwd_fn.str();
+            out.par_names = std::move(par_names);
+            out.n_vars = n_vars;
             return out;
+        }
+
+        // Copy the cached (parsed) IMap and bind its CAPD parameters to the
+        // caller's current intervals. We copy rather than mutate-in-place
+        // because the cached IMap is shared across parallel ICP workers, and
+        // setParameter mutates the map; copying also avoids re-parsing the RHS
+        // string. par_bounds is index-aligned with par_names (both in ode_list
+        // parameter order).
+        capd::IMap with_params(
+            const capd::IMap& base,
+            const std::vector<std::string>& par_names,
+            const std::vector<std::pair<double, double>>& par_bounds)
+        {
+            capd::IMap m(base);
+            // Sizes are equal by construction (par_names and par_bounds both
+            // come from this flow's parameter list, in ode_list order). A
+            // mismatch is a programming error, not a runtime condition to
+            // tolerate, so we index par_bounds directly.
+            for (size_t i = 0; i < par_names.size(); ++i)
+                m.setParameter(par_names[i],
+                               capd::interval(par_bounds[i].first,
+                                              par_bounds[i].second));
+            return m;
         }
 
         // Per-process cache slot — identical pattern to the Codac TU.
@@ -193,7 +264,7 @@ namespace dreal
             capd::IMap fn_bwd(strs.bwd);
             auto cache = std::make_shared<CapdOdeCache>(
                 std::move(fn_fwd), std::move(fn_bwd),
-                static_cast<int>(ordered_vars.size()), is_trivial);
+                strs.n_vars, is_trivial, std::move(strs.par_names));
             std::lock_guard<std::mutex> lock(flow_cache_mutex());
             auto& m = flow_cache_map();
             auto [it, _inserted] = m.try_emplace(
@@ -242,15 +313,16 @@ namespace dreal
 
     // -------------------------------------------------------------------------
     // FWD: forward-integrate f(x) from X_0 over [0, t_ub], intersect terminal
-    // enclosure with X_t. Then backward-integrate -f(x) from the narrowed X_t
-    // back to t=0, intersect with X_0. Together these mirror Codac's
-    // CtcLohner FWD_BWD joint narrowing.
+    // enclosure with X_t. X_0 narrowing is left to the standalone BWD
+    // contractor (theory_solver.cc instantiates one per ODE constraint and
+    // queues it alongside this one in the fixpoint loop), mirroring cav26.
     // -------------------------------------------------------------------------
 
     CapdOdeResult run_capd_fwd(
         const std::shared_ptr<CapdOdeCache>& cache,
         const std::vector<std::pair<double, double>>& u0_bounds,
         const std::vector<std::pair<double, double>>& X_t_bounds,
+        const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
         int n_steps_hint)
     {
@@ -263,57 +335,24 @@ namespace dreal
         const double max_step = t_ub / n_steps;
         if (max_step <= 0.0) return result;
 
-        // ----- Step 1: forward integrate f(x) from X_0 -----
         capd::IVector terminal_fwd(n);
         try {
-            capd::IOdeSolver solver_fwd(cache->fn_fwd, /*order=*/20);
+            // Private parameter-bound copy of the cached map (see with_params).
+            // Must outlive solver_fwd, which holds a reference to it.
+            capd::IMap map_fwd = with_params(cache->fn_fwd, cache->par_names, par_bounds);
+            capd::IOdeSolver solver_fwd(map_fwd, /*order=*/20);
             solver_fwd.setAbsoluteTolerance(1e-10);
             solver_fwd.setRelativeTolerance(1e-10);
             capd::ITimeMap time_map_fwd(solver_fwd);
-            // No hard step cap — CAPD picks step adaptively. n_steps_hint
-            // controls only our intersection-quality expectations downstream.
 
             capd::C0Rect2Set set(to_ivector(u0_bounds));
             terminal_fwd = time_map_fwd(t_ub, set);
         } catch (const std::exception&) {
-            // Divergence / step-control failure — bail. Caller falls back
-            // to Lohner (or accepts no narrowing this Prune call).
             return result;
         }
 
         if (!intersect_into(terminal_fwd, X_t_bounds, result.vars_t_narrowed)) {
-            // Infeasible: no trajectory from X_0 reaches X_t — caller can
-            // mark the box empty on the strength of this. We set found=true
-            // with an empty vars_t_narrowed to distinguish "definitively
-            // empty" from "no narrowing".
-            // Caller convention from the Codac TU: an empty vars_t_narrowed
-            // is treated as "no result". To stay symmetric, we report
-            // not-found here and let the per-pass narrowing loop decide.
-            // (The infeasibility is then surfaced by the IBEX layer once
-            // the box becomes empty through other contractors.)
             return result;
-        }
-
-        // ----- Step 2: backward integrate -f(x) from narrowed X_t -----
-        // This is the "free" BWD pass that joint-narrows X_0. If anything
-        // goes wrong, we keep the forward narrowing and return.
-        try {
-            capd::IOdeSolver solver_bwd(cache->fn_bwd, /*order=*/20);
-            solver_bwd.setAbsoluteTolerance(1e-10);
-            solver_bwd.setRelativeTolerance(1e-10);
-            capd::ITimeMap time_map_bwd(solver_bwd);
-
-            capd::C0Rect2Set set_bwd(to_ivector(result.vars_t_narrowed));
-            const capd::IVector start_encl = time_map_bwd(t_ub, set_bwd);
-
-            std::vector<std::pair<double, double>> vars_0_narrowed;
-            if (intersect_into(start_encl, u0_bounds, vars_0_narrowed)) {
-                result.vars_0_narrowed = std::move(vars_0_narrowed);
-            }
-            // If the bwd intersect is empty, leave vars_0_narrowed empty
-            // and let the forward narrowing alone drive the change.
-        } catch (const std::exception&) {
-            // BWD diverged — keep FWD result.
         }
 
         result.found = true;
@@ -337,6 +376,7 @@ namespace dreal
     CapdOdeResult run_capd_bwd(
         const std::shared_ptr<CapdOdeCache>& cache,
         const std::vector<std::pair<double, double>>& Xt_bounds,
+        const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
         int n_steps_hint)
     {
@@ -350,7 +390,8 @@ namespace dreal
         if (max_step <= 0.0) return result;
 
         try {
-            capd::IOdeSolver solver_bwd(cache->fn_bwd, /*order=*/20);
+            capd::IMap map_bwd = with_params(cache->fn_bwd, cache->par_names, par_bounds);
+            capd::IOdeSolver solver_bwd(map_bwd, /*order=*/20);
             solver_bwd.setAbsoluteTolerance(1e-10);
             solver_bwd.setRelativeTolerance(1e-10);
             capd::ITimeMap time_map_bwd(solver_bwd);
@@ -389,6 +430,7 @@ namespace dreal
     CapdTraceResult run_capd_trace(
         const std::shared_ptr<CapdOdeCache>& cache,
         const std::vector<std::pair<double, double>>& u0,
+        const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
         bool forward,
         int n_steps)
@@ -399,9 +441,10 @@ namespace dreal
         if (n == 0 || t_ub <= 0.0 || n_steps <= 0) return result;
         if (u0.size() != static_cast<size_t>(n)) return result;
 
-        capd::IMap& chosen_map = forward ? cache->fn_fwd : cache->fn_bwd;
-
         try {
+            capd::IMap chosen_map = with_params(
+                forward ? cache->fn_fwd : cache->fn_bwd,
+                cache->par_names, par_bounds);
             capd::IOdeSolver solver(chosen_map, /*order=*/20);
             solver.setAbsoluteTolerance(1e-10);
             solver.setRelativeTolerance(1e-10);

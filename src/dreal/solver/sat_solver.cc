@@ -49,6 +49,15 @@ SatSolver::SatSolver(const Config& config) : cadical(new CaDiCaL::Solver) {
   success = cadical->set("eagersubsume", 1); DREAL_ASSERT(success);
   success = cadical->set("subsume", 1); DREAL_ASSERT(success);
   success = cadical->set("subsumeclslim", 1e3); DREAL_ASSERT(success);
+  // Disable CaDiCaL bounded-variable-addition factoring. With factor on,
+  // CaDiCaL creates internal *extension* variables; cadical->vars() then counts
+  // them, and the model-reading loops below iterate up to cadical->vars() and
+  // call val() on each index, which aborts on an extension var
+  // ("extension variable ... defined by the solver internally"). dReal only
+  // ever wants values for its own user variables (1 .. cadical_next_var-1). The
+  // cadical->resize() guard in MakeSatVar is not enough because factoring still
+  // adds fresh vars beyond the declared user range during solving.
+  success = cadical->set("factor", 0); DREAL_ASSERT(success);
   cadical->options();
 
   if (DREAL_LOG_INFO_ENABLED || DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) cadical->connect_learner(this);
@@ -133,10 +142,14 @@ optional<std::pair<SatSolver::Model, bool>> SatSolver::CheckSat(const bool reque
     // SAT Case.
 
     int num_literals_omitted = 0;
+    // BRITTLE: every cadical->vars() loop in this function assumes CaDiCaL's
+    // factor/BVA is OFF (disabled in the ctor). With factor on, cadical->vars()
+    // includes solver-internal extension vars and val() on them aborts; these
+    // loops would then have to be bounded by (cadical_next_var - 1) instead.
     std::vector<int> model_is(cadical->vars() + 1);
     if (request_fully_constrained) {
       num_literals_omitted = 0;
-      for (int i = 1; i <= cadical->vars(); ++i) model_is[i] = cadical->val(i) > 0 ? +1 : -1;
+      for (int i = 1; i <= cadical->vars(); ++i) model_is[i] = cadical->val(i) > 0 ? +1 : -1;  // BRITTLE: see factor/BVA note above
     }
     else {
       num_literals_omitted = get_partial_model(model_is);
@@ -150,17 +163,17 @@ optional<std::pair<SatSolver::Model, bool>> SatSolver::CheckSat(const bool reque
       } else {
         sat_log_label_clause("SatSolver::CheckSat - Partially Constrained");
       }
-      for (int i = 1; i <= cadical->vars(); ++i) if (model_is[i] != 0) sat_log_literal(i * model_is[i]);
+      for (int i = 1; i <= cadical->vars(); ++i) if (model_is[i] != 0) sat_log_literal(i * model_is[i]);  // BRITTLE: see factor/BVA note above
       sat_log_literal0();
 
       // check that we haven't OVER constrained somehow.
-      for (int i = 1; i <= cadical->vars(); ++i) if (model_is[i] != 0) cadical->assume(i * model_is[i]);
+      for (int i = 1; i <= cadical->vars(); ++i) if (model_is[i] != 0) cadical->assume(i * model_is[i]);  // BRITTLE: see factor/BVA note above
       int result = cadical->solve(); // must call OUTSIDE of DREAL_ASSERT since we added a bunch of `assumes`
       DREAL_ASSERT(result == CaDiCaL::SATISFIABLE);
     }
 
     const auto& var_to_formula_map = predicate_abstractor_.var_to_formula_map();
-    for (int i = 1; i <= cadical->vars(); ++i) {
+    for (int i = 1; i <= cadical->vars(); ++i) {  // BRITTLE: see factor/BVA note above
       const auto model_i = model_is[i];
       if (model_i == 0) {
         continue;

@@ -77,10 +77,17 @@ namespace dreal
     //
     // Returns CapdOdeResult::found == false if cache is null, the
     // integrator diverges, or no trajectory intersects X_t.
+    //
+    // par_bounds carries the current interval value of each flow parameter
+    // (a flow variable whose d/dt is the literal 0), ordered to match the
+    // cache's parameter list (== ode_list parameter order == m_pars_0 order).
+    // These are bound into a private copy of the cached IMap via
+    // setParameter before integration; they are NOT integration variables.
     CapdOdeResult run_capd_fwd(
         const std::shared_ptr<CapdOdeCache>& cache,
         const std::vector<std::pair<double, double>>& u0_bounds,
         const std::vector<std::pair<double, double>>& X_t_bounds,
+        const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
         int n_steps_hint = 20);
 
@@ -101,6 +108,7 @@ namespace dreal
     CapdOdeResult run_capd_bwd(
         const std::shared_ptr<CapdOdeCache>& cache,
         const std::vector<std::pair<double, double>>& Xt_bounds,
+        const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
         int n_steps_hint = 20);
 
@@ -136,6 +144,7 @@ namespace dreal
     CapdTraceResult run_capd_trace(
         const std::shared_ptr<CapdOdeCache>& cache,
         const std::vector<std::pair<double, double>>& u0,
+        const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
         bool forward,
         int n_steps = 50);

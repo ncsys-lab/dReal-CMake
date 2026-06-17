@@ -207,5 +207,74 @@ namespace dreal
             EXPECT_EQ(used.size(), 0u);
             EXPECT_TRUE(used.find(ic) == used.end());
         }
+
+        // Regression: a flow with a TRUE parameter (a flow variable whose
+        // d/dt is the literal 0, so it is constant along the trajectory).
+        // OdeFlow classifies these as "pars"; they must be emitted in the
+        // CAPD IMap's "par:" section and bound via setParameter, NOT as
+        // integration variables. The previous code emitted every flow
+        // variable in "var:", so the IMap dimension (here 2) exceeded the
+        // C0Rect2Set built from only the true state vars (here 1). CAPD then
+        // wrote its 2x2 Jacobian into 1-sized buffers, overrunning the heap
+        // (confirmed via guard malloc: a crash in Map::operator() during
+        // run_capd_fwd). This fixture exercises exactly that mismatch.
+        class ContractorCapdParamTest : public ::testing::Test
+        {
+        protected:
+            // x is a true state variable; a is a parameter (d/dt[a] = 0).
+            const Variable x_{"x", Variable::Type::CONTINUOUS};
+            const Variable x0_{"x_0_0", Variable::Type::CONTINUOUS};
+            const Variable xt_{"x_0_t", Variable::Type::CONTINUOUS};
+            const Variable a_{"a", Variable::Type::CONTINUOUS};
+            const Variable a0_{"a_0_0", Variable::Type::CONTINUOUS};
+            const Variable at_{"a_0_t", Variable::Type::CONTINUOUS};
+            const Variable t0_{"time_0", Variable::Type::CONTINUOUS};
+
+            // Box order: [x, x0, xt, a, a0, at, t0]
+            const vector<Variable> vars_{x_, x0_, xt_, a_, a0_, at_, t0_};
+            Box box_{vars_};
+
+            // x' = a (couples through the parameter), a' = 0 (constant).
+            const std::shared_ptr<const OdeFlow> ode_ = make_shared<OdeFlow>(
+                "flow_p", std::vector<std::pair<Variable, Expression>>{
+                    {x_, Expression{a_}}, {a_, Expression{0.0}}
+                }
+            );
+
+            Formula MakeIntegralConstraint() const {
+                return integral(0.0, t0_, {x0_, a0_}, {xt_, at_}, ode_);
+            }
+        };
+
+        TEST_F(ContractorCapdParamTest, ForwardWithParameterDoesNotOverrun) {
+            box_[x_]  = Box::Interval(-100.0, 100.0);
+            box_[x0_] = Box::Interval(0.0);          // x(0) = 0
+            box_[xt_] = Box::Interval(-100.0, 100.0);
+            box_[a_]  = Box::Interval(1.0);
+            box_[a0_] = Box::Interval(1.0);          // parameter value a = 1
+            box_[at_] = Box::Interval(1.0);
+            box_[t0_] = Box::Interval(2.0);          // integrate to t = 2
+
+            Config config;
+            ContractorStatus cs{box_};
+            const auto ic = MakeIntegralConstraint();
+            const auto ctc = mk_contractor_ode_lohner(
+                box_, {ic, {}}, ode_direction::FWD, config, 0.0);
+
+            // The integral binds only the true state var x; a is a parameter.
+            EXPECT_TRUE(ctc.input()[1]);   // x0
+            EXPECT_TRUE(ctc.input()[2]);   // xt
+
+            // Pre-fix this Prune corrupted the heap (var/par dim mismatch).
+            ctc.Prune(&cs);
+
+            // Sound, non-trivial result: x(t) = x0 + a*t = 0 + 1*2 = 2, so the
+            // terminal enclosure narrows xt to ~{2}. (If the parameter were
+            // dropped, x' would read 0 and xt would collapse to {0} instead.)
+            ASSERT_FALSE(cs.box().empty());
+            EXPECT_TRUE(cs.output()[2]);   // xt narrowed
+            EXPECT_NEAR(cs.box()[xt_].mid(), 2.0, 0.05);
+            EXPECT_LT(cs.box()[xt_].diam(), 0.1);
+        }
     } // namespace
 } // namespace dreal

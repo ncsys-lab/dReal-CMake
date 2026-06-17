@@ -309,11 +309,22 @@ namespace dreal
             }
         }
 
+        // Flow parameters (d/dt == 0 vars): bound the CAPD map's par: section
+        // to their current box intervals. Ordered to match the cache's
+        // par_names (== ode_list parameter order == m_pars_0 order). Params are
+        // constant along the flow, so m_pars_0's interval is a sound value.
+        std::vector<std::pair<double, double>> par_bounds;
+        par_bounds.reserve(m_pars_0.size());
+        for (const auto& pvar : m_pars_0) {
+            const ibex::Interval& iv = cs->box()[pvar];
+            par_bounds.emplace_back(iv.lb(), iv.ub());
+        }
+
         CapdOdeResult res;
         if (m_dir == ode_direction::FWD) {
-            res = run_capd_fwd(m_capd_cache, u0_bounds, X_t_bounds, t_ub);
+            res = run_capd_fwd(m_capd_cache, u0_bounds, X_t_bounds, par_bounds, t_ub);
         } else {
-            res = run_capd_bwd(m_capd_cache, u0_bounds, t_ub);
+            res = run_capd_bwd(m_capd_cache, u0_bounds, par_bounds, t_ub);
         }
 
         if (!res.found) return;
@@ -393,9 +404,19 @@ namespace dreal
         }
 
         if (!m_capd_cache) return json::array();
+
+        // Flow parameters (d/dt == 0 vars), ordered to match the cache's
+        // par_names; bound into the CAPD map's par: section before tracing.
+        std::vector<std::pair<double, double>> par_bounds;
+        par_bounds.reserve(m_pars_0.size());
+        for (const auto& pvar : m_pars_0) {
+            const ibex::Interval& iv = b[pvar];
+            par_bounds.emplace_back(iv.lb(), iv.ub());
+        }
+
         const bool forward = (m_dir == ode_direction::FWD);
         const CapdTraceResult trace = run_capd_trace(
-            m_capd_cache, u0_bounds, t_ub, forward);
+            m_capd_cache, u0_bounds, par_bounds, t_ub, forward);
 
         if (trace.points.empty()) return json::array();
 
