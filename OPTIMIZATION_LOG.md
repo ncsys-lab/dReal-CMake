@@ -112,6 +112,35 @@ forward Taylor cost is at the order-10 floor and irreducible by config. The
 two grown shares — the **backward contractor** (a second full CAPD integration
 per ODE constraint) and **non-ODE arithmetic** — are the remaining targets.
 
+### Backward ODE contractor — no safe focused win (cav26 X_0 narrowing kept)
+
+The backward contractor (a one-shot `-f(x)` image narrowing X_0, one per ODE
+constraint, interleaved with a full `nl_ctcs` sweep in the plain fixpoint) is
+~10% of solve time directly and ~16% including its trailing nl sweeps. Three
+ways to cut it, all rejected:
+
+- **Disable it entirely:** fast-probe 0.432 (56.8% faster), full probe 0.826,
+  30-gate 0 flips / 0 regressions / 15 exceptional — clean on all 48 benchmarks.
+  But this *removes* cav26's X_0-narrowing capability; 48 benchmarks from 3
+  families can't represent the space, and the risk is completeness flips
+  (UNSAT→SAT) on unseen instances (it can never cause false-UNSAT — removing
+  pruning is always sound). User chose to preserve the capability. Not adopted.
+- **Cheaper via lower backward order (kCapdBackwardOrder=6):** dead end. Net
+  0.511 ≈ no speedup (the one-shot backward is dominated by fixed overhead —
+  IMap copy, set construction — not order-sensitive Taylor work like the
+  forward multi-step pass), AND it flips prostate SAT→UNSAT (a lower-order
+  enclosure is tighter in some projection). Rejected.
+- **Conditional via worklist fixpoint (`--worklist-fixpoint`):** catastrophic
+  variance. k17 (SAT inverter) 23.4s→0.85s (27× faster) but k70 (UNSAT saradc)
+  47s→**7876s** (167× slower, 2.2h). Off-by-default for good reason; unsafe as
+  a global change. Rejected. (A custom stateful per-constraint gate is too risky
+  given this variance.)
+
+Net: backward narrowing stays on at order 10. The remaining CAPD targets are
+allocation (`with_params` IMap deep-copy, ~part of ~8% malloc at order 10) and
+big-effort algorithmic work (C1/variational backward narrowing reusing the
+forward solution curve).
+
 ### Taylor order 8 (and below)
 
 55.4% faster on the fast sub-probe but flips `github …prostate_h2` SAT→UNSAT
