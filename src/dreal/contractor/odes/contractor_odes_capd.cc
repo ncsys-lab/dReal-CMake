@@ -1,16 +1,14 @@
 // CAPD v6 Taylor ODE contractor TU. C++17. (Taylor order is the tunable
 // kCapdTaylorOrder constant below — default 10; see OPTIMIZATION_LOG.md.)
 //
-// This is the second ODE backend living alongside contractor_odes_codac.cc.
-// The dispatch is gated in contractor_odes.cc by (t_ub, n_state_vars); see
-// CLAUDE.md for the gate flags and CODAC_MIGRATION.md for the motivation.
-//
-// Why CAPD as a second backend: Codac's CtcLohner is order-2 Taylor (a
-// hardcoded ceiling). Long-horizon or high-dimensional dynamics (e.g. the
-// 15-var quad flow with sin/cos sub-trees) widen out of usefulness at
-// order 2 — even with adaptive n_steps. CAPD's order-20 IOdeSolver
-// recovers the tightness; the gate keeps it from paying CAPD's per-call
-// cost on the Lohner-friendly easy benchmarks.
+// CAPD is the sole ODE backend. It is always used for a non-trivial flow (the
+// trivial-flow short-circuit in contractor_odes.cc handles the all-zero-RHS
+// case separately); there is no longer any backend dispatch or gating. The
+// previous Codac CtcLohner backend and the Codac/CAPD gated hybrid (with its
+// --capd-t-gate / --capd-ndim-gate flags) were retired — see CODAC_MIGRATION.md
+// for that history. CAPD's high-order Taylor IOdeSolver gives tight enclosures
+// on long-horizon / high-dimensional dynamics (e.g. the 15-var quad flow with
+// sin/cos sub-trees) where a low fixed order would widen out of usefulness.
 
 #include "contractor_odes_capd.h"
 #include "to_capd_string.h"
@@ -70,8 +68,7 @@ namespace dreal
     //
     // capd::IMap parses the RHS string at construction and builds the
     // automatic-differentiation tree CAPD's solver needs. This is the
-    // expensive step; we amortize it via the cache, mirroring the Codac
-    // TU's translate-once policy.
+    // expensive step; we translate once and amortize it via the cache.
     //
     // capd::IOdeSolver and capd::ITimeMap carry mutable step-size and
     // working state, so they are *not* safe to share across parallel ICP
@@ -249,7 +246,7 @@ namespace dreal
             return m;
         }
 
-        // Per-process cache slot — identical pattern to the Codac TU.
+        // Per-process cache slot.
         // shared_ptr<const OdeFlow> in the slot keeps the keyed OdeFlow
         // alive so its raw-pointer key cannot be reused for a different
         // flow (closes the same pointer-reuse hazard).
@@ -267,11 +264,13 @@ namespace dreal
             return m;
         }
 
-        // Adaptive max-step policy matching the Codac TU. capd::IOdeSolver
-        // chooses its actual step size internally based on order + target
-        // tolerance, but the time horizon must be reachable without
-        // endlessly subdividing. We expose n_steps_hint and let CAPD's
-        // adaptive logic do the rest.
+        // Step-count hint for the integration horizon. capd::IOdeSolver
+        // chooses its actual step size internally from order + target
+        // tolerance; this just bounds how the horizon is subdivided.
+        // Currently only run_capd_trace consumes the result (to slice the
+        // --visualize trajectory); run_capd_fwd/bwd compute it but leave the
+        // real stepping to CAPD's adaptive control (the derived max_step is
+        // not imposed on the solver). See OPTIMIZATION_LOG.md (tolerance entry).
         int adaptive_n_steps(double t_ub, int n_steps_hint) {
             return std::clamp<int>(
                 std::max(n_steps_hint,
@@ -308,8 +307,14 @@ namespace dreal
         try {
             strs = build_imap_strings(*flow, ordered_vars);
         } catch (const std::exception&) {
-            // Expression translation failed (unsupported kind in RHS).
-            // Caller falls back to the Codac contractor.
+            // Expression translation failed (an RHS used a kind to_capd_string
+            // does not support, e.g. if-then-else or an uninterpreted function).
+            // Return null: the contractor's Prune then skips integration
+            // (contractor_odes.cc: `if (!m_capd_cache) return`), leaving this
+            // ODE constraint un-narrowed. Sound — no narrowing never over-prunes
+            // — but the constraint is simply not enforced by this contractor;
+            // there is no Codac fallback anymore. Well-formed ODE flows do not
+            // hit this (their RHS kinds are all translatable).
             return nullptr;
         }
 
@@ -422,9 +427,10 @@ namespace dreal
     // as vars_t_narrowed so the caller (in its swapped frame where
     // m_vars_t = original X_0) intersects it with the right gate.
     //
-    // Mirrors Codac's run_lohner_bwd_oneshot but uses true CAPD backward
-    // integration via the negated IMap instead of Codac's
-    // LohnerAlgorithm(forward=false) reverse-time mode.
+    // This is a single backward integration (no per-step intersection loop):
+    // CAPD integrates the cached negated field -f(x) forward over [0, t_ub],
+    // which is reverse-time integration of f(x), giving the backward image
+    // directly.
     // -------------------------------------------------------------------------
 
     CapdOdeResult run_capd_bwd(
