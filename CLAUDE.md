@@ -80,7 +80,7 @@ Key flags: `--precision <delta>`, `--produce-models`, `--logic <QF_NRA|QF_NRA_OD
    - `contractor_ibex_polytope`: Polytope relaxation
    - `contractor_fixpoint`: Runs a contractor to fixpoint
    - `contractor_seq` / `contractor_join`: Sequential and disjunctive composition
-   - `contractor_ode_lohner`: ODE contractor wrapping CAPD's order-20 `IOdeSolver` + `ITimeMap` (`contractor_odes_capd.{h,cc}`). The trivial-flow short-circuit (every RHS is literal 0) bypasses CAPD and just intersects X_0 ∩ X_t. `--visualize` produces step-by-step CAPD enclosures via `run_capd_trace`. CAPD divergence on a Prune call silently skips narrowing for that call. The previous Codac/CAPD gated hybrid was retired; see `CODAC_MIGRATION.md`.
+   - `contractor_ode_lohner`: ODE contractor wrapping CAPD's order-10 `IOdeSolver` + `ITimeMap` (`contractor_odes_capd.{h,cc}`). The trivial-flow short-circuit (every RHS is literal 0) bypasses CAPD and just intersects X_0 ∩ X_t. `--visualize` produces step-by-step CAPD enclosures via `run_capd_trace`. CAPD divergence on a Prune call silently skips narrowing for that call. The previous Codac/CAPD gated hybrid was retired; see `CODAC_MIGRATION.md`.
 
 6. **Pattern Matching / Lemma Generation** (`src/dreal/util/pattern_matching/`): CAV26 feature — generates lemmas from previously solved subproblems to prune future search via `substitution_tree` and `lemma_generator`. Randomization in `substitution_tree.cc` iteration is a recent optimization.
 
@@ -134,7 +134,7 @@ This project started as a CMake port of the original dReal4 (which used Bazel). 
 - `--visualize` flag and JSON flow dumps for ODE trajectory visualization.
 
 **`upgrade-ibex`** (current): The post-Codac-elimination architecture, on top of `tacas26-odes`. IBEX is source-built from `ncsys-lab/ibex-lib@dreal-perf-patches` (7 surgical patches catalogued in `../ibex-fork/MIGRATION.md`). CAPD master is the sole ODE backend.
-- ODE contractor in `contractor_odes.cc`: forward via `run_capd_fwd` (CAPD `IOdeSolver` order-20, forward integration of `f(x)`, terminal intersection with X_t, backward sweep from narrowed X_t via `-f(x)` for joint narrowing of X_0); backward via `run_capd_bwd` (one-shot backward image via the cached `-f(x)` IMap); `run_capd_trace` for `--visualize`.
+- ODE contractor in `contractor_odes.cc`: forward via `run_capd_fwd` (CAPD `IOdeSolver` order-10 (tunable `kCapdTaylorOrder`), forward integration of `f(x)`, terminal intersection with X_t, backward sweep from narrowed X_t via `-f(x)` for joint narrowing of X_0); backward via `run_capd_bwd` (one-shot backward image via the cached `-f(x)` IMap); `run_capd_trace` for `--visualize`.
 - Per-flow `CapdOdeCache` holds both the forward `f(x)` and the negated `-f(x)` `capd::IMap` objects, built once and reused per flow. `IOdeSolver` instances are constructed per-call because they carry mutable step state. The trivial-flow short-circuit bypasses CAPD entirely when every RHS is literal 0.
 - `contractor_ibex_fwdbwd::Prune` uses the IBEX fork's `Function::backward` callback patch to populate the output bitset directly without a before/after snapshot.
 

@@ -1,4 +1,5 @@
-// CAPD v6 Taylor-order-20 ODE contractor TU. C++17.
+// CAPD v6 Taylor ODE contractor TU. C++17. (Taylor order is the tunable
+// kCapdTaylorOrder constant below — default 10; see OPTIMIZATION_LOG.md.)
 //
 // This is the second ODE backend living alongside contractor_odes_codac.cc.
 // The dispatch is gated in contractor_odes.cc by (t_ub, n_state_vars); see

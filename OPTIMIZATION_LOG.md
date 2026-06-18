@@ -64,10 +64,18 @@ The forward integration is ~69% of order-10 runtime, dominated by
 elimination *within* one IMap string but does not factorize. The ODE RHS for the
 inverter/cardiac models has large repeated transcendental subterms (the same
 `log(... exp ...)` block appears across multiple `d/dt`). Pre-simplifying / CSE-ing
-the RHS with Drake's symbolic layer before emitting `to_capd_string` (and, where a
-denominator is constant/parameter, rewriting `a / c` as `a * (1/c)` to avoid the
-expensive division AD) could cut the per-step AD cost at its root. Medium effort,
-model-dependent payoff, low risk (sound — exact algebraic rewrites). Try after C1.
+the RHS with Drake's symbolic layer before emitting `to_capd_string` could cut the
+per-step AD cost at its root. Medium-high effort, **low confidence**:
+- The `a / c → a * (1/c)` constant-denominator rewrite is **N/A** for the probe
+  families — their divisions are state-dependent (prostate `(/ z (+ z 2))`, the
+  inverter's 60 divisions are sigmoid terms), so the expensive division AD is
+  inherent, not a constant-fold artifact.
+- Subexpression dedup: CAPD's parser already does within-string CSE, so a
+  Drake-level CSE pass may add little. Would need to confirm CAPD isn't already
+  capturing the repeated `log(...exp...)` blocks before investing.
+
+This is the last untried CAPD-side idea and it is speculative; the high-confidence
+config/allocation wins are all harvested.
 
 ## Adopted
 
