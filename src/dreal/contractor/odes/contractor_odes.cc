@@ -380,6 +380,13 @@ namespace dreal
     // ---------------------------------------------------------------------------
 
     json contractor_ode_lohner::generate_trace(ContractorStatus cs_copy) {
+        // CAPD's interval integrator expects the FPU in round-to-nearest (its
+        // DoubleRounding sets directed modes per-op and restores nearest).
+        // Prune() establishes this at its top; generate_trace is a separate
+        // entry point (the --visualize path) and must establish it too, rather
+        // than relying on whatever mode the caller left the FPU in.
+        RoundingModeGuard g(FE_TONEAREST);
+
         const auto& ic     = m_ctr.first;
         const auto* const icc = to_integral(ic);
         Box& b = cs_copy.mutable_box();

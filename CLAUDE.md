@@ -48,6 +48,12 @@ ctest                                      # run all tests
 
 Test sources live under `test/dreal/` mirroring `src/dreal/` structure (e.g., `test/dreal/util/test/box_test.cc`).
 
+**Known flaky tests (ignore until fixed):** three tests fail spuriously and are unrelated to solver correctness — a clean run is "569/572 with only these failing":
+- `IfThenElseEliminatorTest.NestedITEs` and `IfThenElseEliminatorTest.ITEsInForall` — the ITE-elimination golden strings hard-code auxiliary-variable names (`ITE0`, `ITE1`, …) but the underlying counter is a process-global that other tests increment, so the expected vs actual names drift (`ITE0` vs `ITE3`) depending on test/registration order. A test-isolation bug, not a preprocessing bug.
+- `Timer.Test1` — timing-threshold assertion that fails under load/scheduling jitter.
+
+These fail identically on a pristine tree (verified by stashing local changes), so they do not indicate a regression. When validating a change, confirm the failure set is exactly this trio.
+
 ## Running the Solver
 
 ```bash
@@ -185,7 +191,14 @@ Always run the verification command against the new artifact explicitly and cite
 
 **`auditor.cc`** (`src/dreal/solver/auditor.cc`) is a development/verification tool. It reprints learned lemmas in dReal3-compatible format so they can be re-checked by dReal3 independently. It is not part of the core solving loop.
 
-**FPU rounding mode**: The solver sets the FPU rounding mode explicitly (fesetround). There are guards in `prefix_printer.cc` and `rounding mode guards` in several places. Interval arithmetic requires directed rounding; don't add floating-point code without considering this.
+**FPU rounding mode** (read this before touching any interval/ODE code — the failure mode is extremely sneaky): the solver controls the FPU rounding mode explicitly via `RoundingModeGuard` (`src/dreal/util/rounding_mode_guard.h`), which sets a mode on construction and restores the *previous* mode on destruction. Two interval backends with **conflicting** ambient-mode expectations coexist:
+
+- **gaol** (IBEX's interval backend) is sound only under **`FE_UPWARD`**. Under any other mode its directed rounding inverts (`lo > hi`), so an inexactly-FP-representable subexpression collapses to an *empty* interval.
+- **CAPD** (ODE backend) expects **`FE_TONEAREST`**; its `DoubleRounding` sets directed modes per-op and restores nearest. Crucially, **linking CAPD leaves the process FPU in `FE_TONEAREST`** (its static init / `roundNearest()`), so there is no longer a safe ambient mode to assume.
+
+Invariant: **every gaol↔CAPD boundary must establish its mode explicitly — never rely on the ambient FPU state.** gaol-using code (the ibex contractors) guards `FE_UPWARD`; CAPD-using code guards `FE_TONEAREST`. Concretely: `ContractorIbexFwdbwd::Prune` guards `FE_UPWARD` (added after CAPD's `FE_TONEAREST` clobber caused a false-UNSAT regression — see below); `contractor_ode_lohner::Prune` / `generate_trace` / the CAPD cache build guard `FE_TONEAREST`. The `brancher.cc` `DREAL_ASSERT_ROUNDING(FE_UPWARD)` only *asserts* the invariant (and is compiled out under `NDEBUG`), it does not establish it.
+
+The sneaky part: a wrong ambient mode does **not** crash or warn — it silently produces an inverted interval that empties the box, surfacing as a **false `unsat`** (delta-complete soundness is violated) only on formulas containing inexact constant arithmetic inline in inequalities (e.g. `(* 3.3 x)`, `(* C (pow 10 -N))`). It is invisible on exactly-representable values (`0.5`, `0.25`, `*1.0`). Regression test: `test/dreal/api/test/gaol_directed_rounding_false_unsat_test.cc`. Historical guards also live in `prefix_printer.cc`. Don't add floating-point/interval code without an explicit `RoundingModeGuard` for the backend it touches.
 
 **`filter_assertion` soundness**: There was a soundness bug where strict upper bounds were handled incorrectly due to a wrong `nextafter()` call. The `forward`/`backward` naming in `substitutions_map` also had a soundness bug that was fixed. Be careful around strict vs. non-strict inequality handling in contractors and the SAT interval logic.
 

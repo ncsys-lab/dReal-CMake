@@ -22,6 +22,7 @@
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
 #include "dreal/util/math.h"
+#include "dreal/util/rounding_mode_guard.h"
 #include "dreal/util/stat.h"
 #include "dreal/util/timer.h"
 
@@ -96,6 +97,17 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs) const {
   DREAL_LOG_TRACE("CTC = {}", fmt::streamed(*num_ctr_));
   DREAL_LOG_TRACE("F = {}", f_);
   stat.timer_pruning_.resume();
+
+  // gaol (ibex's interval backend) is only sound with the FPU in round-upward
+  // mode; under any other mode its directed rounding inverts (lo>hi) and an
+  // inexact constant subexpression collapses to an empty interval, wrongly
+  // emptying the box (false UNSAT). This contractor historically relied on
+  // ambient FE_UPWARD, but CAPD's interval library (DoubleRounding) leaves the
+  // process FPU in FE_TONEAREST once it is linked in, so the ambient mode can
+  // no longer be assumed here. Establish it explicitly per Prune (cheap; runs
+  // on every ICP worker thread, where FPU mode is thread-local). See
+  // test/dreal/api/test/gaol_directed_rounding_false_unsat_test.cc.
+  const RoundingModeGuard round_guard{FE_UPWARD};
 
   // Track which variables narrowed via the ibex fork's backward-callback
   // (commit 4d61b841 of the dreal-perf-patches branch). The callback fires
