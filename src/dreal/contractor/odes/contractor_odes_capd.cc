@@ -31,6 +31,32 @@
 namespace dreal
 {
     // -------------------------------------------------------------------------
+    // CAPD solver numeric configuration — single source of truth.
+    //
+    // These are the performance-critical knobs for the rigorous Taylor
+    // integrator, shared by run_capd_fwd / run_capd_bwd / run_capd_trace.
+    // Profiling (a `sample` of the tacas inverter family) shows
+    // computeTaylorCoefficients at this order is ~74% of solve time on
+    // nonlinear ODE benchmarks, so the order is the primary speed lever.
+    // Lowering the order or loosening the tolerances widens the enclosure
+    // (still sound — an over-approximation can never cause a false-UNSAT) in
+    // exchange for cheaper steps. See OPTIMIZATION_LOG.md for the sweep history.
+    //
+    // constexpr at namespace scope has internal linkage, so these are private
+    // to this TU.
+    constexpr int    kCapdTaylorOrder  = 20;
+    constexpr double kCapdAbsTolerance = 1e-10;
+    constexpr double kCapdRelTolerance = 1e-10;
+
+    // Apply the shared tolerances to a freshly-constructed CAPD solver. The
+    // order is a constructor argument (kCapdTaylorOrder) at each call site.
+    template <typename Solver>
+    inline void configure_capd_solver(Solver& solver) {
+        solver.setAbsoluteTolerance(kCapdAbsTolerance);
+        solver.setRelativeTolerance(kCapdRelTolerance);
+    }
+
+    // -------------------------------------------------------------------------
     // CapdOdeCache — opaque wrapper holding the per-flow IMap objects.
     //
     // capd::IMap parses the RHS string at construction and builds the
@@ -340,9 +366,8 @@ namespace dreal
             // Private parameter-bound copy of the cached map (see with_params).
             // Must outlive solver_fwd, which holds a reference to it.
             capd::IMap map_fwd = with_params(cache->fn_fwd, cache->par_names, par_bounds);
-            capd::IOdeSolver solver_fwd(map_fwd, /*order=*/20);
-            solver_fwd.setAbsoluteTolerance(1e-10);
-            solver_fwd.setRelativeTolerance(1e-10);
+            capd::IOdeSolver solver_fwd(map_fwd, kCapdTaylorOrder);
+            configure_capd_solver(solver_fwd);
             capd::ITimeMap time_map_fwd(solver_fwd);
 
             capd::C0Rect2Set set(to_ivector(u0_bounds));
@@ -391,9 +416,8 @@ namespace dreal
 
         try {
             capd::IMap map_bwd = with_params(cache->fn_bwd, cache->par_names, par_bounds);
-            capd::IOdeSolver solver_bwd(map_bwd, /*order=*/20);
-            solver_bwd.setAbsoluteTolerance(1e-10);
-            solver_bwd.setRelativeTolerance(1e-10);
+            capd::IOdeSolver solver_bwd(map_bwd, kCapdTaylorOrder);
+            configure_capd_solver(solver_bwd);
             capd::ITimeMap time_map_bwd(solver_bwd);
 
             capd::C0Rect2Set set(to_ivector(Xt_bounds));
@@ -445,9 +469,8 @@ namespace dreal
             capd::IMap chosen_map = with_params(
                 forward ? cache->fn_fwd : cache->fn_bwd,
                 cache->par_names, par_bounds);
-            capd::IOdeSolver solver(chosen_map, /*order=*/20);
-            solver.setAbsoluteTolerance(1e-10);
-            solver.setRelativeTolerance(1e-10);
+            capd::IOdeSolver solver(chosen_map, kCapdTaylorOrder);
+            configure_capd_solver(solver);
             capd::ITimeMap time_map(solver);
 
             capd::C0Rect2Set set(to_ivector(u0));
