@@ -54,6 +54,21 @@ the AD operation count. Set type is already `C0Rect2Set` (doubleton + QR reorgan
 
 ---
 
+## Open approaches (not yet attempted)
+
+### Vector-field simplification / CSE before to_capd_string
+
+The forward integration is ~69% of order-10 runtime, dominated by
+`computeODECoefficients` — CAPD's automatic differentiation of the ODE RHS, with
+`autodiff::Div` (division AD) alone ~17%. CAPD's parser does common-subexpression
+elimination *within* one IMap string but does not factorize. The ODE RHS for the
+inverter/cardiac models has large repeated transcendental subterms (the same
+`log(... exp ...)` block appears across multiple `d/dt`). Pre-simplifying / CSE-ing
+the RHS with Drake's symbolic layer before emitting `to_capd_string` (and, where a
+denominator is constant/parameter, rewriting `a / c` as `a * (1/c)` to avoid the
+expensive division AD) could cut the per-step AD cost at its root. Medium effort,
+model-dependent payoff, low risk (sound — exact algebraic rewrites). Try after C1.
+
 ## Adopted
 
 ### 1. Taylor order 20 → 10  (commit pending)
@@ -111,6 +126,28 @@ allocation.
 - ctest green except the flaky trio.
 
 ## Rejected
+
+### C1 / variational integration (C1Rect2Set forward)
+
+Scoped per the "interesting new contractor algorithm" direction: use the forward
+integration's variational data (the monodromy ∂x_t/∂x_0) to narrow X_0 instead of
+a separate backward integration. Tested the optimistic lower bound first — switch
+the forward set to `capd::C1Rect2Set` (computes the monodromy) and *discard* the
+monodromy, measuring only the integration-cost penalty / enclosure-tightness
+effect:
+
+- k17 alone: 27s→20.7s (faster — misleading single sample).
+- Fast sub-probe: net **1.658 (65.8% SLOWER)**. The tacas inverters speed up
+  (0.28–0.29) but **prostate goes SAT→TIM (13.4s→300s)** — the variational
+  integration explodes/diverges there. A severe regression that dominates.
+
+Rejected. The probe benchmarks have n≈6 integrated state vars, so C1 integrates
+a 6×6 monodromy (~an order of magnitude more interval arithmetic than C0) and is
+prone to variational blow-up on stiff dynamics. This was already the *optimistic*
+case (free tighter enclosure, no interval-Newton backward yet); the full
+variational-backward would add cost on top of an already net-losing forward.
+C1/variational is not viable for these dynamics. (No IC1OdeSolver typedef in
+CAPD; C1 comes via integrating a C1Rect2Set with the C0 IOdeSolver.)
 
 ### Set representation: C0HORect2Set (Hermite-Obreshkov) at order 10
 
