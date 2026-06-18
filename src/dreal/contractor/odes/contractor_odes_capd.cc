@@ -18,6 +18,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -303,19 +304,23 @@ namespace dreal
             if (!is_zero(rhs)) { is_trivial = false; break; }
         }
 
+        // Raise — do not silently skip — if the flow cannot be translated.
+        // A null cache would make the contractor's Prune a no-op, leaving the
+        // ODE constraint un-narrowed: sound (no narrowing never over-prunes)
+        // but a silent under-enforcement that hides an unhandled ODE from the
+        // user. Well-formed flows over the supported expression set never hit
+        // these paths; if one does, the right answer is a loud failure naming
+        // the cause, not a quietly weaker solve. (There is no Codac fallback.)
         ImapStrings strs;
         try {
             strs = build_imap_strings(*flow, ordered_vars);
-        } catch (const std::exception&) {
-            // Expression translation failed (an RHS used a kind to_capd_string
-            // does not support, e.g. if-then-else or an uninterpreted function).
-            // Return null: the contractor's Prune then skips integration
-            // (contractor_odes.cc: `if (!m_capd_cache) return`), leaving this
-            // ODE constraint un-narrowed. Sound — no narrowing never over-prunes
-            // — but the constraint is simply not enforced by this contractor;
-            // there is no Codac fallback anymore. Well-formed ODE flows do not
-            // hit this (their RHS kinds are all translatable).
-            return nullptr;
+        } catch (const std::exception& e) {
+            throw std::runtime_error(
+                std::string("CAPD ODE contractor: cannot translate an ODE flow "
+                            "RHS to a CAPD vector field (") + e.what() +
+                "). The RHS uses an expression kind to_capd_string does not "
+                "support (e.g. if-then-else or an uninterpreted function). "
+                "Refusing to silently skip the ODE constraint.");
         }
 
         try {
@@ -329,10 +334,12 @@ namespace dreal
             auto [it, _inserted] = m.try_emplace(
                 flow_ptr, CacheSlot{std::move(flow), std::move(cache)});
             return it->second.cache;
-        } catch (const std::exception&) {
-            // capd::IMap parser rejected the string (typically an
-            // unsupported syntactic form — e.g. a function we don't emit).
-            return nullptr;
+        } catch (const std::exception& e) {
+            throw std::runtime_error(
+                std::string("CAPD ODE contractor: capd::IMap rejected the "
+                            "generated vector-field string (") + e.what() +
+                "). Forward field was: '" + strs.fwd +
+                "'. Refusing to silently skip the ODE constraint.");
         }
     }
 

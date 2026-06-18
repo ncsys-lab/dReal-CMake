@@ -145,9 +145,11 @@ namespace dreal
         {
             RoundingModeGuard g(FE_TONEAREST);
             // CAPD's IMap parser is moderately expensive; doing it here
-            // keeps Prune off the cold per-flow translation path. If the
-            // parser rejects the string (unsupported function, malformed
-            // RHS), m_capd_cache stays null and Prune skips integration.
+            // keeps Prune off the cold per-flow translation path. If the RHS
+            // cannot be translated/parsed, make_capd_ode_cache *raises* (rather
+            // than silently returning a no-op contractor); it returns null only
+            // when there is no flow at all, which the Prune/trace null-checks
+            // still guard.
             m_capd_cache = make_capd_ode_cache(icc->get_flow(), m_ode_state_vars);
         }
         (void)config;
