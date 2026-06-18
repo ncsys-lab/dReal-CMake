@@ -90,6 +90,26 @@ Current best = order 10. Subsequent experiments measure vs the order-20 frozen
 probe_baseline, so their net ratio reflects cumulative gain; compare against
 0.859 (full) / 0.517 (fast) to detect incremental regressions.
 
+### 2. thread_local reuse of the parameter-bound IMap (commit pending)
+
+`with_params` deep-copied the cached IMap (the full automatic-differentiation
+tree) on every fwd/bwd/trace call to bind parameters without mutating the
+shared cache — ~part of the ~8% allocation churn at order 10 (relatively larger
+once the integration itself got cheap). Replaced the per-call deep copy with one
+reusable copy per (thread, base map) in a `thread_local` cache, re-binding only
+the parameters (cheap `setParameter`) each call.
+
+Strictly safe / behavior-identical: `setParameter` fully overwrites the named
+parameters, the cached base maps are immutable and live for the whole process,
+and thread_local storage means no copy is shared across parallel ICP workers
+(works for IcpSeq and IcpParallel). No verdict can change — it only removes an
+allocation.
+
+- Fast sub-probe: net 0.499 vs order-10's 0.517 (~3.5% faster), 0 flips.
+- Full probe: net 0.847 vs order-10's 0.859 (15.3% cumulative vs order-20), 0
+  flips, 0 regressions, TIMs unchanged.
+- ctest green except the flaky trio.
+
 ## Rejected
 
 ### Set representation: C0HORect2Set (Hermite-Obreshkov) at order 10

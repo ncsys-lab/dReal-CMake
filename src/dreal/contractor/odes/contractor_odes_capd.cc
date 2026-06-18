@@ -206,18 +206,37 @@ namespace dreal
             return out;
         }
 
-        // Copy the cached (parsed) IMap and bind its CAPD parameters to the
-        // caller's current intervals. We copy rather than mutate-in-place
-        // because the cached IMap is shared across parallel ICP workers, and
-        // setParameter mutates the map; copying also avoids re-parsing the RHS
-        // string. par_bounds is index-aligned with par_names (both in ode_list
+        // Return a parameter-bound view of the cached (parsed) IMap with its
+        // CAPD parameters bound to the caller's current intervals.
+        //
+        // We cannot mutate the cached IMap in place (it is shared across
+        // parallel ICP workers and setParameter mutates), and a fresh per-call
+        // deep copy of `base` rebuilds the whole automatic-differentiation tree
+        // — ~part of the ~8% allocation churn at order 10, since the integration
+        // itself got cheap. Instead we keep one reusable copy per (thread, base
+        // map) in a thread_local cache: the AD tree is copied once per thread,
+        // and each call only re-binds the parameters (cheap setParameter) into
+        // that copy. This is behavior-identical to copying `base` fresh each
+        // call — setParameter fully overwrites the named parameters, the cached
+        // base maps are immutable and live for the whole process, and the
+        // thread_local storage means no copy is ever shared across workers.
+        //
+        // The returned reference is valid until the next with_params call for
+        // the same base map on this thread; each run_capd_* call binds, hands
+        // the map to a local solver, integrates to completion, and returns
+        // before the next bind, so there is no aliasing within a thread.
+        // par_bounds is index-aligned with par_names (both in ode_list
         // parameter order).
-        capd::IMap with_params(
+        capd::IMap& with_params(
             const capd::IMap& base,
             const std::vector<std::string>& par_names,
             const std::vector<std::pair<double, double>>& par_bounds)
         {
-            capd::IMap m(base);
+            thread_local std::unordered_map<const capd::IMap*, capd::IMap> tls;
+            auto it = tls.find(&base);
+            if (it == tls.end())
+                it = tls.emplace(&base, base).first;  // one AD-tree copy per thread
+            capd::IMap& m = it->second;
             // Sizes are equal by construction (par_names and par_bounds both
             // come from this flow's parameter list, in ode_list order). A
             // mismatch is a programming error, not a runtime condition to
@@ -371,9 +390,10 @@ namespace dreal
 
         capd::IVector terminal_fwd(n);
         try {
-            // Private parameter-bound copy of the cached map (see with_params).
-            // Must outlive solver_fwd, which holds a reference to it.
-            capd::IMap map_fwd = with_params(cache->fn_fwd, cache->par_names, par_bounds);
+            // Parameter-bound view of the cached map (thread_local; see
+            // with_params). Must outlive solver_fwd, which holds a reference to
+            // it — the thread_local backing storage does.
+            capd::IMap& map_fwd = with_params(cache->fn_fwd, cache->par_names, par_bounds);
             capd::IOdeSolver solver_fwd(map_fwd, kCapdTaylorOrder);
             configure_capd_solver(solver_fwd);
             capd::ITimeMap time_map_fwd(solver_fwd);
@@ -423,7 +443,7 @@ namespace dreal
         if (max_step <= 0.0) return result;
 
         try {
-            capd::IMap map_bwd = with_params(cache->fn_bwd, cache->par_names, par_bounds);
+            capd::IMap& map_bwd = with_params(cache->fn_bwd, cache->par_names, par_bounds);
             capd::IOdeSolver solver_bwd(map_bwd, kCapdTaylorOrder);
             configure_capd_solver(solver_bwd);
             capd::ITimeMap time_map_bwd(solver_bwd);
@@ -474,7 +494,7 @@ namespace dreal
         if (u0.size() != static_cast<size_t>(n)) return result;
 
         try {
-            capd::IMap chosen_map = with_params(
+            capd::IMap& chosen_map = with_params(
                 forward ? cache->fn_fwd : cache->fn_bwd,
                 cache->par_names, par_bounds);
             capd::IOdeSolver solver(chosen_map, kCapdTaylorOrder);
