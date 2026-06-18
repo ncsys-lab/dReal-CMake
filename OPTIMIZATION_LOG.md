@@ -56,8 +56,47 @@ the AD operation count. Set type is already `C0Rect2Set` (doubleton + QR reorgan
 
 ## Adopted
 
-_(none yet)_
+### 1. Taylor order 20 → 10  (commit pending)
+
+Lower the CAPD `IOdeSolver` Taylor order from 20 to 10 (`kCapdTaylorOrder`).
+Directly attacks the 74% `computeTaylorCoefficients` hotspot — fewer Taylor
+coefficients per step on the expensive transcendental/division vector fields.
+
+**Sweep (fast sub-probe, 16 benchmarks, vs order-20 frozen probe_baseline):**
+
+| order | net PAR2 | flips | notes |
+|---|---|---|---|
+| 14 | 0.671 (32.9% faster) | 0 | tacas inverters ~1.85× |
+| **10** | **0.517 (48.3% faster)** | **0** | tacas inverters ~3× (0.31–0.33×) |
+| 8 | 0.446 (55.4%) | **1** | rejected — prostate SAT→UNSAT |
+
+**Validation at order 10:**
+- Full probe (18, incl. 2 TIMs): net 0.859 (14.1% faster), 0 flips, 0 real
+  regressions. The 2 TIMs (`quad2-1`, `k13_inverter`) stay TIM — they're ICP/
+  SAT-search bound, not CAPD-per-step bound, so order doesn't rescue them.
+- 30-set gate: **0 correctness flips**, 7 exceptional. One >1.5× "regression"
+  (`car-3-single-linear` 267s→TIM) was **parallel-scheduling contention, not an
+  order effect**: isolated, car-3 solves delta-sat in **184s** at order 10
+  (well under the 300s timeout). car-3 is a near-timeout linear benchmark whose
+  parallel PAR2 is noise-dominated.
+- ctest green except the documented flaky trio.
+
+Soundness: a lower-order Taylor enclosure is wider but still a rigorous
+superset — sound, never a false-UNSAT. The order-8 prostate flip is the
+delta-sat/unsat boundary ambiguity (different orders give different enclosure
+*shapes*); order 10 keeps prostate SAT consistently across orders 10/14/20.
+
+Current best = order 10. Subsequent experiments measure vs the order-20 frozen
+probe_baseline, so their net ratio reflects cumulative gain; compare against
+0.859 (full) / 0.517 (fast) to detect incremental regressions.
 
 ## Rejected
 
-_(none yet)_
+### Taylor order 8 (and below)
+
+55.4% faster on the fast sub-probe but flips `github …prostate_h2` SAT→UNSAT
+vs the order-20 baseline — a correctness flip (halt). The flip is the inherent
+delta-boundary ambiguity rather than a soundness bug (the enclosure stays a
+valid superset at any order), but any verdict change vs baseline is
+disqualifying. The order knee is between 8 and 10; order 10 is the floor with
+zero flips. Not retested below 8.

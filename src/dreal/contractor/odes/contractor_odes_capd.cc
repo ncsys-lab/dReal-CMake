@@ -44,7 +44,7 @@ namespace dreal
     //
     // constexpr at namespace scope has internal linkage, so these are private
     // to this TU.
-    constexpr int    kCapdTaylorOrder  = 20;
+    constexpr int    kCapdTaylorOrder  = 10;
     constexpr double kCapdAbsTolerance = 1e-10;
     constexpr double kCapdRelTolerance = 1e-10;
 
