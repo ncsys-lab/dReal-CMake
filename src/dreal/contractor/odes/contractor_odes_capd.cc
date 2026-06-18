@@ -48,6 +48,14 @@ namespace dreal
     constexpr double kCapdAbsTolerance = 1e-10;
     constexpr double kCapdRelTolerance = 1e-10;
 
+    // C0 set representation for the rigorous enclosure, shared by the fwd/bwd/
+    // trace integrators. capd::C0Rect2Set is a doubleton (x + C*r0 + Q*q) with
+    // QR reorganization — CAPD's general-purpose default. Tighter alternatives
+    // (C0TripletonSet, C0HORect2Set = Hermite-Obreshkov corrector) trade higher
+    // per-step cost for less wrapping; whether that nets out is benchmark-
+    // dependent, hence the single alias here for A/B testing.
+    using CapdC0Set = capd::C0Rect2Set;
+
     // Apply the shared tolerances to a freshly-constructed CAPD solver. The
     // order is a constructor argument (kCapdTaylorOrder) at each call site.
     template <typename Solver>
@@ -370,7 +378,7 @@ namespace dreal
             configure_capd_solver(solver_fwd);
             capd::ITimeMap time_map_fwd(solver_fwd);
 
-            capd::C0Rect2Set set(to_ivector(u0_bounds));
+            CapdC0Set set(to_ivector(u0_bounds));
             terminal_fwd = time_map_fwd(t_ub, set);
         } catch (const std::exception&) {
             return result;
@@ -420,7 +428,7 @@ namespace dreal
             configure_capd_solver(solver_bwd);
             capd::ITimeMap time_map_bwd(solver_bwd);
 
-            capd::C0Rect2Set set(to_ivector(Xt_bounds));
+            CapdC0Set set(to_ivector(Xt_bounds));
             const capd::IVector encl = time_map_bwd(t_ub, set);
 
             result.vars_t_narrowed.reserve(static_cast<size_t>(n));
@@ -473,7 +481,7 @@ namespace dreal
             configure_capd_solver(solver);
             capd::ITimeMap time_map(solver);
 
-            capd::C0Rect2Set set(to_ivector(u0));
+            CapdC0Set set(to_ivector(u0));
 
             const double dt = t_ub / static_cast<double>(n_steps);
             double t_prev = 0.0;

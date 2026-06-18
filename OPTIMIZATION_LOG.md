@@ -92,6 +92,26 @@ probe_baseline, so their net ratio reflects cumulative gain; compare against
 
 ## Rejected
 
+### Set representation: C0HORect2Set (Hermite-Obreshkov) at order 10
+
+Fast-probe net 0.532 vs order-10's 0.517 — marginally *worse*, 0 flips. The
+tighter HO enclosure did not reduce ICP work on the tacas inverters (identical
+0.31–0.33 — they already prune fine at order 10) and added per-step corrector
+cost elsewhere (prostate 8.2s→11.3s). Confirms enclosure *tightness* is not the
+bottleneck at order 10; per-step Taylor cost is. C0TripletonSet (more per-step
+cost, same mechanism) not tested — same prediction. Kept C0Rect2Set. The
+`CapdC0Set` type alias was added to centralize this knob for the A/B test and
+is retained (mirrors the order/tolerance centralization).
+
+### Re-profile at order 10 (guides remaining work)
+
+After order 10, the k22 heavy path shifted: contractor_ode_lohner::Prune 79%
+(was 91%), run_capd_fwd 69% (was 85%), backward contractor + Prune overhead
+~10% (was ~5%), non-ODE (ibex arithmetic HC4 + fixpoint) ~21% (was ~9%). The
+forward Taylor cost is at the order-10 floor and irreducible by config. The
+two grown shares — the **backward contractor** (a second full CAPD integration
+per ODE constraint) and **non-ODE arithmetic** — are the remaining targets.
+
 ### Taylor order 8 (and below)
 
 55.4% faster on the fast sub-probe but flips `github …prostate_h2` SAT→UNSAT
@@ -100,3 +120,19 @@ delta-boundary ambiguity rather than a soundness bug (the enclosure stays a
 valid superset at any order), but any verdict change vs baseline is
 disqualifying. The order knee is between 8 and 10; order 10 is the floor with
 zero flips. Not retested below 8.
+
+### CAPD tolerance 1e-10 → 1e-8 (at order 10)
+
+No effect: fast-probe net 0.513 vs order-10's 0.517 (0.4% = noise), 0 flips.
+**Why (important):** the integration step size is NOT tolerance-limited for
+these benchmarks. `run_capd_fwd`/`run_capd_bwd` compute `n_steps`/`max_step`
+(`adaptive_n_steps`) but **never pass them to the solver** — they are dead code
+(only the `if (max_step <= 0)` guard uses them; `n_steps` is live only in
+`run_capd_trace` for `--visualize` slicing). CAPD integrates with its own
+tolerance-based adaptive control, and for these short/smooth horizons the step
+count is already near-minimal, so loosening tolerance can't reduce it further.
+Both the tolerance and n_steps levers are therefore closed for fwd/bwd; the
+per-step Taylor-coefficient cost (order) is the only step-cost lever, and it's
+at the order-10 floor. Kept tol 1e-10 (tighter = safer, no speed cost).
+Follow-up: the dead `n_steps`/`max_step` in fwd/bwd is a cleanup candidate
+(also the stale Codac-era file header comment).
