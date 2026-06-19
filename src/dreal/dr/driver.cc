@@ -114,7 +114,7 @@ void DrDriver::Solve() {
       cout << *model << endl;
       for (const Expression& f : objectives_) {
         cout << "Found minimum for " << f << " is "
-             << ExpressionEvaluator(f)(*model).mid() << endl;
+             << ExpressionEvaluator(f)(*model).mid() << endl;  // rounding-lint: allow (model printing under FE_TONEAREST)
       }
     }
   } else {

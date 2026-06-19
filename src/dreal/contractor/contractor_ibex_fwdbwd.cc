@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "dreal/util/assert.h"
+#include "dreal/util/ibex_guarded.h"
 #include "dreal/util/logging.h"
 #include "dreal/util/math.h"
 #include "dreal/util/rounding_mode_guard.h"
@@ -105,7 +106,6 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs, const UpwardRounding& ur)
   // UpwardRoundingScope and proven here by the `ur` token — so this hot Prune
   // no longer pays a per-call fesetround. The assert verifies the inherited
   // phase mode in Debug. See gaol_directed_rounding_false_unsat_test.cc.
-  (void)ur;
   DREAL_ASSERT_ROUNDING(FE_UPWARD);
 
   // Track which variables narrowed via the ibex fork's backward-callback
@@ -116,15 +116,19 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs, const UpwardRounding& ur)
   // 2-10, this beats the snapshot pattern by both allocation count and
   // comparison cost.
   bool changed{false};
+  // Token-gated wrapper for ibex's HC4 backward (see util/ibex_guarded.h) — the
+  // `ur` proves FE_UPWARD is established, and routing through the wrapper lets
+  // the rounding lint forbid any raw ibex::Function::backward call.
   const bool is_inner{
-    num_ctr_->f.backward(
-      num_ctr_->right_hand_side(), iv,
+    ibex_hc4_backward(
+      num_ctr_->f, num_ctr_->right_hand_side(), iv,
       [cs, &changed](int var_idx,
                      const ibex::Interval& /*before*/,
                      const ibex::Interval& /*after*/) {
         cs->mutable_output().set(static_cast<DynamicBitset::size_type>(var_idx));
         changed = true;
-      })
+      },
+      ur)
   }; // true if iv was already inner (unchanged).
   stat.timer_pruning_.pause();
   if (stat.enabled()) {

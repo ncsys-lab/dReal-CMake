@@ -17,6 +17,12 @@ set -euo pipefail
 
 BUILD_DIR="${1:-cmake-build-debug}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Static routing lint first (cheap, no build): forbids raw ibex backward and raw
+# .mid()/.diam() outside the token-gated wrappers / FE_UPWARD-asserting helpers.
+echo "[rounding-gate] static routing lint ..."
+python3 "$REPO_ROOT/rounding_lint.py"
+
 cd "$REPO_ROOT/$BUILD_DIR"
 
 build_type="$(grep -E '^CMAKE_BUILD_TYPE:' CMakeCache.txt | cut -d= -f2)"
