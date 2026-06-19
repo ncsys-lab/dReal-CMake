@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Usage: run_batch.sh <output_dir> [jobs_file]
 # Reads TSV pairs (csv_name <TAB> filepath) from stdin or jobs_file, one per line.
-# Runs each benchmark in parallel with gtime -v and a 300s timeout.
+# Runs each benchmark in parallel with gtime -v, nice -n 1, and a 600s timeout.
+# Timing metric is CPU time (User+System) from gtime, not wall clock — the
+# machine is multi-tenant, so wall clock is noisy; `timeout` stays wall-clock.
 # Outputs per-benchmark using csv_name (minus .smt2) as the label:
 #   <label>.stdout, <label>.solver_log, <label>.gtime, <label>.exit
 
-BINARY="$(dirname "$0")/../gcc_build/dreal4"
+# Defaults to the HEAD arm64 build; override with DREAL_BINARY to benchmark a
+# different solver build (e.g. /usr/local/bin/dreal4_cav26) over the same jobs.
+BINARY="${DREAL_BINARY:-$(dirname "$0")/../gcc_build/dreal4}"
 OUT="$1"
 mkdir -p "$OUT"
 [[ -n "${2:-}" ]] && exec < "$2"
@@ -26,7 +30,7 @@ while IFS=$'\t' read -r csv_name filepath; do
     done
 
     (
-        gtime -v -o "$OUT/${label}.gtime" timeout 300 "$BINARY" "$filepath" \
+        gtime -v -o "$OUT/${label}.gtime" nice -n 1 timeout 600 "$BINARY" "$filepath" \
             > "$OUT/${label}.stdout" \
             2> "$OUT/${label}.solver_log"
         echo $? > "$OUT/${label}.exit"

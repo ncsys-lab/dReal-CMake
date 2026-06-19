@@ -154,20 +154,27 @@ Run `/benchmark` after every meaningful code change. This is the primary regress
 
 **Infrastructure** (`benchmark/` directory):
 - `baseline.csv` — frozen DRPM_0L reference times for 102 benchmarks (good_benchmarks.csv subset)
+- `baseline_odeexpr.csv` — odeexpr-family reference times (new format, `cpu_time_s` column); produced by `do_baseline_odeexpr.sh`, loaded by `aggregate.py` as the authoritative timing baseline for `odeexpr_*` rows
+- `odeexpr.py` — single source of truth for the `odeexpr` family: `ODEEXPR_ROOT`, `FAMILY_WEIGHTS`, `family_of`, manifest-based `load_odeexpr_names`/`resolve_odeexpr`, and a `--all` TSV dump
 - `state.json` — persistent anomaly/exceptional tracker; updated automatically each run
-- `run_batch.sh` — parallel runner: reads TSV from stdin, runs each with `gtime -v -o` and `timeout 300`
-- `select.py` — picks 8 random benchmarks + all current anomalies; outputs TSV (csv_name TAB filepath)
-- `parse_results.py` — parses gtime output + solver stdout into `summary.csv`
-- `aggregate.py` — compares vs baseline, flags regressions/exceptional, updates `state.json`
+- `run_batch.sh` — parallel runner: reads TSV from stdin, runs each with `gtime -v -o`, `nice -n 1`, and `timeout 600`
+- `select.py` — picks 8 **family-weighted** random benchmarks + all current anomalies; outputs TSV (csv_name TAB filepath)
+- `parse_results.py` — parses gtime output + solver stdout into `summary.csv` (primary timing column `cpu_time_s` = user+sys; `wall_time_s` kept as reference/TIM backup)
+- `aggregate.py` — compares vs baseline on CPU time, flags regressions/exceptional, updates `state.json`
 - `results/` — per-run output directories (gitignored)
+
+**Families & weighting**: four families, classified by name prefix in `odeexpr.family_of` — `saradc` (`1mhz_`), `github` (`github_oct5_`), `tacas` (`tacas_c2e2_`), and `odeexpr` (`odeexpr_<bench_id>`, the high-priority ode_expressivity set). `FAMILY_WEIGHTS = {odeexpr:6, saradc:3, github:2, tacas:2}` encodes "1 odeexpr ≡ 3 github ≡ 2 saradc ≡ 3 tacas". The weight drives weighted-without-replacement selection (odeexpr appears ~3× as often per item) and a `weighted_overall` PAR2 in the family comparison; odeexpr regressions are tagged with elevated `ODEEXPR`/`ODEEXPR-HIGH` priority so reports/skills lead with them.
+
+**Timing & timeout**: the metric is **CPU time (user+sys)**, not wall clock — the machine is multi-tenant, so wall clock is noisy. Solver runs under `nice -n 1`; `timeout` stays wall-clock at **600 s** (TIM detection keys on exit code 124).
 
 **Skills** (invoke from Claude Code prompt):
 - `/benchmark` — runs ~8-12 benchmarks in parallel, spawns a Haiku subagent to interpret results, reports back 2-4 sentence summary with regression/exceptional counts
-- `/benchmark-baseline` — runs ~30 benchmarks to establish a fresh local baseline (use before branch merges or when exceptional list grows stale)
+- `/benchmark-baseline` — runs all 43 odeexpr + ~10 each of the other three families to establish a fresh local baseline (use before branch merges or when exceptional list grows stale)
 
-**Thresholds**: regression if PAR2 time >1.5× baseline (PAR2 = actual time if solved, 2× timeout = 600 s if TIM/OOM/ERR); exceptional if PAR2 time <0.6× baseline. Correctness flips (SAT↔UNSAT) are always escalated immediately regardless of timing.
+**Thresholds**: regression if PAR2 time >1.5× baseline (PAR2 = actual CPU time if solved, 2× timeout = 1200 s if TIM/OOM/ERR); exceptional if PAR2 time <0.6× baseline. Correctness flips (SAT↔UNSAT) are always escalated immediately regardless of timing.
 
 **Benchmark sources** (raw `.smt2` files, not in this repo):
+- `~/Documents/new_dreal/ode_expressivity/benchmarks/` — odeexpr family (43 self-contained `.smt2`, content-addressed via `manifest.json`; each sets its own `:precision`; no ground-truth `:status`)
 - `~/Documents/new_dreal/nraode_to_nra/drealgithub_sunoct5/rolled/` — github_oct5_ family
 - `~/Documents/new_dreal/nraode_to_nra/VNAMSCwI_satoct11/rolled/` — tacas_c2e2_ family
 - `~/Documents/new_dreal/AMS-verification-bundle-of-sticks/saradc/rolled/` — 1mhz_ family
@@ -178,6 +185,17 @@ python3 benchmark/select.py | bash benchmark/run_batch.sh benchmark/results/run_
 python3 benchmark/parse_results.py <results_dir>
 python3 benchmark/aggregate.py <results_dir>
 ```
+
+**Re-baseline the odeexpr family** (after the set is regenerated, or to refresh reference times):
+```bash
+bash benchmark/do_baseline_odeexpr.sh   # runs all 43 at 600 s → benchmark/baseline_odeexpr.csv
+```
+
+**Cross-solver comparison** (HEAD vs other dReal builds over the odeexpr set):
+- `run_batch.sh` honors a `DREAL_BINARY` env override, so any alternate native build can be run over the same jobs:
+  `DREAL_BINARY=/usr/local/bin/dreal4_cav26 bash benchmark/run_batch.sh <out_dir> /tmp/jobs.tsv`
+- `run_dreal3.sh` — runs the set through dReal v3.16.12 in Docker (`dreal3:1.1`). dReal3 predates these benchmarks, so it needs a semantics-preserving input adaptation (prepend `(set-logic QF_NRA)`, strip the in-file `:precision` and pass it via `--precision`, strip `(get-model)`). **macOS gotcha**: the timeout is enforced *inside* the container (`timeout -s KILL 600 ./dReal`) — a host-side `timeout` around `docker run` only kills the docker client and leaves the container running in the VM as a zombie. Timing is the in-container CPU time (bash `time`); the SIGKILL exit (137) is normalized to TIM.
+- `compare_solvers.py LABEL=summary.csv …` — joins per-solver summaries by benchmark and reports solve counts, SAT/UNSAT disagreements, solve-set deltas, and CPU-time speedups on commonly-solved benchmarks. Frozen reference results: `baseline_odeexpr_cav26.csv`, `baseline_odeexpr_dreal3.csv`; the rendered table is `odeexpr_solver_comparison.txt`. As of HEAD (arm64, upgraded IBEX/CAPD): identical solve-set + verdicts vs cav26 but ~2–3× faster; ~6–20× faster than dReal3, which also solves 2 fewer. No SAT/UNSAT disagreements among the three.
 
 ## Verification discipline
 

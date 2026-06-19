@@ -11,6 +11,8 @@ import os
 import random
 import sys
 
+from odeexpr import load_odeexpr_names, resolve_odeexpr, weight_of
+
 BENCHMARK_DIR = "/Users/kunalsheth/Documents/new_dreal/nraode_to_nra"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -39,6 +41,8 @@ def resolve_path(bench_name: str) -> str | None:
             if os.path.exists(p):
                 return p
         return None
+    if bench_name.startswith("odeexpr_"):
+        return resolve_odeexpr(bench_name)
     return None
 
 
@@ -54,6 +58,25 @@ def load_benchmarks(baseline_csv: str) -> list[str]:
     return names
 
 
+def weighted_sample_without_replacement(items, k, rng):
+    """Pick k of `items` (each a (name, path) pair) weighted by family weight.
+
+    Efraimidis-Spirakis A-Res: assign each item key = u**(1/w) with u~U(0,1),
+    take the k largest keys. Heavier families (odeexpr) are proportionally more
+    likely to be drawn per item.
+    """
+    if k >= len(items):
+        return list(items)
+    keyed = []
+    for name, path in items:
+        w = weight_of(name)
+        u = rng.random()
+        key = u ** (1.0 / w) if w > 0 else 0.0
+        keyed.append((key, name, path))
+    keyed.sort(key=lambda t: t[0], reverse=True)
+    return [(name, path) for _key, name, path in keyed[:k]]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=8, help="random benchmarks to add (not counting anomalies)")
@@ -63,7 +86,9 @@ def main():
     baseline_csv = os.path.join(SCRIPT_DIR, "baseline.csv")
     state_path = os.path.join(SCRIPT_DIR, "state.json")
 
-    all_names = load_benchmarks(baseline_csv)
+    # Corpus = the frozen baseline CSV rows (saradc/github/tacas) plus the
+    # manifest-derived odeexpr family (4th family, content-addressed).
+    all_names = load_benchmarks(baseline_csv) + load_odeexpr_names()
 
     with open(state_path) as f:
         state = json.load(f)
@@ -84,7 +109,7 @@ def main():
         print(f"WARN: could not find file for {n}", file=sys.stderr)
 
     sample_size = min(args.n, len(resolvable))
-    selected_pool = rng.sample(resolvable, sample_size)
+    selected_pool = weighted_sample_without_replacement(resolvable, sample_size, rng)
 
     # Always include anomalies (resolved)
     anomaly_paths = [(n, resolve_path(n)) for n in anomaly_names]

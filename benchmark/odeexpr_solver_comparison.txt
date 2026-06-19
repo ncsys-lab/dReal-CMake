@@ -1,0 +1,74 @@
+==============================================================================
+CROSS-SOLVER COMPARISON — 43 benchmarks, reference = HEAD
+==============================================================================
+
+Solve counts (within 600 s wall):
+  HEAD      solved 30/43  (SAT 10, UNSAT 20)  unsolved 13  PAR2-sum    16023s  avg  372.6s
+  cav26     solved 30/43  (SAT 10, UNSAT 20)  unsolved 13  PAR2-sum    16453s  avg  382.6s
+  dreal3    solved 28/43  (SAT 9, UNSAT 19)  unsolved 15  PAR2-sum    18119s  avg  421.4s
+
+No SAT/UNSAT disagreements among solved benchmarks.
+
+Solve-set HEAD vs cav26:
+  solved by HEAD but not cav26 (0): —
+  solved by cav26 but not HEAD (0): —
+
+Solve-set HEAD vs dreal3:
+  solved by HEAD but not dreal3 (2): odeexpr_box_sweep.tanh_decrease__J1.0, odeexpr_size_sweep.kuramoto__N5
+  solved by dreal3 but not HEAD (0): —
+
+CPU time on 14 commonly-solved (cav26 / HEAD):
+  total: HEAD=423.46s  cav26=851.76s  aggregate ratio 2.01x
+  per-benchmark ratio: median 2.98x  min 1.84x  max 6.00x  (14 slower / 0 faster than HEAD)
+
+CPU time on 12 commonly-solved (dreal3 / HEAD):
+  total: HEAD=5.89s  dreal3=117.67s  aggregate ratio 19.98x
+  per-benchmark ratio: median 6.48x  min 1.75x  max 65.63x  (12 slower / 0 faster than HEAD)
+
+------------------------------------------------------------------------------
+PER-BENCHMARK (result / CPU s):
+------------------------------------------------------------------------------
+benchmark                                               HEAD           cav26          dreal3
+odeexpr_box_sweep.ising__phi_7                    UNSAT 0.00      UNSAT 0.07      UNSAT 0.07
+odeexpr_box_sweep.ising__phi_pi                   UNSAT 0.00      UNSAT 0.05      UNSAT 0.07
+odeexpr_box_sweep.ising__phi_pi_2                 UNSAT 0.00      UNSAT 0.05      UNSAT 0.07
+odeexpr_box_sweep.ising__theta_2pi_5              UNSAT 0.00      UNSAT 0.07      UNSAT 0.07
+odeexpr_box_sweep.ising__theta_pi_2_m0p1          UNSAT 0.00      UNSAT 0.07      UNSAT 0.07
+odeexpr_box_sweep.tanh_decrease__J0.6             TIM 598.62      TIM 598.99      TIM 599.97
+odeexpr_box_sweep.tanh_decrease__J1.0             SAT 298.58      SAT 562.71      TIM 599.99
+odeexpr_box_sweep.tanh_decrease__xwin1.5          TIM 598.63      TIM 598.91      TIM 600.00
+odeexpr_box_sweep.tanh_decrease__xwin2.0          TIM 598.66      TIM 599.03      TIM 600.01
+odeexpr_cs2_lyapunov__corrected_V                 UNSAT 0.00      UNSAT 0.05      UNSAT 0.05
+odeexpr_cs2_overclaim__published_E                  SAT 0.00        SAT 0.05        SAT 0.07
+odeexpr_cs3_expressivity__decrease                  SAT 0.01        SAT 0.06        SAT 0.58
+odeexpr_cs3_expressivity__observation             UNSAT 0.00      UNSAT 0.04      UNSAT 0.04
+odeexpr_cs3_expressivity__positivity              UNSAT 0.00      UNSAT 0.04      UNSAT 0.05
+odeexpr_cs4_equivalence__decrease                   SAT 1.24        SAT 2.28       SAT 81.38
+odeexpr_cs4_equivalence__observation              UNSAT 0.00      UNSAT 0.04      UNSAT 0.04
+odeexpr_cs4_equivalence__positivity               UNSAT 0.00      UNSAT 0.04      UNSAT 0.06
+odeexpr_ising_chain__stability                    UNSAT 0.00      UNSAT 0.04      UNSAT 0.06
+odeexpr_kuramoto_gradient__stability              UNSAT 0.00      UNSAT 0.04      UNSAT 0.06
+odeexpr_nbody_momentum__decrease                  UNSAT 0.00      UNSAT 0.04      UNSAT 0.06
+odeexpr_size_sweep.aim_poly_vs_poly2__N2__decrease        SAT 0.01        SAT 0.06        SAT 0.08
+odeexpr_size_sweep.aim_poly_vs_poly2__N3__decrease        SAT 0.03        SAT 0.10        SAT 0.08
+odeexpr_size_sweep.aim_poly_vs_poly2__N4__decrease        SAT 0.08        SAT 0.21        SAT 0.14
+odeexpr_size_sweep.aim_tanh_vs_mlp2__N2__decrease        SAT 0.01        SAT 0.05        SAT 0.06
+odeexpr_size_sweep.aim_tanh_vs_mlp2__N3__decrease        SAT 0.02        SAT 0.08        SAT 0.07
+odeexpr_size_sweep.aim_tanh_vs_mlp2__N4__decrease        SAT 0.04        SAT 0.14        SAT 0.10
+odeexpr_size_sweep.kuramoto__N2                   UNSAT 0.00      UNSAT 0.04      UNSAT 0.06
+odeexpr_size_sweep.kuramoto__N3                   UNSAT 0.02      UNSAT 0.08      UNSAT 0.17
+odeexpr_size_sweep.kuramoto__N4                   UNSAT 1.50      UNSAT 3.48     UNSAT 14.80
+odeexpr_size_sweep.kuramoto__N5                 UNSAT 118.99    UNSAT 276.20      TIM 600.00
+odeexpr_size_sweep.kuramoto__N6                   TIM 598.65      TIM 598.98      TIM 599.96
+odeexpr_size_sweep.kuramoto_doe__N2               UNSAT 0.00      UNSAT 0.04      UNSAT 0.06
+odeexpr_size_sweep.kuramoto_doe__N3               UNSAT 2.86      UNSAT 6.13     UNSAT 19.91
+odeexpr_size_sweep.kuramoto_doe__N4               TIM 598.68      TIM 599.03      TIM 600.00
+odeexpr_size_sweep.kuramoto_doe__N5               TIM 598.68      TIM 598.87      TIM 599.99
+odeexpr_size_sweep.kuramoto_doe__N6               TIM 598.66      TIM 599.03      TIM 600.00
+odeexpr_tanh.composite_lipschitz_i0               TIM 598.63      TIM 599.02      TIM 600.00
+odeexpr_tanh.composite_lipschitz_i1               TIM 598.66      TIM 598.87      TIM 600.00
+odeexpr_tanh.decrease_d_i__tau0.0015              TIM 598.65      TIM 598.96      TIM 599.96
+odeexpr_tanh.decrease_d_i__tau0.0025              TIM 598.72      TIM 599.72      TIM 600.00
+odeexpr_tanh.decrease_exact__tau0.0015            TIM 599.16      TIM 599.92      TIM 599.99
+odeexpr_tanh.decrease_slope__tau0.0015            TIM 599.80      TIM 599.93      TIM 600.00
+odeexpr_tanh.lipschitz_lemma_2var                 UNSAT 0.07      UNSAT 0.18      UNSAT 0.30
