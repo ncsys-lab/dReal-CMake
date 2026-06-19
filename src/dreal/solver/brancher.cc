@@ -16,6 +16,7 @@
 #include "dreal/solver/brancher.h"
 
 #include <dreal/util/rounding_mode_guard.h>
+#include <dreal/util/rounded_double.h>
 
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
@@ -33,7 +34,7 @@ pair<double, int> FindMaxDiam(const Box& box, const DynamicBitset& active_set) {
   DynamicBitset::size_type idx = active_set.find_first();
   while (idx != DynamicBitset::npos) {
     const Box::Interval& iv_i{box[idx]};
-    const double diam_i{iv_i.diam()};
+    const double diam_i{safe_diam(iv_i)};
     if (diam_i > max_diam && iv_i.is_bisectable()) {
       max_diam = diam_i;
       max_diam_idx = idx;

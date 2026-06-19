@@ -23,6 +23,7 @@
 
 #include "rounding_mode_guard.h"
 #include "dreal/util/assert.h"
+#include "dreal/util/rounded_double.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"
 #include "dreal/util/math.h"
@@ -153,7 +154,9 @@ pair<double, int> Box::MaxDiam() const {
   double max_diam{0.0};
   int idx{-1};
   for (size_t i{0}; i < variables_->size(); ++i) {
-    const double diam_i{values_[i].diam()}; // .diam() corrupts the FPU env.
+    // safe_diam(): .diam() is a gaol directed-rounding computation, sound only
+    // under the FE_UPWARD this function established above.
+    const double diam_i{safe_diam(values_[i])};
     if (diam_i > max_diam && values_[i].is_bisectable()) {
       max_diam = diam_i;
       idx = i;

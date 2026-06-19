@@ -25,6 +25,7 @@
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"
+#include "dreal/util/rounded_double.h"
 #include "dreal/util/optional.h"
 
 namespace dreal {
@@ -118,7 +119,7 @@ FormulaEvaluationResult ForallFormulaEvaluator::operator()(
       if (eval_result.type() == FormulaEvaluationResult::Type::UNSAT) {
         diam_i = eval_result.evaluation().mag();
       } else {
-        diam_i = eval_result.evaluation().diam();
+        diam_i = safe_diam(eval_result.evaluation());
       }
       if (diam_i > max_diam) {
         max_diam = diam_i;

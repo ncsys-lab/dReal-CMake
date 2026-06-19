@@ -20,6 +20,7 @@
 #include <utility>
 
 #include "dreal/util/logging.h"
+#include "dreal/util/rounded_double.h"
 
 using std::vector;
 
@@ -52,7 +53,7 @@ optional<DynamicBitset> EvaluateBox(
         continue;
       case FormulaEvaluationResult::Type::UNKNOWN: {
         const Box::Interval& evaluation{result.evaluation()};
-        const double diam = evaluation.diam();
+        const double diam = safe_diam(evaluation);
         if (diam > precision) {
           DREAL_LOG_DEBUG(
               "Icp::EvaluateBox() Found an interval >= precision({2}):\n"

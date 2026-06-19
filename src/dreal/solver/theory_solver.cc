@@ -33,6 +33,7 @@
 #include "dreal/solver/icp_seq.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
+#include "dreal/util/rounded_double.h"
 #include "dreal/util/stat.h"
 #include "dreal/util/timer.h"
 #include "odes/ode_formula_evaluator.h"
@@ -63,7 +64,7 @@ bool DefaultTerminationCondition(const Box::IntervalVector& old_iv,
   // threshold, we continue the current fixed-point computation
   // (return false).
   for (int i{0}; i < old_iv.size(); ++i) {
-    const double new_i{new_iv[i].diam()};
+    const double new_i{safe_diam(new_iv[i])};
     // If the width of new interval is +oo, it has no improvement
     if (new_i == numeric_limits<double>::infinity()) {
       continue;
@@ -72,7 +73,7 @@ bool DefaultTerminationCondition(const Box::IntervalVector& old_iv,
     if (old_iv[i].is_degenerated()) {
       continue;
     }
-    const double old_i{old_iv[i].diam()};
+    const double old_i{safe_diam(old_iv[i])};
     const double improvement{1 - new_i / old_i};
     DREAL_ASSERT(!std::isnan(improvement));
     if (improvement >= kThreshold) {
