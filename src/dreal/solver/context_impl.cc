@@ -37,6 +37,7 @@
 #include "dreal/util/if_then_else_eliminator.h"
 #include "dreal/util/interrupt.h"
 #include "dreal/util/logging.h"
+#include "dreal/util/rounding_mode_guard.h"
 
 namespace dreal {
 
@@ -55,6 +56,14 @@ namespace {
 // This function tighten the box @p box so that every dimension has a
 // width smaller than delta.
 void Tighten(Box* box, const double delta) {
+  // This runs as delta-sat post-processing from Context::Impl::CheckSat(),
+  // whose ambient FPU mode is undefined (whatever CheckSatCore left — and once
+  // CAPD is linked, that is FE_TONEAREST). interval.diam()/mid() and the gaol
+  // `&=` below are all gaol interval computations that are sound only under
+  // FE_UPWARD, so establish it explicitly for the whole pass. (Phase E will
+  // replace the hand-rolled endpoint arithmetic with interval ops, but the
+  // mode must still be FE_UPWARD here.)
+  const RoundingModeGuard round_guard{FE_UPWARD};
   for (int i = 0; i < box->size(); ++i) {
     auto& interval = (*box)[i];
     if (interval.diam() > delta) {
