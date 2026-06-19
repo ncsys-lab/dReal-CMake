@@ -56,7 +56,7 @@ TEST_F(ContractorIbexFwdbwdTest, Sat) {
   // Before pruning, the box is not empty.
   EXPECT_FALSE(cs.box().empty());
 
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
 
   // After pruning, the box is still not empty.
   EXPECT_FALSE(cs.box().empty());
@@ -90,7 +90,7 @@ TEST_F(ContractorIbexFwdbwdTest, Unsat) {
   // Before pruning, the box is not empty.
   EXPECT_FALSE(cs.box().empty());
 
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
 
   // After pruning, the box is empty.
   EXPECT_TRUE(cs.box().empty());
@@ -110,7 +110,7 @@ TEST_F(ContractorIbexFwdbwdTest, TestSmt2Problem20) {
   box[x_] = StringToInterval("0.7");
   box[y_] = StringToInterval("0.0647");
   box[z_] = StringToInterval("0.6353");
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
 
   // After pruning, the box is still not empty.
   EXPECT_FALSE(cs.box().empty());

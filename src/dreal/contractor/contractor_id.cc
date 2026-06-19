@@ -22,7 +22,7 @@ ContractorId::ContractorId(const Config& config)
     : ContractorCell{Contractor::Kind::ID,
                      DynamicBitset(1) /* this is meaningless */, config} {}
 
-void ContractorId::Prune(ContractorStatus*) const {
+void ContractorId::Prune(ContractorStatus*, const UpwardRounding&) const {
   // No op.
 }
 ostream& ContractorId::display(ostream& os) const { return os << "ID()"; }

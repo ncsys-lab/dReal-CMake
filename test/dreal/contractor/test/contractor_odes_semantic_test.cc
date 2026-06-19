@@ -39,6 +39,7 @@
 #include <gtest/gtest.h>
 
 #include "dreal/contractor/contractor_status.h"
+#include "dreal/util/rounding_mode_guard.h"
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/box.h"
 
@@ -93,7 +94,7 @@ TEST_F(TrivialFlowTest, FwdInfeasible_BoxEmpties) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_TRUE(cs.box().empty())
       << "trivial flow, disjoint X_0 = [0,1] / X_t = [2,3] (FWD) should empty";
 }
@@ -105,7 +106,7 @@ TEST_F(TrivialFlowTest, BwdInfeasible_BoxEmpties) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_TRUE(cs.box().empty())
       << "trivial flow, disjoint X_0 / X_t (BWD) should empty via short-circuit";
 }
@@ -146,7 +147,7 @@ TEST_F(DecayFlowTest, FwdFeasible_BoxRemains) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   ASSERT_FALSE(cs.box().empty())
       << "decay feasible (FWD): box should remain non-empty [SOUNDNESS GATE]";
   // xt is narrowed by FWD to its overapprox of x(1); the closed-form
@@ -171,7 +172,7 @@ TEST_F(DecayFlowTest, BwdFeasible_BoxRemains) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   ASSERT_FALSE(cs.box().empty())
       << "decay feasible (BWD): box should remain non-empty [SOUNDNESS GATE]";
   EXPECT_LE(cs.box()[x0_].lb(), 1.0)
@@ -235,7 +236,7 @@ TEST_F(MockProstateTest, FwdFeasible_BoxRemains) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_FALSE(cs.box().empty())
       << "mock-prostate feasible (FWD): box should remain non-empty "
          "[SOUNDNESS GATE for rational coupling]";
@@ -249,7 +250,7 @@ TEST_F(MockProstateTest, BwdFeasible_BoxRemains) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_FALSE(cs.box().empty())
       << "mock-prostate feasible (BWD): box should remain non-empty "
          "[SOUNDNESS GATE for rational coupling, BWD path]";
@@ -268,7 +269,7 @@ TEST_F(MockProstateTest, BwdFeasible_PreservesInteriorPoint) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   ASSERT_FALSE(cs.box().empty())
       << "mock-prostate feasible (BWD): box should remain non-empty";
   EXPECT_TRUE(cs.box()[x0_].contains(7.5))
@@ -295,7 +296,7 @@ TEST_F(DecayFlowTest, FwdFeasible_LongHorizonSoundness) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   ASSERT_FALSE(cs.box().empty())
       << "long-horizon decay (FWD, default gates): SAT instance should "
          "remain non-empty [SOUNDNESS GATE for CAPD on t_ub=20]";
@@ -313,7 +314,7 @@ TEST_F(DecayFlowTest, BwdFeasible_LongHorizonSoundness) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   ASSERT_FALSE(cs.box().empty())
       << "long-horizon decay (BWD, default gates): SAT instance should remain "
          "non-empty [SOUNDNESS GATE for CAPD backward integration on t_ub=20]";
@@ -335,7 +336,7 @@ TEST_F(MockProstateTest, FwdFeasible_LongHorizonSoundness) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_FALSE(cs.box().empty())
       << "long-horizon mock-prostate (FWD, default gates → CAPD): SAT instance "
          "should remain non-empty [SOUNDNESS GATE]";
@@ -348,7 +349,7 @@ TEST_F(MockProstateTest, BwdFeasible_LongHorizonSoundness) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_FALSE(cs.box().empty())
       << "long-horizon mock-prostate (BWD, default gates → CAPD): SAT instance "
          "should remain non-empty [SOUNDNESS GATE]";
@@ -367,7 +368,7 @@ TEST_F(TrivialFlowTest, LongHorizon_ShortCircuitFires) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_TRUE(cs.box().empty())
       << "trivial flow with t_ub=20 must short-circuit (disjoint X_0/X_t) "
          "regardless of CAPD gate threshold";
@@ -444,7 +445,7 @@ TEST_F(SixDimDecayTest, FwdFeasible_HighDim) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   ASSERT_FALSE(cs.box().empty())
       << "6D decay (FWD, ndim gate → CAPD): SAT instance should stay non-empty";
   // Each xi_t must still contain its closed-form trajectory [e^-1, 2e^-1].
@@ -463,7 +464,7 @@ TEST_F(SixDimDecayTest, BwdFeasible_HighDim) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   ASSERT_FALSE(cs.box().empty())
       << "6D decay (BWD, ndim gate → CAPD): SAT instance should stay non-empty";
   // Each xi_0 must still contain {1, 2} (no soundness regression).

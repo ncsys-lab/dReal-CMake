@@ -22,6 +22,7 @@
 
 #include "dreal/contractor/contractor_ibex_fwdbwd.h"
 #include "dreal/contractor/contractor_status.h"
+#include "dreal/util/rounding_mode_guard.h"
 #include "dreal/solver/config.h"
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/box.h"
@@ -61,7 +62,7 @@ TEST_F(ContractorJoinTest, Sat) {
   // Before pruning, the box is not empty.
   EXPECT_FALSE(cs.box().empty());
 
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
 
   // After pruning, the box is still not empty.
   EXPECT_FALSE(cs.box().empty());

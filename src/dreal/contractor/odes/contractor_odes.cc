@@ -159,7 +159,7 @@ namespace dreal
     // Prune
     // ---------------------------------------------------------------------------
 
-    void contractor_ode_lohner::Prune(ContractorStatus* cs) const {
+    void contractor_ode_lohner::Prune(ContractorStatus* cs, const UpwardRounding& ur) const {
         // Crossing the gaol->CAPD boundary: before we switch to FE_TONEAREST,
         // assert the incoming mode is still what the guard stack expects. A
         // failure here means something changed the FPU mode without a guard
@@ -218,10 +218,15 @@ namespace dreal
             const auto& invs = m_ctr.second;
             DREAL_ASSERT(invs.size() == m_inv_ctcs.size());
             ContractorStatus cs_0 = *cs;
-            RoundingModeGuard g_up(FE_UPWARD);
+            // We are inside the CAPD FE_TONEAREST guard, but the invariant
+            // contractors are ibex/gaol and need FE_UPWARD. Re-establish it
+            // with an UpwardRoundingScope, which also mints the token they
+            // require — the token makes this reentrant mode switch mandatory
+            // rather than easy-to-forget.
+            const UpwardRoundingScope inv_scope;
             for (size_t i = 0; i < invs.size(); ++i) {
                 if (!is_negation(invs[i])) {
-                    m_inv_ctcs[i].Prune(&cs_0);
+                    m_inv_ctcs[i].Prune(&cs_0, inv_scope.token());
                     if (cs_0.box().empty()) {
                         DREAL_LOG_INFO("contractor_ode_lohner::Prune - invariant violated at X_0");
                         cs->mutable_box().set_empty();

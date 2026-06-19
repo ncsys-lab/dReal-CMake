@@ -62,10 +62,10 @@ ContractorIbexPolytope* ContractorIbexPolytopeMt::GetCtcOrCreate(
   return ctc;
 }
 
-void ContractorIbexPolytopeMt::Prune(ContractorStatus* cs) const {
+void ContractorIbexPolytopeMt::Prune(ContractorStatus* cs, const UpwardRounding& ur) const {
   ContractorIbexPolytope* const ctc{GetCtcOrCreate(cs->box())};
   DREAL_ASSERT(ctc && !is_dummy_);
-  return ctc->Prune(cs);
+  return ctc->Prune(cs, ur);
 }
 
 ostream& ContractorIbexPolytopeMt::display(ostream& os) const {

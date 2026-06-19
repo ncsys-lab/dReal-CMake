@@ -56,7 +56,7 @@ namespace dreal
         // (one enclosure per slice).
         nlohmann::json generate_trace(ContractorStatus cs_copy);
 
-        void Prune(ContractorStatus* cs) const override;
+        void Prune(ContractorStatus* cs, const UpwardRounding& ur) const override;
 
     private:
         ode_direction const m_dir;

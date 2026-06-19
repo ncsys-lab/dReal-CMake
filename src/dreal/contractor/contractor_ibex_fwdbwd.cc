@@ -88,7 +88,7 @@ ContractorIbexFwdbwd::ContractorIbexFwdbwd(Formula f, const Box& box,
   }
 }
 
-void ContractorIbexFwdbwd::Prune(ContractorStatus* cs) const {
+void ContractorIbexFwdbwd::Prune(ContractorStatus* cs, const UpwardRounding& ur) const {
   thread_local ContractorIbexFwdbwdStat stat{DREAL_LOG_INFO_ENABLED};
   DREAL_ASSERT(!is_dummy_ && num_ctr_);
 
@@ -100,14 +100,12 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs) const {
 
   // gaol (ibex's interval backend) is only sound with the FPU in round-upward
   // mode; under any other mode its directed rounding inverts (lo>hi) and an
-  // inexact constant subexpression collapses to an empty interval, wrongly
-  // emptying the box (false UNSAT). This contractor historically relied on
-  // ambient FE_UPWARD, but CAPD's interval library (DoubleRounding) leaves the
-  // process FPU in FE_TONEAREST once it is linked in, so the ambient mode can
-  // no longer be assumed here. Establish it explicitly per Prune (cheap; runs
-  // on every ICP worker thread, where FPU mode is thread-local). See
-  // test/dreal/api/test/gaol_directed_rounding_false_unsat_test.cc.
-  const RoundingModeGuard round_guard{FE_UPWARD};
+  // inexact constant subexpression collapses to an empty interval (false
+  // UNSAT). FE_UPWARD is established once per ICP phase by the caller's
+  // UpwardRoundingScope and proven here by the `ur` token — so this hot Prune
+  // no longer pays a per-call fesetround. The assert verifies the inherited
+  // phase mode in Debug. See gaol_directed_rounding_false_unsat_test.cc.
+  (void)ur;
   DREAL_ASSERT_ROUNDING(FE_UPWARD);
 
   // Track which variables narrowed via the ibex fork's backward-callback

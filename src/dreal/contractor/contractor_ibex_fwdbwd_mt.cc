@@ -58,11 +58,11 @@ ContractorIbexFwdbwd* ContractorIbexFwdbwdMt::GetCtcOrCreate(
   return ctc;
 }
 
-void ContractorIbexFwdbwdMt::Prune(ContractorStatus* cs) const {
+void ContractorIbexFwdbwdMt::Prune(ContractorStatus* cs, const UpwardRounding& ur) const {
   DREAL_ASSERT(!is_dummy_);
   ContractorIbexFwdbwd* const ctc{GetCtcOrCreate(cs->box())};
   DREAL_ASSERT(ctc);
-  return ctc->Prune(cs);
+  return ctc->Prune(cs, ur);
 }
 
 ostream& ContractorIbexFwdbwdMt::display(ostream& os) const {

@@ -119,27 +119,18 @@ ContractorIbexPolytope::ContractorIbexPolytope(vector<Formula> formulas,
   }
 }
 
-void ContractorIbexPolytope::Prune(ContractorStatus* cs) const {
+void ContractorIbexPolytope::Prune(ContractorStatus* cs, const UpwardRounding& ur) const {
   thread_local ContractorIbexPolytopeStat stat{DREAL_LOG_INFO_ENABLED};
   DREAL_ASSERT(!is_dummy_ && ctc_);
 
-  // gaol (ibex's interval backend) is only sound with the FPU in round-upward
-  // mode; under any other mode its directed rounding inverts (lo>hi) and an
-  // inexact constant subexpression collapses to an empty interval, wrongly
-  // emptying the box (false UNSAT). CtcPolytopeHull runs gaol interval
-  // arithmetic to build its linear relaxation, so — exactly as in
-  // ContractorIbexFwdbwd::Prune — establish FE_UPWARD explicitly rather than
-  // rely on the ambient mode (which CAPD's DoubleRounding leaves in
-  // FE_TONEAREST once linked in). See
-  // test/dreal/api/test/gaol_directed_rounding_false_unsat_test.cc.
-  //
-  // NOTE: this guard is currently defensive. IBEX is built with LP_LIB=none
-  // (see CMakeLists.txt), so CtcPolytopeHull::contract() below is a no-op and
-  // the directed-rounding hazard cannot actually fire today — which is why
-  // there is no dedicated regression test (it would be vacuous). The guard
-  // documents the invariant and makes Prune correct-by-construction if an LP
-  // backend is ever enabled.
-  const RoundingModeGuard round_guard{FE_UPWARD};
+  // CtcPolytopeHull runs gaol interval arithmetic, which is sound only under
+  // FE_UPWARD. That mode is established once per ICP phase by the caller's
+  // UpwardRoundingScope and proven here by the `ur` token (no per-call
+  // fesetround). The assert verifies the inherited phase mode in Debug.
+  // (Currently moot: IBEX is built with LP_LIB=none, so contract() below is a
+  // no-op — hence no dedicated regression test would be meaningful. The token
+  // still makes Prune correct-by-construction if an LP backend is enabled.)
+  (void)ur;
   DREAL_ASSERT_ROUNDING(FE_UPWARD);
 
   Box::IntervalVector& iv{cs->mutable_box().mutable_interval_vector()};

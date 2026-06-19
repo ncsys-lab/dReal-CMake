@@ -54,7 +54,7 @@ class ContractorFixpoint : public ContractorCell {
   /// Default destructor.
   ~ContractorFixpoint() override = default;
 
-  void Prune(ContractorStatus* cs) const override;
+  void Prune(ContractorStatus* cs, const UpwardRounding& ur) const override;
   std::ostream& display(std::ostream& os) const override;
 
  private:

@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include "dreal/contractor/contractor_status.h"
+#include "dreal/util/rounding_mode_guard.h"
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/box.h"
 
@@ -53,7 +54,7 @@ TEST_F(ContractorIntegerTest, Sat) {
   // Before pruning, the box is not empty.
   EXPECT_FALSE(cs.box().empty());
 
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
 
   // After pruning, the box is still not empty.
   EXPECT_FALSE(cs.box().empty());
@@ -87,7 +88,7 @@ TEST_F(ContractorIntegerTest, Unsat) {
   // Before pruning, the box is not empty. (because of y).
   EXPECT_FALSE(cs.box().empty());
 
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
 
   // After pruning, the box is empty.
   EXPECT_TRUE(cs.box().empty());

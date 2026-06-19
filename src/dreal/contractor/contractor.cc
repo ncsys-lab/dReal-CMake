@@ -101,12 +101,12 @@ Contractor::Contractor(std::shared_ptr<ContractorCell> ptr)
 
 const DynamicBitset& Contractor::input() const { return ptr_->input(); }
 
-void Contractor::Prune(ContractorStatus* cs) const {
+void Contractor::Prune(ContractorStatus* cs, const UpwardRounding& ur) const {
   static ContractorStat stat{DREAL_LOG_INFO_ENABLED};
   if (stat.enabled()) {
     stat.increase_prune();
   }
-  ptr_->Prune(cs);
+  ptr_->Prune(cs, ur);
 }
 
 Contractor::Kind Contractor::kind() const { return ptr_->kind(); }

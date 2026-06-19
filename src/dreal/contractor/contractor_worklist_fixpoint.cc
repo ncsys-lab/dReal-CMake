@@ -87,7 +87,7 @@ while ¬Q.empty() ∧ ¬TermCond(b, b'):
     for i in output:
         Q.push({ctc ∣ ctc ∈ Ctc ∧ i ∈ ctc.input()})
 */
-void ContractorWorklistFixpoint::Prune(ContractorStatus* cs) const {
+void ContractorWorklistFixpoint::Prune(ContractorStatus* cs, const UpwardRounding& ur) const {
   // worklist[i] means that i-th contractor in contractors_ needs to be
   // applied.
   DynamicBitset worklist(contractors_.size());
@@ -105,7 +105,7 @@ void ContractorWorklistFixpoint::Prune(ContractorStatus* cs) const {
       // since we do not call ContractorWorklistFixpoint::Prune()
       // recursively.
       cs->mutable_output().reset();
-      contractor.Prune(cs);
+      contractor.Prune(cs, ur);
       if (cs->box().empty()) {
         return;
       }
@@ -120,7 +120,7 @@ void ContractorWorklistFixpoint::Prune(ContractorStatus* cs) const {
     DynamicBitset::size_type i_bit = contractors_to_check.find_first();
     while (i_bit != DynamicBitset::npos) {
       cs->mutable_output().reset();
-      contractors_[i_bit].Prune(cs);
+      contractors_[i_bit].Prune(cs, ur);
       if (cs->box().empty()) {
         return;
       }
@@ -139,7 +139,7 @@ void ContractorWorklistFixpoint::Prune(ContractorStatus* cs) const {
     while (true) {
       worklist.set(ctc_idx, false);
       cs->mutable_output().reset();
-      contractors_[ctc_idx].Prune(cs);
+      contractors_[ctc_idx].Prune(cs, ur);
       if (cs->box().empty()) {
         return;
       }

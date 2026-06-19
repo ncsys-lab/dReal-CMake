@@ -87,6 +87,13 @@ void Worker(const Contractor& contractor, const Config& config,
   // indicates that we can work with the box inside of the ContractorStatus.
   bool need_to_pop{true};
 
+  // This worker runs the ICP contraction phase under FE_UPWARD (gaol
+  // soundness). FPU mode is thread-local, so each worker establishes its own
+  // scope ONCE and threads the capability token to every Prune (the
+  // phase-hoist that removes per-Prune fesetround). CAPD flips internally.
+  const UpwardRoundingScope phase_scope;
+  const UpwardRounding ur{phase_scope.token()};
+
   while ((*found_delta_sat == -1) &&
          (number_of_boxes->load(std::memory_order_acquire) > 0)) {
     // Note that 'DREAL_CHECK_INTERRUPT' is only defined in setup.py,
@@ -108,7 +115,7 @@ void Worker(const Contractor& contractor, const Config& config,
 
     // 2. Prune the current box.
     prune_timer_guard.resume();
-    contractor.Prune(cs);
+    contractor.Prune(cs, ur);
     prune_timer_guard.pause();
     if (stat.enabled()) {
       stat.num_prune_++;
@@ -176,8 +183,11 @@ IcpParallel::IcpParallel(const Config& config)
 bool IcpParallel::CheckSat(const Contractor& contractor,
                            const vector<FormulaEvaluator>& formula_evaluators,
                            ContractorStatus* const cs) {
-  // Initial Prune
-  contractor.Prune(cs);
+  // Initial Prune (main thread) — establish the FE_UPWARD phase here too.
+  {
+    const UpwardRoundingScope phase_scope;
+    contractor.Prune(cs, phase_scope.token());
+  }
   if (cs->box().empty()) {
     return false;
   }

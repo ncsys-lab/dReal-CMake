@@ -95,4 +95,50 @@ class RoundingModeGuard {
   /// Saved rounding-mode at the construction.
   const int round_mode_{};
 };
+
+class UpwardRoundingScope;
+
+/// Zero-size capability token proving the FE_UPWARD "interval phase" rounding
+/// mode is established on the current thread. gaol/ibex interval arithmetic is
+/// sound only under FE_UPWARD; threading this token from the phase entry — the
+/// one place that establishes the mode, via UpwardRoundingScope — down through
+/// Contractor::Prune makes that invariant *compile-time-checked*: a contractor
+/// cannot be pruned without a caller-supplied proof the mode is set, and the
+/// only minter is UpwardRoundingScope. Copyable and empty, so passing it by
+/// value or const ref is free.
+class UpwardRounding {
+ public:
+  UpwardRounding(const UpwardRounding&) = default;
+  UpwardRounding(UpwardRounding&&) = default;
+  UpwardRounding& operator=(const UpwardRounding&) = default;
+  UpwardRounding& operator=(UpwardRounding&&) = default;
+  ~UpwardRounding() = default;
+
+ private:
+  UpwardRounding() = default;
+  friend class UpwardRoundingScope;
+};
+
+/// Establishes FE_UPWARD for its lifetime (RAII restore, via RoundingModeGuard)
+/// and is the sole minter of UpwardRounding tokens. Construct one at each entry
+/// into an interval-contraction phase (the ICP loop, and anywhere CAPD code
+/// must re-establish FE_UPWARD for an inner ibex contractor) and pass token()
+/// down. Because it owns a RoundingModeGuard, the expensive fesetround happens
+/// once per scope, not once per Prune.
+class UpwardRoundingScope {
+ public:
+  UpwardRoundingScope() : guard_{FE_UPWARD} {}
+
+  UpwardRoundingScope(const UpwardRoundingScope&) = delete;
+  UpwardRoundingScope(UpwardRoundingScope&&) = delete;
+  UpwardRoundingScope& operator=(const UpwardRoundingScope&) = delete;
+  UpwardRoundingScope& operator=(UpwardRoundingScope&&) = delete;
+  ~UpwardRoundingScope() = default;
+
+  /// Mints a capability token witnessing that FE_UPWARD is established.
+  UpwardRounding token() const { return UpwardRounding{}; }
+
+ private:
+  RoundingModeGuard guard_;
+};
 }  // namespace dreal

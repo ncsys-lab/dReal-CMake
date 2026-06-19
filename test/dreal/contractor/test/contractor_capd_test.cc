@@ -124,7 +124,7 @@ namespace dreal
             // Box is not empty before pruning.
             EXPECT_FALSE(cs.box().empty());
 
-            ctc.Prune(&cs);
+            { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
 
             // Box should remain non-empty after pruning (as in original).
             EXPECT_FALSE(cs.box().empty());
@@ -184,7 +184,7 @@ namespace dreal
             // Non-empty before pruning.
             EXPECT_FALSE(cs.box().empty());
 
-            ctc.Prune(&cs);
+            { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
 
             // Box remains non-empty (original behavior).
             EXPECT_FALSE(cs.box().empty());
@@ -266,7 +266,7 @@ namespace dreal
             EXPECT_TRUE(ctc.input()[2]);   // xt
 
             // Pre-fix this Prune corrupted the heap (var/par dim mismatch).
-            ctc.Prune(&cs);
+            { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
 
             // Sound, non-trivial result: x(t) = x0 + a*t = 0 + 1*2 = 2, so the
             // terminal enclosure narrows xt to ~{2}. (If the parameter were

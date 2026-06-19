@@ -40,7 +40,7 @@ ContractorInteger::ContractorInteger(const Box& box, const Config& config)
   DREAL_ASSERT(!int_indexes_.empty());
 }
 
-void ContractorInteger::Prune(ContractorStatus* contractor_status) const {
+void ContractorInteger::Prune(ContractorStatus* contractor_status, const UpwardRounding& ur) const {
   RoundingModeGuard g(FE_TONEAREST);
   // be careful not to make any ibex calls besides construction, lb, and ub
   // ibex assumes FE_UPWARD

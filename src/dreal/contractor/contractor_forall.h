@@ -142,7 +142,8 @@ class ContractorForall : public ContractorCell {
   ContractorForall& operator=(ContractorForall&&) = delete;
 
   bool PruneWithCounterexample(ContractorStatus* cs, Box* const current_box,
-                               const Box& counterexample) const {
+                               const Box& counterexample,
+                               const UpwardRounding& ur) const {
     // Need to prune the current_box using counterexample.
     ContractorStatus contractor_status(counterexample);
     // 1.1.1. Set up exist_var parts for pruning
@@ -156,7 +157,7 @@ class ContractorForall : public ContractorCell {
       contractor_status.mutable_box()[forall_var] =
           counterexample[forall_var].mid();
     }
-    contractor_.Prune(&contractor_status);
+    contractor_.Prune(&contractor_status, ur);
     if (contractor_status.box().empty()) {
       // If the pruning result is empty, there is nothing more to do. Exit
       // the loop.
@@ -184,7 +185,7 @@ class ContractorForall : public ContractorCell {
   /// Default destructor.
   ~ContractorForall() override = default;
 
-  void Prune(ContractorStatus* cs) const override {
+  void Prune(ContractorStatus* cs, const UpwardRounding& ur) const override {
     Box& current_box = cs->mutable_box();
     Config& config_for_counterexample{
         context_for_counterexample_.mutable_config()};
@@ -218,7 +219,7 @@ class ContractorForall : public ContractorCell {
           counterexample = refiner_->Refine(counterexample);
         }
         bool need_to_break_the_loop =
-            PruneWithCounterexample(cs, &current_box, counterexample);
+            PruneWithCounterexample(cs, &current_box, counterexample, ur);
         if (need_to_break_the_loop) {
           break;
         }
@@ -291,10 +292,10 @@ class ContractorForallMt : public ContractorCell {
 
   ~ContractorForallMt() override = default;
 
-  void Prune(ContractorStatus* cs) const override {
+  void Prune(ContractorStatus* cs, const UpwardRounding& ur) const override {
     ContractorForall<ContextType>* const ctc{GetCtcOrCreate(cs->box())};
     DREAL_ASSERT(ctc);
-    return ctc->Prune(cs);
+    return ctc->Prune(cs, ur);
   }
 
   std::ostream& display(std::ostream& os) const override {

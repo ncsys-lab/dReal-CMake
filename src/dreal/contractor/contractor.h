@@ -21,6 +21,7 @@
 #include "dreal/contractor/contractor_status.h"
 #include "dreal/solver/config.h"
 #include "dreal/util/box.h"
+#include "dreal/util/rounding_mode_guard.h"
 #include "odes/ode_types.h"
 
 namespace dreal {
@@ -78,8 +79,11 @@ class Contractor {
   /// means that this contractor depends on the value of `box[i]`.
   const DynamicBitset& input() const;
 
-  /// Prunes @p cs.
-  void Prune(ContractorStatus* cs) const;
+  /// Prunes @p cs. Requires @p ur, the capability token witnessing that the
+  /// FE_UPWARD interval-phase rounding mode is established (see
+  /// UpwardRoundingScope). gaol/ibex contractors are sound only under
+  /// FE_UPWARD; threading the token makes that a compile-time obligation.
+  void Prune(ContractorStatus* cs, const UpwardRounding& ur) const;
 
   /// Returns kind.
   Kind kind() const;

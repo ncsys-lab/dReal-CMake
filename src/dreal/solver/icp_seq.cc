@@ -59,6 +59,14 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
   TimerGuard branch_timer_guard(&stat.timer_branch_, stat.enabled(),
                                 false /* start_timer */);
 
+  // The entire ICP contraction phase runs under FE_UPWARD (gaol soundness).
+  // Establish it ONCE here — not once per Prune — and thread the capability
+  // token down through every contractor. This is the phase-hoist that removes
+  // the per-Prune fesetround cost. CAPD contractors flip to FE_TONEAREST
+  // internally and restore FE_UPWARD on exit; brancher/eval below inherit it.
+  const UpwardRoundingScope phase_scope;
+  const UpwardRounding ur{phase_scope.token()};
+
   while (!stack.empty()) {
     DREAL_LOG_DEBUG("IcpSeq::CheckSat() Loop Head");
 
@@ -78,7 +86,7 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
     // 2. Prune the current box.
     DREAL_LOG_TRACE("IcpSeq::CheckSat() Current Box:\n{}", current_box);
     prune_timer_guard.resume();
-    contractor.Prune(cs);
+    contractor.Prune(cs, ur);
     prune_timer_guard.pause();
     stat.num_prune_++;
     DREAL_LOG_TRACE("IcpSeq::CheckSat() After pruning, the current box =\n{}",
