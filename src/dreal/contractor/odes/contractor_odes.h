@@ -26,7 +26,7 @@ namespace dreal
 
     std::ostream& operator<<(std::ostream& out, ode_direction const& d);
 
-    // ODE contractor using IBEX interval arithmetic + CAPD order-20 Taylor.
+    // ODE contractor using IBEX interval arithmetic + CAPD order-10 Taylor.
     //
     // Prune() runs the following steps in order:
     //   1. Parameter consistency: pars_0 ∩ pars_t (parameters are constant
@@ -38,10 +38,10 @@ namespace dreal
     //   4. Trivial-flow short-circuit: if every RHS is the literal 0, just
     //      intersect X_0 ∩ X_t (no integration needed — variables are
     //      constant along the trajectory).
-    //   5. ODE trajectory integration via CAPD's IOdeSolver (order 20) +
+    //   5. ODE trajectory integration via CAPD's IOdeSolver (order 10) +
     //      ITimeMap, with backward integration via the negated -f(x) map.
     //
-    // Sound for ODE problems: CAPD's order-20 Taylor enclosure provides a
+    // Sound for ODE problems: CAPD's order-10 Taylor enclosure provides a
     // guaranteed over-approximation of all trajectories from X_0.
     class contractor_ode_lohner : public ContractorCell
     {

@@ -1,6 +1,6 @@
 //
 // Created by Kunal Sheth on 9/2/25.
-// Post-Codac elimination: CAPD is the sole ODE backend (order-20 Taylor).
+// Post-Codac elimination: CAPD is the sole ODE backend (order-10 Taylor).
 //
 
 #include "contractor_odes.h"
@@ -241,7 +241,7 @@ namespace dreal
             }
         }
 
-        // --- Step 4: ODE trajectory integration via CAPD order-20 Taylor ---
+        // --- Step 4: ODE trajectory integration via CAPD order-10 Taylor ---
         //
         // Direction handling:
         //

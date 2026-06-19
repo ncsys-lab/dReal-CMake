@@ -2,7 +2,7 @@
 // C++17 interface for the CAPD v6 ODE integration backend.
 // The implementation (contractor_odes_capd.cc) is also compiled at C++17.
 //
-// CAPD's Taylor-order-20 integrator is the sole ODE backend for dReal after
+// CAPD's Taylor order-10 integrator is the sole ODE backend for dReal after
 // the Codac elimination — see ../../../../CODAC_MIGRATION.md.
 
 #include <memory>
@@ -40,9 +40,9 @@ namespace dreal
     // workers (unlike Codac's const CtcLohner::contract).
     class CapdOdeCache;
 
-    // Build a cache for `flow`. Returns nullptr if expression translation
-    // into the capd::IMap string format fails (e.g. an unsupported
-    // ExpressionKind in the RHS).
+    // Build a cache for `flow`. Returns nullptr only when `flow` is null;
+    // it RAISES (std::runtime_error) if an RHS cannot be translated into the
+    // capd::IMap string format (e.g. an unsupported ExpressionKind).
     //
     // `ordered_vars` MUST match the order in `flow.ode_list`.
     //
@@ -59,10 +59,10 @@ namespace dreal
     // the CAPD side keeps the contractor self-contained.
     bool capd_ode_cache_is_trivial(const std::shared_ptr<CapdOdeCache>& cache);
 
-    // Run CAPD forward integration via Taylor-order-20.
+    // Run CAPD forward integration via Taylor order-10.
     //
     // Forward step: integrate the cached f(x) IMap from u0_bounds = X_0 over
-    // [0, t_ub] using capd::IOdeSolver(order=20) + capd::ITimeMap. Intersect
+    // [0, t_ub] using capd::IOdeSolver(order=kCapdTaylorOrder, i.e. 10) + capd::ITimeMap. Intersect
     // the terminal enclosure with X_t_bounds → vars_t_narrowed.
     //
     // Backward step (free with the forward solver — see implementation):
