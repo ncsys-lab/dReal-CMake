@@ -149,6 +149,7 @@ Box::IntervalVector& Box::mutable_interval_vector() { return values_; }
 
 pair<double, int> Box::MaxDiam() const {
   RoundingModeGuard g(FE_UPWARD);
+  DREAL_ASSERT_ROUNDING(FE_UPWARD);
   double max_diam{0.0};
   int idx{-1};
   for (size_t i{0}; i < variables_->size(); ++i) {

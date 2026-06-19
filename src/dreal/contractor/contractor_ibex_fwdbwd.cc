@@ -108,6 +108,7 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs) const {
   // on every ICP worker thread, where FPU mode is thread-local). See
   // test/dreal/api/test/gaol_directed_rounding_false_unsat_test.cc.
   const RoundingModeGuard round_guard{FE_UPWARD};
+  DREAL_ASSERT_ROUNDING(FE_UPWARD);
 
   // Track which variables narrowed via the ibex fork's backward-callback
   // (commit 4d61b841 of the dreal-perf-patches branch). The callback fires

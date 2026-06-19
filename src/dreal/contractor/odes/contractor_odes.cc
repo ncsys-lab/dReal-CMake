@@ -160,7 +160,13 @@ namespace dreal
     // ---------------------------------------------------------------------------
 
     void contractor_ode_lohner::Prune(ContractorStatus* cs) const {
+        // Crossing the gaol->CAPD boundary: before we switch to FE_TONEAREST,
+        // assert the incoming mode is still what the guard stack expects. A
+        // failure here means something changed the FPU mode without a guard
+        // (the classic CAPD-clobber / un-guarded-getter hazard). Debug-only.
+        DREAL_ASSERT_ROUNDING_CONSISTENT();
         RoundingModeGuard g(FE_TONEAREST);
+        DREAL_ASSERT_ROUNDING(FE_TONEAREST);
 
         DREAL_LOG_DEBUG("contractor_ode_lohner::Prune [{} dir={}]",
                         m_ctr.first, m_dir == ode_direction::FWD ? "FWD" : "BWD");

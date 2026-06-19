@@ -140,6 +140,7 @@ void ContractorIbexPolytope::Prune(ContractorStatus* cs) const {
   // documents the invariant and makes Prune correct-by-construction if an LP
   // backend is ever enabled.
   const RoundingModeGuard round_guard{FE_UPWARD};
+  DREAL_ASSERT_ROUNDING(FE_UPWARD);
 
   Box::IntervalVector& iv{cs->mutable_box().mutable_interval_vector()};
   DREAL_LOG_TRACE("ContractorIbexPolytope::Prune");
