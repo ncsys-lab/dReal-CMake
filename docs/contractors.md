@@ -5,10 +5,12 @@ Contractors are the core computational primitive in the theory layer. A contract
 All contractors implement the same interface (`src/dreal/contractor/contractor.h`):
 
 ```cpp
-void Contractor::Prune(ContractorStatus* cs) const;
+void Contractor::Prune(ContractorStatus* cs, const UpwardRounding& ur) const;
 ```
 
 `Prune` reads `cs->box()`, tightens it in-place, and updates the explanation set in `cs` to record which constraints were responsible for any pruning.
+
+The `ur` parameter is a zero-size capability token (`src/dreal/util/rounding_mode_guard.h`). The gaol/IBEX interval backend is sound only with the FPU in `FE_UPWARD` rounding mode, so the whole ICP contraction phase runs under `FE_UPWARD`, established **once** per phase by an `UpwardRoundingScope` (in `IcpSeq::CheckSat` and each `IcpParallel` worker) rather than per `Prune`. `UpwardRoundingScope` is the only minter of an `UpwardRounding`, and it is required to call `Prune` — so "the rounding mode is established" is a compile-time obligation a contractor cannot bypass. The pure-gaol leaves (`ContractorIbexFwdbwd`, `ContractorIbexPolytope`) no longer guard the mode themselves; they `DREAL_ASSERT_ROUNDING(FE_UPWARD)` to verify the inherited phase mode in Debug builds. See CLAUDE.md "FPU rounding mode" for the full design.
 
 ---
 
@@ -151,5 +153,5 @@ Every contractor maintains a `DynamicBitset input()` indicating which box dimens
 1. Add a new `Kind` to `Contractor::Kind` in `contractor.h`.
 2. Create `contractor_foo.h` / `contractor_foo.cc` implementing `ContractorCell`.
 3. Add a factory function `make_contractor_foo(...)` and declare it as a `friend` of `Contractor`.
-4. Implement `Prune`, `input()`, `include_forall()`, and `operator<<`.
+4. Implement `Prune(ContractorStatus* cs, const UpwardRounding& ur)`, `input()`, `include_forall()`, and `operator<<`. If the contractor wraps gaol/IBEX interval arithmetic, route the raw call through `ibex_hc4_backward` (`util/ibex_guarded.h`) — passing `ur` — rather than calling `ibex::Function::backward` directly; forward `ur` to any child contractors' `Prune`. A contractor that needs `FE_TONEAREST` internally (like the CAPD ODE contractor) opens its own `RoundingModeGuard{FE_TONEAREST}` and re-establishes a nested `UpwardRoundingScope` before invoking any gaol sub-contractor. The static lint `rounding_lint.py` enforces this routing.
 5. Wire up construction in `TheorySolver::BuildContractor` or `context_impl.cc`.

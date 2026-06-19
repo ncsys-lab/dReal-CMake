@@ -48,7 +48,9 @@ ctest                                      # run all tests
 
 Test sources live under `test/dreal/` mirroring `src/dreal/` structure (e.g., `test/dreal/util/test/box_test.cc`).
 
-**Known flaky tests (ignore until fixed):** three tests fail spuriously and are unrelated to solver correctness — a clean run is "569/572 with only these failing":
+**Rounding-mode gate (`./rounding_debug_gate.sh`).** The FPU-rounding invariants are only checked in a Debug build (`DREAL_ASSERT_ROUNDING` compiles out under `NDEBUG`). This script builds the Debug test target (`cmake-build-debug`) and runs the suite, failing on any rounding-assertion abort; it runs `rounding_lint.py` (the static routing lint) first. Run it before merges. See the "FPU rounding mode" section under Key Design Notes.
+
+**Known flaky tests (ignore until fixed):** three tests fail spuriously and are unrelated to solver correctness — a clean run is "573/576 with only these failing":
 - `IfThenElseEliminatorTest.NestedITEs` and `IfThenElseEliminatorTest.ITEsInForall` — the ITE-elimination golden strings hard-code auxiliary-variable names (`ITE0`, `ITE1`, …) but the underlying counter is a process-global that other tests increment, so the expected vs actual names drift (`ITE0` vs `ITE3`) depending on test/registration order. A test-isolation bug, not a preprocessing bug.
 - `Timer.Test1` — timing-threshold assertion that fails under load/scheduling jitter.
 
