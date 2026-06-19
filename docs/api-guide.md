@@ -187,7 +187,7 @@ target_link_libraries(my_app PRIVATE dreal)
 target_include_directories(my_app PRIVATE ${CMAKE_SOURCE_DIR}/src)
 ```
 
-The `dreal` target transitively links IBEX, Codac, CaDiCaL, fmt, spdlog, and nlopt.
+The `dreal` target transitively links IBEX, CAPD, CaDiCaL, fmt, spdlog, and nlopt.
 
 ---
 
@@ -206,7 +206,7 @@ For synthesis tasks: a delta-SAT witness gives you a good starting point for loc
 
 ## Thread Safety
 
-`CheckSatisfiability` and `Minimize` are **not** thread-safe in the sense that you should not call them concurrently on formulas that share `Variable` objects. Each call creates its own `Context`, `TheorySolver`, and IBEX/Codac state internally.
+`CheckSatisfiability` and `Minimize` are **not** thread-safe in the sense that you should not call them concurrently on formulas that share `Variable` objects. Each call creates its own `Context`, `TheorySolver`, and IBEX/CAPD state internally.
 
 Within a single call, `Config::number_of_jobs > 1` uses parallel ICP safely via the thread pool in `icp_parallel.cc`.
 

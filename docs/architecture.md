@@ -38,7 +38,7 @@ The solver implements a variant of DPLL(T) where the SAT layer handles propositi
                          ┌──────────────▼─────────────┐
                          │  Contractors                │
                          │  IBEX fwdbwd, polytope,     │
-                         │  fixpoint, ODE (Codac),     │
+                         │  fixpoint, ODE (CAPD),      │
                          │  forall, seq, join          │
                          └────────────────────────────┘
 ```
@@ -164,4 +164,4 @@ See `docs/pattern-matching.md` for full details. At a high level: when the theor
 
 ## ODE Support
 
-See `docs/ode-integration.md` for details. ODE constraints (`d/dt[x] = f(x,t)` combined with `Integral` and `ForallT` AST nodes) are handled by `contractor_ode_lohner`, which dispatches between Codac's `CtcLohner` (order-2 Taylor, default) and CAPD's `IOdeSolver` (order-20, for long-horizon / high-dimensional flows) to compute guaranteed interval enclosures of ODE trajectories.
+See `docs/ode-integration.md` for details. ODE constraints (`d/dt[x] = f(x,t)` combined with `Integral` and `ForallT` AST nodes) are handled by `contractor_ode_lohner`, which integrates with CAPD's `IOdeSolver` (order-10 Taylor) + `ITimeMap` — the sole ODE backend — to compute guaranteed interval enclosures of ODE trajectories.

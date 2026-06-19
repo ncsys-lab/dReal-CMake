@@ -19,40 +19,34 @@ These are parsed from both SMT2 (`define-ode`, `integral`, `forall_t`) and dReal
 
 ---
 
-## The Lohner Method
+## The CAPD Integrator
 
-**File:** `src/dreal/contractor/odes/contractor_odes_codac.cc`
+**Files:** `src/dreal/contractor/odes/contractor_odes.cc` (contractor) and `contractor_odes_capd.cc` (CAPD backend)
 
-The current ODE contractor uses Codac v2's `CtcLohner`, which implements the Lohner interval method.
+The ODE contractor `contractor_ode_lohner` integrates flows with **CAPD**'s interval ODE solver — the sole ODE backend since the Codac elimination (see `CODAC_MIGRATION.md`). CAPD computes a **guaranteed** interval enclosure of the flow `dx/dt = f(x, t)`: a sequence of boxes certain to contain every trajectory starting anywhere in the initial box, with internal control of the **wrapping effect** (the exponential blow-up naive interval box arithmetic suffers because it cannot represent rotated or skewed sets).
 
-### How Lohner Works
+### Mechanism
 
-The Lohner method computes a **wrapping-free** interval enclosure of an ODE flow `dx/dt = f(x, t)` over a time step `[t, t+h]`:
+Each RHS expression is translated once into CAPD's `IMap` string format (`to_capd_string`, `to_capd_string.h`) and cached per flow in a `CapdOdeCache` — both the forward map `f(x)` and the negated map `-f(x)`. Integration uses `capd::IOdeSolver` at Taylor order `kCapdTaylorOrder = 10` driven by `capd::ITimeMap` over `[0, t_ub]`. `IOdeSolver` chooses its step size adaptively; instances are constructed per call (they carry mutable step state and so cannot be shared across parallel ICP workers — unlike Codac's `const CtcLohner::contract`).
 
-1. **Predictor step**: Use a Taylor series in time (order 2 in the current Codac configuration) to compute a rough enclosure `Ã` of all trajectories starting in box `B₀`.
-2. **Corrector step**: Use the Lohner representation (a parallelotope or zonotope centered at the midpoint) to tighten `Ã` while bounding the wrapping error.
-3. **Verification**: Prove the enclosure is valid using the Picard operator: `Φ(X) = x₀ + ∫₀ʰ f(X(s), s) ds`. The fixed point of Φ is the true solution set.
+Two integration entry points (`contractor_odes_capd.h`):
 
-The key advantage over naive interval Euler methods is control of the **wrapping effect** — intervals tend to grow exponentially with naive box arithmetic because they cannot represent rotated or skewed sets. Lohner's parallelotope representation bounds this growth.
+- **`run_capd_fwd`** — integrate the cached `f(x)` forward from the initial box `X_0`, intersect the terminal enclosure with `X_t` (→ narrowed terminal state), then integrate the cached `-f(x)` backward from the narrowed terminal to narrow `X_0`. A single call narrows **both** endpoints — recovering the joint narrowing that Codac's `CtcLohner` FWD_BWD did, in one pass.
+- **`run_capd_bwd`** — a one-shot backward image: integrate `-f(x)` from `X_t`; the terminal enclosure is the set of time-0 states whose forward trajectory reaches `X_t`. The caller intersects it with the current initial bounds. One-way narrowing.
 
-### Configuration in dReal
+Flow **parameters** (a flow variable whose `d/dt` is the literal `0`) are bound into a private copy of the cached `IMap` via `setParameter` before integration; they are not integration variables.
 
-The Codac contractor runs `CtcLohner` with:
-- `TimePropag::FWD_BWD`: 2 alternating forward/backward contractions (`contractions=2`)
-- Adaptive `n_steps = clamp(max(20, ceil(t_ub * 2)), 20, 60)` — keeps a 20-step floor for short horizons, adds steps when `t_ub > ~10`
-- Taylor order 2 (Codac default; not configurable without patching Codac)
+### Short-circuits and divergence
 
-The `FWD_BWD` mode contracts both the initial conditions (backward from the final state) and the final state (forward from the initial conditions), squeezing the tube from both ends.
-
-For long-horizon or high-dimensional flows the CAPD backend (order-20 Taylor) fires instead — see "CAPD gated hybrid" below.
+- **Trivial flow** (every RHS is the literal `0`, `capd_ode_cache_is_trivial`): bypass CAPD entirely and just intersect `X_0 ∩ X_t`.
+- **`T = 0`** (time upper bound pinned to `0`): a zero-duration trajectory means initial = final, so intersect `vars_0[i] ∩ vars_t[i]` directly.
+- **Divergence**: if CAPD's step control fails (stiff tube / over-approximation explosion), `run_capd_fwd`/`run_capd_bwd` catch the integrator exception internally and report `CapdOdeResult::found == false`; the contractor (`if (!res.found) return;`) then narrows nothing for that `Prune` call — sound but incomplete. (An *untranslatable* RHS is different: it raises at cache-build time.)
 
 ---
 
 ## Trajectory Visualization
 
-In addition to contraction, the ODE code generates trajectory enclosures for visualization using `LohnerAlgorithm` directly (not `CtcLohner`). This produces a sequence of boxes representing the tube of all trajectories over the time domain. The output is dumped as JSON for downstream plotting when `--visualize` is set.
-
-The `LohnerAlgorithm` call uses the same parameters as `CtcLohner` but produces the full tube rather than just contracting the endpoint boxes.
+When `--visualize` is set, the ODE code generates trajectory enclosures via `run_capd_trace` (`contractor_odes_capd.cc`), driven by the contractor's `generate_trace`. It integrates the cached flow over `[0, t_ub]` and records an over-approximating box for each of `n_steps` equally-spaced sub-slices — the full tube of all trajectories, not just the contracted endpoint boxes. `forward = true` integrates `f(x)`; `forward = false` integrates `-f(x)` for a reverse-time view. If the integrator diverges before reaching `t_ub`, the slices recorded up to that point are still emitted (partial traces stay visualizable). The output is dumped as JSON for downstream plotting.
 
 ---
 
@@ -69,23 +63,21 @@ The benchmark `bouncing_ball_with_drag_10_0.smt2` is a 10-mode bouncing ball —
 
 ## Performance
 
-`bouncing_ball_with_drag_10_0.smt2` (10 modes) runs at ~4.2 s on ARM64 native under Lohner-only (below the default `--capd-t-gate 5.0`), vs ~0.5 s on the old CAPD order-20 backend (x86 Rosetta). The gap on this benchmark is a Lohner-order-2 ceiling; CAPD (see below) is intended to close it on long-horizon flows where `t_ub` exceeds the gate.
+CAPD became the sole ODE backend after benchmarking confirmed it was at or below the old Codac `CtcLohner` runtime on the tested ODE families (cardiac, prostate, bouncing-ball); the Taylor order was later tuned 20 → 10 (`kCapdTaylorOrder`). Per-flow caching of the `IMap` (built once, reused across every `Prune`) keeps steady-state integration off the expression-translation path.
 
-See `CODAC_MIGRATION.md` for the headline benchmark table and full optimization timeline.
-
----
-
-## CAPD gated hybrid
-
-`contractor_odes_capd.{h,cc}` provides a second ODE backend using `capd::IOdeSolver` (order 20) + `capd::ITimeMap`. It fires when `t_ub > --capd-t-gate` (default `5.0`) or `n_state_vars >= --capd-ndim-gate` (default `6`). On divergence it falls back to Lohner. The trivial-flow short-circuit takes precedence over the gate.
-
-CAPD runs on ARM64 via `CAPD_INTERVAL_TYPE=NATIVE` (master SHA `b353e170`), which uses CAPD's own `DoubleRounding` and skips FILIB entirely. See `DEPENDENCIES.md` § "CAPD" for the full build-wiring details and `CODAC_MIGRATION.md` § "CAPD-Lohner gated hybrid" for the dispatch policy.
+See `CODAC_MIGRATION.md` for the headline benchmark table and `OPTIMIZATION_LOG.md` for the order-tuning and full optimization timeline.
 
 ---
 
-## What was replaced
+## CAPD build wiring
 
-`ncsys-lab/ibex-lib` + `ncsys-lab/capdDynSys-4.0` + `contractor_odes.cc` (old, CAPD-based) → `lebarsfa/ibex-lib` (prebuilt `ibex-2.8.9.20250626`) + `codac-team/codac@v2.0.2` + `CAPDGroup/CAPD@b353e170` + `contractor_odes_codac.cc` / `contractor_odes_capd.cc`. Per-library rationale lives in `DEPENDENCIES.md`. The boundary conversions now go through `ibex::Interval` / `ibex::IntervalVector` since Codac v2 shares IBEX's interval arithmetic.
+CAPD runs on ARM64 via `CAPD_INTERVAL_TYPE=NATIVE` (master SHA `b353e170`), which uses CAPD's own `DoubleRounding` and skips FILIB entirely. See `DEPENDENCIES.md` § "CAPD" for the full build-wiring details. CAPD expects the FPU in `FE_TONEAREST`; `contractor_ode_lohner::Prune` establishes that mode internally and restores `FE_UPWARD` on exit — see CLAUDE.md "FPU rounding mode". (The earlier Codac/CAPD gated hybrid, and the `--capd-t-gate` / `--capd-ndim-gate` flags that selected between them, were retired when Codac was removed.)
+
+---
+
+## Dependency history
+
+The current CAPD-only design is the result of two migrations: an earlier move to a Codac-based ODE contractor, then the **removal** of Codac (Codac and Eigen are no longer dependencies). The current stack source-builds the IBEX fork (`ncsys-lab/ibex-lib@dreal-perf-patches`) and CAPD (`CAPDGroup/CAPD@b353e170`); ODE boundary values cross the interface as `ibex::Interval` / `ibex::IntervalVector`. See `DEPENDENCIES.md` for the current stack and `CODAC_MIGRATION.md` for the full migration narrative.
 
 ---
 

@@ -29,7 +29,7 @@ Defined in `Contractor::Kind`:
 | `WORKLIST_FIXPOINT` | `contractor_worklist_fixpoint.cc` | Fixpoint with dependency tracking |
 | `FORALL` | `contractor_forall.h` | ForallT (universal quantification over time) |
 | `JOIN` | `contractor_join.cc` | Disjunctive composition (convex hull of results) |
-| `ODE_LOHNER` | `odes/contractor_odes_codac.cc` | Codac Lohner integration for ODEs |
+| `ODE_LOHNER` | `odes/contractor_odes.cc` | CAPD order-10 Taylor integration for ODEs |
 
 ---
 
@@ -119,13 +119,13 @@ Handles `ForallT` formulas: `∀t ∈ [t₀, t₁]: φ(x, t)`. These appear in O
 
 ---
 
-## ODE Contractor (Lohner)
+## ODE Contractor (`contractor_ode_lohner`)
 
-**File:** `src/dreal/contractor/odes/contractor_odes_codac.cc`
+**File:** `src/dreal/contractor/odes/contractor_odes.cc` (CAPD backend in `contractor_odes_capd.cc`)
 
 See `docs/ode-integration.md` for a full description.
 
-At the contractor interface level: given an ODE constraint and a time window, `contractor_ode_lohner::Prune` dispatches to one of two backends. For short-horizon / low-dimensional flows it uses Codac's `CtcLohner` (order-2 Taylor, `TimePropag::FWD_BWD`). For long-horizon flows (`t_ub > --capd-t-gate`, default 5.0) or high-dimensional state (`n_state_vars >= --capd-ndim-gate`, default 6) it fires the CAPD order-20 backend (`contractor_odes_capd.cc`), falling back to Lohner on divergence. Both paths intersect with target state constraints and are sound.
+At the contractor interface level: given an ODE constraint and a time window, `contractor_ode_lohner::Prune` integrates with **CAPD** (order-10 `IOdeSolver` + `ITimeMap`) — the sole ODE backend since the Codac elimination. `run_capd_fwd` integrates `f(x)` forward from the initial box to narrow the terminal state, then integrates the negated `-f(x)` backward from the narrowed terminal to narrow the initial state, so a single call narrows both endpoints. A trivial-flow short-circuit (every RHS is the literal `0`) and a `T=0` short-circuit bypass CAPD entirely. On integration divergence the call narrows nothing for that `Prune` (sound but incomplete). The previous Codac / CAPD-gated hybrid (and the `--capd-t-gate` / `--capd-ndim-gate` flags) was retired — see `CODAC_MIGRATION.md`.
 
 ---
 

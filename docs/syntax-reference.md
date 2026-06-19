@@ -89,10 +89,13 @@ All take `Expression` arguments and return `Expression`.
 
 The `arc*` aliases are handled in the lexer: `"asin"|"arcsin"` both emit `TK_ASIN`, etc.
 
-**Codac translator support**: the ODE RHS translator (`contractor_odes_codac.cc`) handles only
-`Constant`, `RealConstant`, `Var`, `Add`, `Mul`, `Div`, `Pow`, `Exp`, `Sqrt`, `Sin`, `Cos`,
-`Tan`, `Abs`. Using `log`, `asin`, `atan2`, `sinh`, etc. in an ODE RHS causes the translator
-to throw at contractor-build time, which silently disables integration for that flow.
+**CAPD translator support**: the ODE RHS translator `to_capd_string`
+(`src/dreal/contractor/odes/to_capd_string.h`) covers essentially the full QF_NRA operator set —
+including `log`, `asin`/`acos`/`atan`/`atan2`, `sinh`/`cosh`/`tanh`, `min`/`max`, and `abs` (the
+ones `capd::IMap` lacks are emulated, e.g. `abs` → `sqrt(sqr(·))`, `tan` → `sin/cos`). Only
+`IfThenElse`, `UninterpretedFunction`, and `NaN` are unsupported; encountering one makes the
+per-flow cache build (`make_capd_ode_cache`) **raise** at contractor-build time (it does not
+silently disable integration).
 
 ---
 

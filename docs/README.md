@@ -6,7 +6,7 @@ Deeper reference documentation beyond the project-level `CLAUDE.md`.
 |---|---|
 | [architecture.md](architecture.md) | Full solving pipeline — preprocessing, SAT/theory layers, ICP loop, branching, Box, ContractorStatus, UNSAT explanations |
 | [contractors.md](contractors.md) | All contractor kinds, how HC4 forward-backward works, fixpoint/worklist variants, join, how TheorySolver composes them |
-| [ode-integration.md](ode-integration.md) | Lohner method, Codac CtcLohner configuration, hybrid system encoding, CAPD migration history, input format examples |
+| [ode-integration.md](ode-integration.md) | CAPD order-10 Taylor integration (forward/backward/trace), hybrid system encoding, input format examples |
 | [pattern-matching.md](pattern-matching.md) | CAV26 lemma reuse — De Bruijn canonicalization, substitution tree matching, bijection checking, symmetry filtering, CaDiCaL integration |
 | [api-guide.md](api-guide.md) | C++ API: Variable/Expression/Formula/Box types, CheckSatisfiability, Minimize, Config options, incremental Context, linking |
 | [qf_nra_ode_semantics.md](qf_nra_ode_semantics.md) | Deep QF_NRA_ODE semantics: define-ode vars vs. pars, integral grammar and invariants, forall_t linking and flattening, negated ODE constraints (semantically ignored), edge cases grounded in parser and C++ source |
