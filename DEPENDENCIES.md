@@ -13,13 +13,13 @@ rationale for choosing specific versions and the changes made from upstream.
 
 ## IBEX (`ncsys-lab/ibex-lib`)
 
-**Version**: branch `dreal-perf-patches` (7 patches on top of mainline `ibex-team/ibex-lib@65ed5877`).
+**Version**: `dreal-perf-patches` @ `e6d2403d` (10 patches on top of mainline `ibex-team/ibex-lib@65ed5877`; `CMakeLists.txt` pins this sha).
 **Build**: `ExternalProject_Add` source-build from `https://github.com/ncsys-lab/ibex-lib.git` (cache var `IBEX_GIT_REPOSITORY`, overridable to a `file://` path for local-dev iteration against `../ibex-fork`), installed into `gcc_build/ibex-install/`.
 **Role**: Interval arithmetic + constraint propagation. Provides `IntervalVector`, `Function`, `HC4Revise` (the forward-backward contractor), polytope hull (`CtcPolytopeHull`), and the symbolic expression tree.
 
 ### Why a fork at all
 
-The fork hosts seven surgical patches that aren't yet upstream (see `../ibex-fork/MIGRATION.md` for the full catalog):
+The fork hosts ten surgical patches that aren't yet upstream (see `../ibex-fork/MIGRATION.md` for the full catalog):
 
 1. **`function: lazy-init gradient`** (2 files, ~24 lines). `Function::init` no longer eagerly allocates the `Gradient` object; an inline `lazy_grad()` accessor builds it on first use. Profiling in `CODAC_MIGRATION.md` traced ~65% of `Function::init` wall time to this allocation when dReal never touches the gradient API.
 2. **`Function::backward callback`** (4 files, ~16 lines). Adds an optional `std::function<void(int, const Interval&, const Interval&)>` argument to `Function::backward`. dReal's HC4 contractor (`contractor_ibex_fwdbwd.cc`) uses the callback to track narrowed variables without an `IntervalVector` snapshot.
@@ -28,10 +28,13 @@ The fork hosts seven surgical patches that aren't yet upstream (see `../ibex-for
 5. **`function: fire backward callback for non-scalar args`** (2 files, ~100 lines additive). Audit fix for patch #2: the non-scalar branch of `read_arg_domains` previously bypassed the callback for vector/matrix-typed function arguments. SMT theory-lemma generation relies on per-variable change events for soundness; this patch closes the gap via a new callback-aware `load()` overload in `ibex_TemplateDomain.h`.
 6. **`function: copy old-value in backward callback to avoid alias`** (1 file, 1 line). Audit fix for patch #2: the scalar branch bound `old_value` as a const reference to a memory cell that the next line overwrote. Callers that retain `old_value` would see stale data. Copy by value.
 7. **`HC4Revise: report partial narrowings on EmptyBoxException`** (1 file, ~7 lines). Audit fix for patch #2: when backward propagation throws `EmptyBoxException`, surface any narrowings that completed before the contradiction before calling `set_empty()`. Tightens theory-lemma precision for callers (dReal stays sound either way via its own empty-box handling).
+8. **`gaol: Interval::log/pow soundness gaps`** (wrapper + test, ~12 lines). `Interval::log` switched to strict `<` so `log([0,0])` surfaces gaol's `(-oo,-DBL_MAX]` instead of empty; `Interval::pow(x, double)` wraps the exponent in a degenerate interval so fractional exponents dispatch correctly.
+9. **`gaol: inline aarch64 FPCR rounding fast-path`** (vendored-gaol build patch, +56 lines). The directed interval transcendentals toggle the FPU mode nearest⟷upward per mathlib call; on ARM64 each toggle was a libc `fesetround`. Replaces gaol's `round_{nearest,upward,downward}` bodies (under `#if defined(__aarch64__)`) with an inline `mrs`/`msr` FPCR-RMode write — bit-identical, same sequence as macOS `fesetround` minus the call frame.
+10. **`gaol: batch the nearest-rounding region in transcendentals`** (vendored-gaol build patch, +250/−14 lines). Pairs the two directed bounds of each transcendental into one `round_nearest()`/`round_upward()` window (`<f>_dn_up` helpers), halving the per-transcendental mode toggles. Bit-identical. ~8% CPU on transcendental-dense odeexpr (#9 alone ~2%). Both gated by dReal's `gaol_transcendental_bitidentity` test.
 
-Total fork diff vs mainline: 9 files, +166/−19 (excluding docs).
+Total fork diff vs mainline: 12 files, +480/−37 (excluding docs).
 
-All seven are intended as upstream PRs. Once any/all merge, drop the corresponding commit; when all seven land, swap the `GIT_REPOSITORY` back to `ibex-team/ibex-lib` and delete the fork.
+All ten are intended as upstream PRs. Once any/all merge, drop the corresponding commit; when all ten land, swap the `GIT_REPOSITORY` back to `ibex-team/ibex-lib` and delete the fork.
 
 ### Source-build invocation (from `CMakeLists.txt`)
 
@@ -115,4 +118,4 @@ The container builds CaDiCaL 3.0.0, GMP 6.3.0, Bison 3.8.2, and Flex 2.6.4 from 
 ## Migration History
 
 - `CODAC_MIGRATION.md` — the original migration off `ncsys-lab/ibex-lib` to Codac, the perf-regression analysis that motivated returning to a fork, and the final resolution.
-- `../ibex-fork/MIGRATION.md` — divergence catalog of the IBEX fork (7-patch series).
+- `../ibex-fork/MIGRATION.md` — divergence catalog of the IBEX fork (10-patch series).
