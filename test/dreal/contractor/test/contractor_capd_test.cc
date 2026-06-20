@@ -21,6 +21,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 
 #include "dreal/contractor/odes/contractor_odes.h"
 
+#include <cfenv>
 #include <iostream>
 #include <dreal/util/rounding.h>
 
@@ -206,6 +207,71 @@ namespace dreal
             const auto& used = cs.UsedConstraints();
             EXPECT_EQ(used.size(), 0u);
             EXPECT_TRUE(used.find(ic) == used.end());
+        }
+
+        // --visualize coverage: generate_trace() is the trajectory generator the
+        // --visualize path calls (smt2/driver.cc). It runs CAPD via
+        // run_capd_trace. No test exercised it before. These cover (1) the
+        // rounding invariant — CAPD's directed-mode clobber must be contained so
+        // generate_trace is safe to call inside the driver's NearestRoundingScope
+        // — and (2) the shape of the emitted trajectory JSON.
+
+        TEST_F(ContractorCapdFullTest, GenerateTraceDoesNotClobberRounding) {
+            SetCommonDomains();
+            box_[x0_] = Box::Interval(-10.0);  // pin the IC to a point and use a
+            box_[p0_] = Box::Interval(0.0);    // short horizon so CAPD converges
+            box_[t0_] = Box::Interval(0.0, 2.0);
+
+            Config config;
+            const auto ctc = mk_contractor_ode_lohner(
+                box_, {MakeIntegralConstraint(), {}}, ode_direction::FWD, config, 0.0);
+
+            ContractorStatus cs{box_};
+            nlohmann::json trace;
+            {
+                // Mirror the driver's --visualize context: generate_trace runs
+                // inside a NearestRoundingScope, whose dtor tripwire aborts if
+                // CAPD's clobber escaped run_capd_trace's ExpectClobber scope.
+                const NearestRoundingScope g;
+                trace = to_ode_lohner(ctc)->generate_trace(cs);
+                EXPECT_EQ(fegetround(), FE_TONEAREST);  // CAPD clobber contained
+            }  // g's dtor would abort here if containment had failed
+            EXPECT_FALSE(trace.empty());  // CAPD actually ran (not an early-return)
+        }
+
+        TEST_F(ContractorCapdFullTest, GenerateTraceTrajectoryShape) {
+            SetCommonDomains();
+            box_[x0_] = Box::Interval(-10.0);
+            box_[p0_] = Box::Interval(0.0);
+            box_[t0_] = Box::Interval(0.0, 2.0);
+
+            Config config;
+            const auto ctc = mk_contractor_ode_lohner(
+                box_, {MakeIntegralConstraint(), {}}, ode_direction::FWD, config, 0.0);
+            ContractorStatus cs{box_};
+
+            const NearestRoundingScope g;
+            const nlohmann::json trace = to_ode_lohner(ctc)->generate_trace(cs);
+
+            // One JSON entry per state variable, in m_vars_0 order [x_0_0, p_0_0].
+            ASSERT_TRUE(trace.is_array());
+            ASSERT_EQ(trace.size(), 2u);
+            EXPECT_EQ(trace[0]["key"].get<std::string>(), "x_0_0");
+            EXPECT_EQ(trace[1]["key"].get<std::string>(), "p_0_0");
+            for (const auto& entry : trace) {
+                EXPECT_EQ(entry["mode"].get<std::string>(), "flow_1");
+                ASSERT_TRUE(entry["values"].is_array());
+                ASSERT_FALSE(entry["values"].empty());
+                for (const auto& sample : entry["values"]) {
+                    // Each sample is a [t_lb, t_ub] time and a [lb, ub] enclosure.
+                    ASSERT_EQ(sample["time"].size(), 2u);
+                    ASSERT_EQ(sample["enclosure"].size(), 2u);
+                    EXPECT_LE(sample["time"][0].get<double>(),
+                              sample["time"][1].get<double>());
+                    EXPECT_LE(sample["enclosure"][0].get<double>(),
+                              sample["enclosure"][1].get<double>());
+                }
+            }
         }
 
         // Regression: a flow with a TRUE parameter (a flow variable whose

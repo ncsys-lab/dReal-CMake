@@ -284,6 +284,12 @@ namespace dreal
         std::shared_ptr<const OdeFlow> flow,
         const std::vector<Variable>& ordered_vars)
     {
+        DREAL_ASSERT_ROUNDING(FE_TONEAREST);
+        // CAPD's IMap parser/builder leaves the FPU in a directed mode
+        // (FE_UPWARD) on return — it does NOT restore nearest. Contain that
+        // known clobber here so callers (and their NearestRoundingScope checks)
+        // see nearest on return. See ExpectClobber in rounding.h.
+        const NearestRoundingScope capd_clobber{expect_clobber};
         if (!flow) return nullptr;
         const OdeFlow* const flow_ptr = flow.get();
 
@@ -394,6 +400,9 @@ namespace dreal
         int n_steps_hint)
     {
         DREAL_ASSERT_ROUNDING(FE_TONEAREST);
+        // Contain CAPD's directed-mode clobber so this adapter is nearest-in /
+        // nearest-out. See ExpectClobber in rounding.h.
+        const NearestRoundingScope capd_clobber{expect_clobber};
         CapdOdeResult result;
         if (!cache) return result;
         const int n = cache->n_state_vars;
@@ -451,6 +460,9 @@ namespace dreal
         int n_steps_hint)
     {
         DREAL_ASSERT_ROUNDING(FE_TONEAREST);
+        // Contain CAPD's directed-mode clobber so this adapter is nearest-in /
+        // nearest-out. See ExpectClobber in rounding.h.
+        const NearestRoundingScope capd_clobber{expect_clobber};
         CapdOdeResult result;
         if (!cache) return result;
         const int n = cache->n_state_vars;
@@ -507,6 +519,9 @@ namespace dreal
         int n_steps)
     {
         DREAL_ASSERT_ROUNDING(FE_TONEAREST);
+        // Contain CAPD's directed-mode clobber so this adapter is nearest-in /
+        // nearest-out. See ExpectClobber in rounding.h.
+        const NearestRoundingScope capd_clobber{expect_clobber};
         CapdTraceResult result;
         if (!cache) return result;
         const int n = cache->n_state_vars;

@@ -257,9 +257,16 @@ ostream& operator<<(ostream& os, const Box& box) {
              << static_cast<int>(interval.ub()) << "]";
         }
         break;
-      case Variable::Type::CONTINUOUS:
+      case Variable::Type::CONTINUOUS: {
+        // ibex's interval operator<< is a known FPU rounding-mode clobberer: it
+        // does internal directed rounding and leaves the FPU in a directed mode
+        // (FE_UPWARD) on return. Bracket it in an ExpectClobber nearest scope so
+        // the print runs under FE_TONEAREST and the caller's mode is restored on
+        // exit, containing the clobber. See ExpectClobber in rounding.h.
+        const NearestRoundingScope interval_print{expect_clobber};
         os << interval;
         break;
+      }
       case Variable::Type::BOOLEAN:
         if (interval.ub() == 0.0) {
           os << "False";

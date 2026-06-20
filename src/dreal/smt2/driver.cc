@@ -217,8 +217,10 @@ ostream& PrintModel(ostream& os, const Box& box) {
         format_double(os, iv.lb(), nr);
       } else {
         // Non-degenerate interval: ibex's own interval operator<< formats both
-        // endpoints (external — covered by the FE_TONEAREST scope above).
-        os << iv;  // rounding-lint: allow ibex interval formatting under FE_TONEAREST
+        // endpoints, but it clobbers the FPU rounding mode (leaves a directed
+        // mode); contain it in an ExpectClobber nearest scope. See ExpectClobber.
+        const NearestRoundingScope interval_print{expect_clobber};
+        os << iv;
       }
     }
     os << ")\n";

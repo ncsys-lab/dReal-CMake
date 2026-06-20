@@ -15,8 +15,10 @@
 */
 #include "dreal/util/box.h"
 
+#include <cfenv>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -24,6 +26,7 @@
 #include <gtest/gtest.h>
 
 #include "dreal/symbolic/symbolic.h"
+#include "dreal/util/rounding.h"
 
 using std::is_nothrow_move_constructible;
 using std::numeric_limits;
@@ -284,6 +287,25 @@ TEST_F(BoxTest, IsNothrowMoveConstructible) {
                 // "Box::IntervalVector should be nothrow_move_constructible.");
   static_assert(is_nothrow_move_constructible<Box>::value,
                 "Box should be nothrow_move_constructible.");
+}
+
+// Regression: ibex's interval operator<< (used by Box::operator<< for a
+// non-degenerate continuous interval) clobbers the FPU to a directed mode
+// rather than restoring nearest. Box::operator<< must contain that clobber with
+// an ExpectClobber scope so a caller's NearestRoundingScope still finds
+// FE_TONEAREST at its dtor. Pre-fix, printing a non-degenerate-interval model
+// under the driver's nearest scope aborted via the dtor clobber tripwire.
+TEST_F(BoxTest, IntervalPrintDoesNotClobberRounding) {
+  Box b;
+  b.Add(x_, 0.1, 0.3);  // non-degenerate, inexactly-representable endpoints
+  std::ostringstream oss;
+  {
+    const NearestRoundingScope g;  // its dtor clobber tripwire is the backstop
+    oss << b;
+    // Box::operator<< contained ibex's directed-mode clobber: still nearest.
+    EXPECT_EQ(fegetround(), FE_TONEAREST);
+  }  // g's dtor would abort here if the clobber had escaped containment
+  EXPECT_FALSE(oss.str().empty());
 }
 
 }  // namespace

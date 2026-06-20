@@ -318,3 +318,43 @@ they are dead code for it. The one rejected lever that *shares* the QF_NRA fixpo
 (`--worklist-fixpoint`) was re-tested directly and is net-negative here too, with no
 soundness flip. The genuine headroom is elsewhere (gaol ARM64 transcendental `fesetround`,
 EmptyBoxException unwinding), untouched by this log.
+
+## odeexpr `fesetround` — a dReal-side slice was reachable after all (2026-06-20, HEAD `6d218633b`)
+
+**Refines the "`fesetround` 23–44%, all gaol-internal" claim above.** The earlier
+attribution chased `gaol::cos → fesetround` on the **`sin`-heavy** benchmarks (kuramoto),
+which is genuinely gaol-internal and off-limits. But on the **`pow`-heavy** benchmarks
+(sigmoid, the `cs*` family) a *separate* slice of the `fesetround` cost was **dReal-side and
+removable**. Hard data (ARM64, this machine):
+
+- **Micro-benchmark** (`fesetround`/`fegetround` in a tight loop): `fegetround` ~1 ns;
+  `fesetround` same-value ~5 ns; `fesetround` changing-value ~11 ns. The read is ~5–11× cheaper
+  than the write, and a "check-before-set" branch in the redundant case runs at *read* speed.
+- **Guard-construction census** (instrumented `RoundingModeGuard`): the `FE_UPWARD` (interval)
+  regime is already fully phase-hoisted (0–6 guard constructions per *entire solve*). **All**
+  guard volume is `FE_TONEAREST`, and return-address attribution pinned **100% of the
+  genuine** (mode-actually-changed) nearest flips to a single caller: **`is_integer`**.
+- **Source**: `ExpressionEvaluator::VisitPow` calls `is_integer(exponent)` per `pow` to pick
+  integer- vs real-power. `is_integer` (and `convert_int64_to_double`) opened a
+  `NearestRoundingScope` *for uniformity* — but they are mode-**independent** (`modf` is an
+  exact split; comparisons and `== 0.0` are exact; int→double within ±2^53 is exact). Under the
+  `FE_UPWARD` eval phase, each call was a needless `FE_UPWARD→FE_TONEAREST→FE_UPWARD` flip.
+
+**Fix (adopted).** Two changes, both sound (Debug rounding gate clean, full suite green,
+no verdict changes vs HEAD on int/continuous/forall spot-checks):
+
+1. **Removed the spurious `NearestRoundingScope` from `is_integer` / `convert_int64_to_double`**
+   (`util/math.cc`) — the real win, since `is_integer` was the sole hot genuine-flip source.
+2. **Check-before-set in `rounding_detail::RoundingModeGuard`** (`util/rounding.h`) — the
+   ctor's existing `fegetround` save gates the entry `fesetround` on whether the requested mode
+   differs, and the dtor restore is live-based: it reads the live FPCR (which it needs anyway for
+   the always-on clobber tripwire later folded into the same dtor — see the FPU-rounding section
+   of `CLAUDE.md`) and skips the write when the mode is already correct. Either way a *redundant*
+   nested scope (already-correct mode) costs zero writes. General hygiene; makes the remaining
+   redundant nearest scopes free. (The original `changed_`-gated restore was superseded by the
+   live-based form when the tripwire + `ExpectClobber` containment landed.)
+
+**Measured effect.** `sample` of the `pow`-heavy `cs5c_sigmoid__decrease` (4 runs each):
+`fesetround` share **25–27% → 23–24%** (~2 pp absolute, ~9% relative), i.e. a few-% CPU
+recovery on `pow`-dense instances. The remaining ~24% is gaol's own `pow`/transcendental
+directed rounding — *that* part really is gaol-internal and untouched.

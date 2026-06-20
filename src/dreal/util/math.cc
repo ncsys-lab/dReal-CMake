@@ -20,7 +20,6 @@
 #include <limits>
 #include <cstdint>
 
-#include "rounding.h"
 #include "dreal/util/exception.h"
 
 using std::int64_t;
@@ -30,7 +29,13 @@ using std::numeric_limits;
 
 namespace dreal {
 bool is_integer(const double v) {
-  NearestRoundingScope g;
+  // No rounding-mode scope: this is mode-INDEPENDENT. `modf` performs an exact
+  // integer/fraction split (no rounding) and the range test and `== 0.0` are
+  // exact comparisons, so the result is identical under FE_UPWARD/FE_TONEAREST.
+  // This matters for performance: is_integer is called per `pow` in the hot
+  // ExpressionEvaluator::VisitPow loop, which runs under FE_UPWARD — a scope
+  // here would force a needless FE_UPWARD->FE_TONEAREST->FE_UPWARD flip (two
+  // pipeline-serializing `fesetround`s on ARM64) on every call.
   // v should be in [int_min, int_max].
   if (!((numeric_limits<int>::lowest() <= v) &&
         (v <= numeric_limits<int>::max()))) {
@@ -49,7 +54,10 @@ int convert_int64_to_int(const int64_t v) {
 }
 
 double convert_int64_to_double(const int64_t v) {
-  NearestRoundingScope g;
+  // No rounding-mode scope: mode-INDEPENDENT. The guard restricts |v| to
+  // <= 2^53 (numeric_limits<double>::digits), where every integer is exactly
+  // representable, so the int64->double conversion in `return v` rounds
+  // identically (i.e. not at all) under any FPU mode.
   constexpr int64_t m{
       1UL << static_cast<unsigned>(numeric_limits<double>::digits)};
   if (-m <= v && v <= m) {

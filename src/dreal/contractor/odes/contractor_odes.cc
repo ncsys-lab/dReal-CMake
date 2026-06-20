@@ -393,11 +393,14 @@ namespace dreal
     // ---------------------------------------------------------------------------
 
     json contractor_ode_lohner::generate_trace(ContractorStatus cs_copy) {
-        // CAPD's interval integrator expects the FPU in round-to-nearest (its
-        // DoubleRounding sets directed modes per-op and restores nearest).
-        // Prune() establishes this at its top; generate_trace is a separate
-        // entry point (the --visualize path) and must establish it too, rather
-        // than relying on whatever mode the caller left the FPU in.
+        // CAPD's interval integrator expects the FPU in round-to-nearest. (Its
+        // DoubleRounding sets directed modes per-op but — as the rounding
+        // tripwire caught — leaves the FPU in a directed mode on return rather
+        // than restoring nearest; run_capd_trace contains that clobber
+        // internally via an ExpectClobber scope.) Prune() establishes nearest at
+        // its top; generate_trace is a separate entry point (the --visualize
+        // path) and must establish it too, rather than relying on whatever mode
+        // the caller left the FPU in. This scope's dtor verifies containment.
         NearestRoundingScope g;
 
         const auto& ic     = m_ctr.first;
