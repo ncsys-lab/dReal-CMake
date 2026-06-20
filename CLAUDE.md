@@ -48,6 +48,8 @@ ctest                                      # run all tests
 
 Test sources live under `test/dreal/` mirroring `src/dreal/` structure (e.g., `test/dreal/util/test/box_test.cc`).
 
+**Footgun — a *new* test file needs a CMake reconfigure.** Test sources are gathered with `file(GLOB_RECURSE DREAL_TESTS …)` (CMakeLists.txt; no `CONFIGURE_DEPENDS`), so the file list is cached at configure time. A brand-new `.cc` is compiled/run only after a reconfigure: `cmake gcc_build` / `cmake cmake-build-debug` (or `FULL_BUILD.sh`, which reconfigures). The incremental paths do **not** reconfigure — `BUILD.sh`, a bare `cmake --build`, and `./rounding_debug_gate.sh` (it only invokes `ninja`) will silently skip the new file and report green *while never running it*. That is a verification trap (the gate "passes" but the new test never executed); reconfigure first, then confirm the suite count went up. Editing an *existing* test file is fine — ninja tracks it.
+
 **Rounding-mode gate (`./rounding_debug_gate.sh`).** The FPU-rounding invariants are only checked in a Debug build (`DREAL_ASSERT_ROUNDING` compiles out under `NDEBUG`). This script builds the Debug test target (`cmake-build-debug`) and runs the suite, failing on any rounding-assertion abort; it runs `rounding_lint.py` (the static routing lint) first. Run it before merges. See the "FPU rounding mode" section under Key Design Notes.
 
 **Known flaky tests (ignore until fixed):** three tests fail spuriously and are unrelated to solver correctness — a clean run is "585/588 with only these failing":
