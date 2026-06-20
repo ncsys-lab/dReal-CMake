@@ -2,10 +2,18 @@
 CROSS-SOLVER COMPARISON — 43 benchmarks, reference = HEAD
 ==============================================================================
 
-Solve counts (within 600 s wall):
-  HEAD      solved 30/43  (SAT 10, UNSAT 20)  unsolved 13  PAR2-sum    16023s  avg  372.6s
-  cav26     solved 30/43  (SAT 10, UNSAT 20)  unsolved 13  PAR2-sum    16453s  avg  382.6s
-  dreal3    solved 28/43  (SAT 9, UNSAT 19)  unsolved 15  PAR2-sum    18119s  avg  421.4s
+Solve counts (within 600 s wall, full set):
+  HEAD      solved 30/43  (SAT 10, UNSAT 20)  unsolved 13
+  cav26     solved 30/43  (SAT 10, UNSAT 20)  unsolved 13
+  dreal3    solved 28/43  (SAT 9, UNSAT 19)  unsolved 15
+
+PAR2 score — scored over 30 benchmarks solved by >=1 solver (excluded 13 solved by none); penalty 1200s:
+  solver       solved    PAR2 sum   PAR2 mean    vs HEAD
+  HEAD          30/30      423.5s       14.1s      1.00x
+  cav26         30/30      852.5s       28.4s      2.01x
+  dreal3        28/30     2518.6s       84.0s      5.95x
+
+  excluded (solved by none): box_sweep.tanh_decrease__J0.6, box_sweep.tanh_decrease__xwin1.5, box_sweep.tanh_decrease__xwin2.0, size_sweep.kuramoto__N6, size_sweep.kuramoto_doe__N4, size_sweep.kuramoto_doe__N5, size_sweep.kuramoto_doe__N6, tanh.composite_lipschitz_i0, tanh.composite_lipschitz_i1, tanh.decrease_d_i__tau0.0015, tanh.decrease_d_i__tau0.0025, tanh.decrease_exact__tau0.0015, tanh.decrease_slope__tau0.0015
 
 No SAT/UNSAT disagreements among solved benchmarks.
 

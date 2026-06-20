@@ -427,3 +427,187 @@ conversion patches in `../ibex-fork/MIGRATION.md`. Guarded by the Phase-0 soundn
 `test/dreal/api/test/hc4_empty_propagation_soundness_test.cc`, and engine-level
 `empty01/empty02` in ibex `tests/Test{HC4,InHC4}Revise.cpp`), all of which were written against
 the throw-based code first and stayed green through both stages with zero assertion edits.
+
+---
+
+## odeexpr post-Phase-2 profile (2026-06-20)
+
+**What changed.** With `fesetround` and `__cxa_throw` addressed, the two known hotspots
+both read ~0% in a fresh post-Phase-2 `sample`. Three benchmarks profiled
+(macOS `sample`, 30 s windows, leaf-level attribution):
+
+| category | xwin1.5 (TIM) | kuramoto__N6 (TIM) | J0.6 (SAT, 451 s) |
+|---|---|---|---|
+| gaol transcendentals (atanh/tanh/cos/sin/div_rel/sqrt_rel/uipow) | **44.8%** | **30.5%** | **45.2%** |
+| HC4 backward (add/sub/mul/tanh/proj bwd + CompiledFunction::backward) | 11.4% | 12.0% | 12.0% |
+| HC4 forward (Eval::mul/add/sub/tanh_fwd + CompiledFunction::forward) | 9.3% | 13.6% | 8.9% |
+| ExpressionEvaluator (Drake VisitExpression / VisitPow / accumulate) | 6.9% | 4.5% | 6.6% |
+| Allocation (_xzm_free / IntervalVector copies) | 5.4% | 5.2% | 5.2% |
+| gaol interval arithmetic (operator\*=/+=-=) | 5.1% | 6.2% | 4.7% |
+| **Timer guards** (`ContractorIbexFwdbwd` stat.timer_pruning) | **4.1%** | **16.3%** | **4.0%** |
+| libsystem_m (tanh/log1p/atanh/nextafter — called by gaol) | 4.1% | 1.8% | 3.9% |
+| fesetround / FPCR | **~0%** | **~0%** | **~0%** |
+| `__cxa_throw` / unwind | **~0%** | **~0%** | **~0%** |
+| Branching (FindMaxDiam) | 0.5% | 0.1% | 0.4% |
+
+**Key findings:**
+
+1. **Both prior hotspots confirmed gone.** `fesetround` and `__cxa_throw` show 0% across all
+   three benchmarks. ✓
+
+2. **Gaol transcendentals now dominate (30–45%).** `gaol::atanh` (19%), `gaol::tanh` (13%),
+   `gaol::cos`/`acos_rel` (10% each on kuramoto), `gaol::div_rel` (3–5%), `gaol::sqrt_rel`
+   (2%) — this is the actual interval computation. The libsystem_m share (~4%) is the
+   underlying correctly-rounded math calls within gaol. Together they are the **computational
+   floor**: cannot be reduced without changing the interval library's soundness semantics.
+
+3. **New: Timer guard overhead (4–16%).** `ContractorIbexFwdbwd::Prune` called
+   `stat.timer_pruning_.resume()` and `.pause()` unconditionally (lines 100, 133), bypassing
+   the `stat.enabled()` gate — 2× `std::chrono::steady_clock::now()` → `mach_continuous_time`
+   per `Prune` call. With default spdlog level `off`, `stat.enabled() = false`, so the timer
+   information was computed and discarded on every call. Kuramoto__N6 is hit hardest (16.3%)
+   because its per-Prune work (sin/cos, fewer empties) is short, making the fixed overhead
+   relatively large. (Same bug in `contractor_ibex_polytope.cc`, fixed simultaneously.)
+   **Fixed — see next section.**
+
+4. **ExpressionEvaluator (Drake symbolic, 4.5–7%):** `EvaluateBox` evaluates the formula set
+   via dReal's own `ExpressionEvaluator` (the Drake symbolic traversal) to decide
+   delta-satisfiability. This is separate from IBEX's compiled `HC4Revise` path. The
+   `VisitExpression` dispatch (4.2% leaf on xwin1.5) + hash-table variable lookups (1.4%) + the
+   accumulate-over-coefficients path in `VisitAddition` (1%) are the subcomponents. This is the
+   next addressable overhead after the timer fix.
+
+5. **Allocation (5%):** `_xzm_free` at 2% + `IntervalVector::IntervalVector` (copy constructor)
+   at ~0.5% + other malloc/free. IntervalVector copies in HC4Revise's local workspaces.
+
+6. **Branching (0.4%):** `FindMaxDiam` / `BranchLargestFirst` is negligible. The planned
+   branching-heuristic A/B is **ruled out** — there is no meaningful headroom here.
+
+## odeexpr: IcpStat timer gates fixed (2026-06-20)
+
+**Root cause.** `ContractorIbexFwdbwdStat` (and identical pattern in
+`ContractorIbexPolytopeStat`) called `stat.timer_pruning_.resume()` and
+`stat.timer_pruning_.pause()` directly, without gating on `stat.enabled()`. With the default
+spdlog level `off`, `stat.enabled() = false` but the two `steady_clock::now()` calls per
+`Prune` still fired, spending 4–16% of runtime computing a timing value that was never read.
+
+**Fix (2 files).** Gate the calls:
+
+```cpp
+// before
+stat.timer_pruning_.resume();
+// ... prune ...
+stat.timer_pruning_.pause();
+
+// after
+if (stat.enabled()) stat.timer_pruning_.resume();
+// ... prune ...
+if (stat.enabled()) stat.timer_pruning_.pause();
+```
+
+Applied in `src/dreal/contractor/contractor_ibex_fwdbwd.cc` (lines 100, 133) and
+`src/dreal/contractor/contractor_ibex_polytope.cc` (lines 155, 157). The `icp_seq.cc` and
+`icp_parallel.cc` timer calls are already correctly gated via `TimerGuard(…, stat.enabled(), …)`
+— no change needed there.
+
+**Verification.** Post-fix `sample` on kuramoto__N6: `mach_continuous_time` drops from the
+#1 leaf (11.3%) to **0.0%** — not a single sample lands in the timer path. Timer information
+is still collected and printed when `--verbose 2` or higher is passed (spdlog info level enables
+`stat.enabled() = true`). Rounding debug gate: PASS (no rounding-mode assertion fired).
+
+**Measured impact.** Profile-confirmed 16.3% → 0% on kuramoto__N6. One-trial spot check on
+kuramoto__N5: **88.3 s CPU** (pre-fix baseline reference: 101 s), ~13% faster — consistent
+with the 16.3% timer share given single-trial variance and that N5/N6 benchmarks were slightly
+regenerated (different hash). The 4.1% share on tanh-heavy benchmarks (xwin1.5, J0.6) yields
+a smaller but real gain there. `/benchmark` regression check: 9 ran, 0 new anomalies; the only
+flagged item (`tacas_k7_UNS`) is a pre-existing delta-boundary near-sat issue already tracked
+in `state.json` before this session — unrelated to this fix.
+
+---
+
+## Open avenues (deferred — post-timer-fix)
+
+These ideas are not yet attempted. Ordered by estimated confidence × effort.
+
+### A. ExpressionEvaluator overhead (medium confidence, medium effort)
+
+**What:** `EvaluateBox` calls dReal's own `ExpressionEvaluator` (the Drake symbolic traversal)
+once per formula after every successful `Prune`, to check delta-satisfiability. This costs
+4.5–7% of total runtime (profile above). Components: `VisitExpression` dispatch, hash-table
+variable-index lookups (`__hash_table::__emplace_unique`, ~1.4%), and the coefficient
+accumulate loop in `VisitAddition`.
+
+**Direction:** The hash-table lookup is a `map<Variable, int>` index lookup done per
+variable per eval. A flat sorted-vector or pre-built index array could replace it.
+Alternatively, if the formula set is stable across ICP iterations (it is — it's set once),
+precompiling the formula evaluators into IBEX `Function` objects (which already do CSE and
+compile to a flat byte stream) and reusing the HC4 forward-eval path would eliminate the
+Drake traversal entirely. That is a larger restructuring (the `FormulaEvaluator` and
+`ExpressionEvaluator` classes are the eval layer).
+
+**Caution:** `EvaluateBox` also determines which formulas are violated (the `DynamicBitset`
+returned) — branching uses this. Any replacement must preserve that output.
+
+### B. Allocation reduction — IntervalVector copies in HC4 (medium confidence, medium effort)
+
+**What:** `IntervalVector::IntervalVector` (copy constructor) and `_xzm_free` collectively ~5%
+of runtime. The copy constructor appears in the HC4 forward pass (allocating the input vector
+for each `Eval::eval` call) and in the backward pass's local snapshots. Post-Phase-2,
+exception-elimination removed the `try/catch` frame but may not have changed heap turnover in
+the backward engine's local allocations.
+
+**Direction:** Instrument IBEX's `eval` and backward paths with Instruments → Allocations
+(or `malloc_count`) to confirm the allocation sites and count. If `IntervalVector` copies are
+O(constraints × ICP-iterations), a preallocated workspace (thread-local or per-contractor)
+that is resized-once and reused across calls could eliminate the per-call allocation.
+
+**Note:** This is in IBEX's core (`ibex::Eval`, `CompiledFunction`), so the change would live
+in the ibex-fork, following the same pattern as the exception-elimination patches.
+
+### C. Per-constraint skip-if-unchanged gate (low confidence, medium effort)
+
+**What:** IBEX's `ContractorFixpoint` iterates all N constraints until no box shrinks. For
+odeexpr's Lyapunov formulas, many constraints involve non-overlapping variable clusters; a
+narrowing in constraint `i` rarely propagates to constraint `j` unless they share a variable.
+A dependency graph that tracks which variables each constraint reads/writes could gate
+re-evaluation of constraint `j` until one of its input variables changes.
+
+**Why low confidence:** The `--worklist-fixpoint` flag (a coarser version of this idea)
+was measured net-negative on both ODE and odeexpr families — faster on SAT-easy instances
+but catastrophically slow on UNSAT-difficult ones (k17 23 s → 0.85 s; k70 47 s → 7876 s).
+A per-constraint graph rather than a global queue reorder might have better variance, but
+that distinction is unproven. Profile above shows HC4 forward (13.6%) + backward (12%) = 25%
+— so if this idea works, there is meaningful headroom. Worth a targeted A/B only if the
+worklist-fixpoint catastrophe can be traced to the global reorder rather than the early-exit
+logic.
+
+### D. Constraint ordering heuristic (low confidence, low effort)
+
+**What:** IBEX evaluates constraints in declaration order (as they appear in the parsed
+`.smt2`). A heuristic that front-loads high-shrinkage constraints might cut fixpoint
+iterations. The profile shows `HC4Revise::proj` (the per-constraint iteration entry point)
+at ~1.6% leaf — the overhead of cycling through low-yield constraints is embedded in
+`CompiledFunction::forward/backward`. Reordering is a one-time setup cost.
+
+**How to A/B:** Read the current constraint order from `ContractorFixpoint`'s contractor list
+at solve start, sort by some heuristic (e.g. number of variables, or by profiling iteration
+zero's shrinkage), then run. This is dReal-side and does not require ibex-fork changes.
+
+### E. Gaol Lever 3 — 1 toggle per transcendental (low confidence, high effort)
+
+**What:** After Levers 1 (inline FPCR write) and 2 (batch dn_up pairs → 2 toggles per
+transcendental), the remaining gaol fesetround cost is the essential 2-per-transcendental
+directed-rounding computation. A "Lever 3" would compute both the lower and upper bound in a
+single upward-mode pass using the identity `lb = -round_up(-f(x))`, eliminating the
+nearest→upward toggle and leaving only the upward→nearest restore — 1 toggle per
+transcendental instead of 2.
+
+**Why high effort / low confidence:** Requires restructuring gaol's `cos/sin/tanh/exp/atanh`
+inner bodies to use the negation trick for the lower bound rather than a separate
+downward-mode call. Each transcendental's correctly-rounded bound computation is non-trivial
+(gaol uses range-reduction + polynomial approximation with error bounds). Verification would
+need the same 132-case adversarial grid used for Levers 1 and 2 (see `gaol_transcendental_bitidentity_test.cc`),
+extended to cover the Lever-3 form. The payoff is at most the ~15% remaining fesetround share
+on the currently-solvable benchmarks (already reduced from 30–44% by Levers 1+2 and the
+Phase-2 exit-path elimination). This is the last gaol-internal lever and should be attempted
+only if avenues A–D are exhausted.

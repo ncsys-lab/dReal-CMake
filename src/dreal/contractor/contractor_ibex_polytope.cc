@@ -152,9 +152,9 @@ void ContractorIbexPolytope::Prune(ContractorStatus* cs, const UpwardRounding& u
     }
   }
 
-  stat.timer_pruning_.resume();
+  if (stat.enabled()) stat.timer_pruning_.resume();
   ctc_->contract(iv);
-  stat.timer_pruning_.pause();
+  if (stat.enabled()) stat.timer_pruning_.pause();
   if (stat.enabled()) {
     stat.num_pruning_++;
   }

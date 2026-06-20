@@ -45,19 +45,43 @@ def main():
     names = sorted(set().union(*[set(s) for s in solvers.values()]))
     ref = order[0]  # first solver is the reference (HEAD)
 
+    # PAR2 is scored ONLY over benchmarks solved by at least one solver. A
+    # benchmark no solver cracks contributes the same 1200 s penalty to every
+    # solver — pure constant offset that dilutes real differences and carries no
+    # comparative information.
+    def solved_by_any(n):
+        return any(solvers[lab].get(n, {}).get("result") in SOLVED for lab in order)
+    scored = [n for n in names if solved_by_any(n)]
+    never = [n for n in names if not solved_by_any(n)]
+
     print(f"{'='*78}\nCROSS-SOLVER COMPARISON — {len(names)} benchmarks, reference = {ref}\n{'='*78}\n")
 
-    # Solve counts
-    print("Solve counts (within 600 s wall):")
+    # Solve counts (over the full set)
+    print("Solve counts (within 600 s wall, full set):")
     for lab in order:
         s = solvers[lab]
         sat = sum(1 for n in names if s.get(n, {}).get("result") == "SAT")
         uns = sum(1 for n in names if s.get(n, {}).get("result") == "UNSAT")
         solved = sat + uns
-        unsolved = len(names) - solved
-        tot_par2 = sum(par2(s[n]) for n in names if n in s)
-        print(f"  {lab:8s}  solved {solved:2d}/{len(names)}  (SAT {sat}, UNSAT {uns})  unsolved {unsolved:2d}  "
-              f"PAR2-sum {tot_par2:8.0f}s  avg {tot_par2/len(names):6.1f}s")
+        print(f"  {lab:8s}  solved {solved:2d}/{len(names)}  (SAT {sat}, UNSAT {uns})  unsolved {len(names)-solved:2d}")
+    print()
+
+    # PAR2 table over the scored set (solved by >=1 solver)
+    print(f"PAR2 score — scored over {len(scored)} benchmarks solved by >=1 solver "
+          f"(excluded {len(never)} solved by none); penalty {PAR2_PENALTY:.0f}s:")
+    print(f"  {'solver':8s} {'solved':>10s} {'PAR2 sum':>11s} {'PAR2 mean':>11s} {'vs '+ref:>10s}")
+    ref_mean = None
+    for lab in order:
+        s = solvers[lab]
+        nsolved = sum(1 for n in scored if s.get(n, {}).get("result") in SOLVED)
+        p2sum = sum(par2(s[n]) if n in s else PAR2_PENALTY for n in scored)
+        p2mean = p2sum / len(scored) if scored else 0.0
+        if ref_mean is None:
+            ref_mean = p2mean
+        rel = f"{p2mean/ref_mean:.2f}x" if ref_mean else "—"
+        print(f"  {lab:8s} {nsolved:>7d}/{len(scored):<2d} {p2sum:>10.1f}s {p2mean:>10.1f}s {rel:>10s}")
+    if never:
+        print(f"\n  excluded (solved by none): {', '.join(n.replace('odeexpr_','') for n in never)}")
     print()
 
     # Verdict disagreements (SAT vs UNSAT between any two solvers — notable)

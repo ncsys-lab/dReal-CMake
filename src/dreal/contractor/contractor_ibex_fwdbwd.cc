@@ -97,7 +97,7 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs, const UpwardRounding& ur)
   DREAL_LOG_TRACE("ContractorIbexFwdbwd::Prune");
   DREAL_LOG_TRACE("CTC = {}", fmt::streamed(*num_ctr_));
   DREAL_LOG_TRACE("F = {}", f_);
-  stat.timer_pruning_.resume();
+  if (stat.enabled()) stat.timer_pruning_.resume();
 
   // gaol (ibex's interval backend) is only sound with the FPU in round-upward
   // mode; under any other mode its directed rounding inverts (lo>hi) and an
@@ -130,7 +130,7 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs, const UpwardRounding& ur)
       },
       ur)
   }; // true if iv was already inner (unchanged).
-  stat.timer_pruning_.pause();
+  if (stat.enabled()) stat.timer_pruning_.pause();
   if (stat.enabled()) {
     stat.num_pruning_++;
   }
