@@ -116,6 +116,88 @@ TEST_F(ContractorIbexFwdbwdTest, TestSmt2Problem20) {
   EXPECT_FALSE(cs.box().empty());
 }
 
+// --- Phase-0 soundness net (bucket 1): empty-propagation through a single
+// ContractorIbexFwdbwd::Prune, both directions. Each formula below is
+// genuinely UNSAT (must empty) or genuinely SAT (must stay non-empty and keep
+// its witness); the assertions encode correct empty-propagation as the gate
+// the EmptyBoxException refactor must preserve. ---
+
+// Out-of-range transcendental: tanh has range (-1, 1), so tanh(x) == 2 is
+// infeasible for every x. HC4 empties this at the *root* intersection (the
+// forward image of tanh never reaches 2), which is exactly the throw site
+// Tier-0 reroutes to a return-status.
+TEST_F(ContractorIbexFwdbwdTest, TanhSaturationEmpties) {
+  const Formula f{tanh(x_) == 2.0};
+  box_[x_] = Box::Interval(-5.0, 5.0);
+  box_[y_] = Box::Interval(0.0, 1.0);
+  box_[z_] = Box::Interval(0.0, 1.0);
+  ContractorStatus cs{box_};
+  const ContractorIbexFwdbwd ctc{f, box_, Config{}};
+
+  EXPECT_FALSE(cs.box().empty());
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_TRUE(cs.box().empty())
+      << "tanh(x) == 2 is infeasible (range of tanh is (-1,1)); the box must "
+         "be emptied.";
+}
+
+// Forward domain error funnel: log is undefined on a wholly-negative domain.
+// IBEX's Eval catches its *own* forward EmptyBoxException, leaves the top
+// domain empty, and the backward root intersection then empties the box. This
+// directly exercises the funnel path Tier-0 must keep sound (forward-undefined
+// -> root-empty). log(x) == 0 means x == 1, excluded by x in [-5,-1].
+TEST_F(ContractorIbexFwdbwdTest, LogNegativeDomainFunnelEmpties) {
+  const Formula f{log(x_) == 0.0};
+  box_[x_] = Box::Interval(-5.0, -1.0);
+  box_[y_] = Box::Interval(0.0, 1.0);
+  box_[z_] = Box::Interval(0.0, 1.0);
+  ContractorStatus cs{box_};
+  const ContractorIbexFwdbwd ctc{f, box_, Config{}};
+
+  EXPECT_FALSE(cs.box().empty());
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_TRUE(cs.box().empty())
+      << "log is undefined on [-5,-1]; the forward-undefined funnel must empty "
+         "the box.";
+}
+
+// Product infeasibility through the div/mul backward operators: z == x / y with
+// x,y pinned to a value whose quotient is disjoint from z's domain. Exercises a
+// different operator path to empty than the add/sin cases above.
+TEST_F(ContractorIbexFwdbwdTest, QuotientInfeasibleEmpties) {
+  const Formula f{z_ == x_ / y_};
+  box_[x_] = Box::Interval(1.0, 1.0);
+  box_[y_] = Box::Interval(2.0, 2.0);  // x/y == 0.5, exactly representable
+  box_[z_] = Box::Interval(10.0, 10.0);
+  ContractorStatus cs{box_};
+  const ContractorIbexFwdbwd ctc{f, box_, Config{}};
+
+  EXPECT_FALSE(cs.box().empty());
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_TRUE(cs.box().empty())
+      << "0.5 (= 1/2) != 10; the constraint is infeasible and must empty.";
+}
+
+// Must-NOT-empty control (false-unsat guard): x*x == 4 with x in [0,10]
+// contracts hard (down to ~[2,2]) but stays non-empty and must still contain
+// the witness x == 2. A refactor that spuriously emptied feasible boxes would
+// fail here. 4 and 2 are exactly representable, so this is rounding-insensitive.
+TEST_F(ContractorIbexFwdbwdTest, HardContractionStaysNonEmpty) {
+  const Formula f{x_ * x_ == 4.0};
+  box_[x_] = Box::Interval(0.0, 10.0);
+  box_[y_] = Box::Interval(0.0, 1.0);
+  box_[z_] = Box::Interval(0.0, 1.0);
+  ContractorStatus cs{box_};
+  const ContractorIbexFwdbwd ctc{f, box_, Config{}};
+
+  EXPECT_FALSE(cs.box().empty());
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_FALSE(cs.box().empty())
+      << "x*x == 4 with x in [0,10] is satisfiable (x == 2); must not empty.";
+  EXPECT_TRUE(cs.box()[x_].contains(2.0))
+      << "The surviving box must still contain the witness x == 2.";
+}
+
 TEST_F(ContractorIbexFwdbwdTest, TestSmt2Problem20Lowlevel) {
   // Given a box,
   //     x = 0.2

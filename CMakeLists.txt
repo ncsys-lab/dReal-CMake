@@ -113,7 +113,7 @@ target_link_libraries(dreal4_cmake PUBLIC "${CADICAL_LIB}")
 # ---------------------------------------------------------------------------
 # IBEX via ExternalProject — source-built from the dReal team's fork
 #
-# The fork carries ten surgical patches on top of ibex-team/ibex-lib@master:
+# The fork carries eleven surgical patches on top of ibex-team/ibex-lib@master:
 #   1. function: lazy-init gradient (perf-critical, ~65% of Function::init)
 #   2. Function::backward callback (perf-critical, eliminates HC4 snapshot)
 #   3. parser.yc namespace-qualify apply() (Linux/clang ADL fix)
@@ -124,7 +124,9 @@ target_link_libraries(dreal4_cmake PUBLIC "${CADICAL_LIB}")
 #   8. gaol: Interval::log/pow soundness gaps (strict-< for ub==0, fractional pow)
 #   9. gaol: inline aarch64 FPCR rounding fast-path (perf: ARM64 transcendental fesetround)
 #  10. gaol: batch the nearest-rounding region in transcendentals (perf: ~8% on odeexpr)
-# See ../ibex-fork/MIGRATION.md for the divergence catalog. All ten are
+#  11. function: empty domains via return-status instead of EmptyBoxException
+#      (perf: removes __cxa_throw unwinding from the HC4 backward hot path)
+# See ../ibex-fork/MIGRATION.md for the divergence catalog. All eleven are
 # candidate upstream PRs; once they land, drop the fork and point at
 # ibex-team/ibex-lib directly.
 #
@@ -142,10 +144,11 @@ set(IBEX_INSTALL_DIR     "${CMAKE_BINARY_DIR}/ibex-install")
 set(IBEX_GIT_REPOSITORY  "https://github.com/ncsys-lab/ibex-lib.git"
     CACHE STRING "Git repository for the ibex fork (override with file://path for local dev)")
 # Pinned to the fork HEAD sha (reproducible) rather than the moving branch ref.
-# e6d2403d = the 10-patch series, including the gaol ARM64 rounding-cost levers
-# (#9 inline FPCR fast-path, #10 batched nearest-region). Bump when fork patches
-# land. (Local-dev iteration still works via -DIBEX_GIT_TAG=<branch-or-sha>.)
-set(IBEX_GIT_TAG         "e6d2403dc231478cb5feb2f388a11524d08e43a4"
+# cf3928c7 = the 11-patch series; patch #11 replaces HC4Revise's EmptyBoxException
+# control flow with a bool return-status (no __cxa_throw on the backward hot path).
+# Bump when fork patches land. (Local-dev iteration still works via
+# -DIBEX_GIT_TAG=<branch-or-sha> and -DIBEX_GIT_REPOSITORY=file:///path/to/ibex-fork.)
+set(IBEX_GIT_TAG         "cf3928c79a1b2c6c31deecfab0e5964b40417ae4"
     CACHE STRING "Git ref for the ibex fork (branch, tag, or sha)")
 
 set(EP_ARCH_ARGS "")

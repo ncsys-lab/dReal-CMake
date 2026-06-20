@@ -386,3 +386,44 @@ aggregate (the `msr` *serialization*, not the call frame, dominates — so inlin
 little); L1+L2 ≈ **8%** aggregate and **7.5–11.8%** on the transcendental-dense long-runners
 (`tanh_decrease__J1.0` 264→245 s, `kuramoto__N5` 113→101 s, `kuramoto__N4`/`kuramoto_doe__N3`
 ~−10–12%). Lever 2's toggle-halving carries the win. Both levers retained.
+
+## odeexpr `EmptyBoxException` unwinding — eliminated in the ibex-fork (2026-06-20)
+
+**Closes the second headroom flagged above ("EmptyBoxException unwinding, untouched by this
+log").** IBEX's forward-backward contractor (`HC4Revise`) signalled "a domain emptied" by
+**throwing** a (protected, nested) `EmptyBoxException`; UNSAT-style decrease/positivity proofs
+prune to empty at extreme frequency, so the per-throw C++ unwinding machinery
+(`__cxa_throw`/`_Unwind_*`, table-based on ARM64) was paid on the ICP hot path. macOS `sample`
+on the throw-heavy long-runners measured `__cxa_throw` *inclusive* at **26.6%** of CPU on
+`tanh_decrease__J1.0` and **5.2%** on `kuramoto__N5`.
+
+Replaced the exception control flow with a **return-status** signal (no `thread_local`, no
+globals — upstream-clean), in two stages:
+
+- **Tier-0** — convert only the shallow **root-intersection** throw (`HC4Revise::backward`,
+  which also captures forward-undefined empties funnelled through `Eval`) to `return false`;
+  `proj` detects it via `d.top->is_empty()`. Measured: `tanh_J1` 26.6% → **11.2%**, `kuramoto`
+  5.2% → **0.1%**. Profiling then showed the **deep `*_bwd` throws** (`mul_bwd`/`sub_bwd`) still
+  cost ~11% on `tanh_J1`, so:
+- **Phase-2** — convert the whole shared backward engine to a `bool` return contract:
+  `CompiledFunction::backward<V>` short-circuits on the first `false`; every `*_bwd` in
+  `HC4Revise`, `InHC4Revise`, and `Gradient` (the three `BwdAlgorithm` visitors the driver is
+  instantiated for) returns its primitive's bool; the nested `EmptyBoxException` classes and all
+  `try/catch` are removed. Public `Function::backward(y,x,cb)` keeps its signature, so dReal is
+  unchanged (it already detected emptiness via `iv.is_empty()`). Measured: `__cxa_throw`
+  inclusive **→ 0%** on both `tanh_J1` and `kuramoto`.
+
+**A/B payoff (Phase-2 vs pre-change baseline, all 50 odeexpr, CPU time, `timeout 600`):**
+**zero SAT/UNSAT flips, zero regressions.** Solve set **14 → 12 TIM**: `tanh_decrease__J0.6`
+(TIM → SAT 451 s) and `cs5c_sigmoid__decrease` (TIM → UNSAT 580 s) now solve; nothing newly
+times out. Speedups: `tanh_decrease__J1.0` 311 → **183 s (1.7×)**, `cs4_equivalence__decrease`
+1.26 → 0.71 s. The two newly-solved are the throw-densest decrease proofs — exactly where the
+unwinding cost was concentrated.
+
+Lives entirely in the ibex-fork (`src/function/ibex_{HC4Revise,InHC4Revise,Gradient,
+CompiledFunction,BwdAlgorithm,Function}.{h,cpp}`); catalogued as the Tier-0 and engine-
+conversion patches in `../ibex-fork/MIGRATION.md`. Guarded by the Phase-0 soundness net
+(`test/dreal/contractor/test/contractor_*_test.cc`, `…/ibex_backward_callback_partial_empty_test.cc`,
+`test/dreal/api/test/hc4_empty_propagation_soundness_test.cc`, and engine-level
+`empty01/empty02` in ibex `tests/Test{HC4,InHC4}Revise.cpp`), all of which were written against
+the throw-based code first and stayed green through both stages with zero assertion edits.

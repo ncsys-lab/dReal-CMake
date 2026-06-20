@@ -2,7 +2,7 @@
 
 > **STATUS (2026-06-08): RESOLVED — Codac has been removed.** This document is
 > retained as historical context. The current architecture: source-built IBEX
-> from `ncsys-lab/ibex-lib@dreal-perf-patches` (10 surgical patches on top of
+> from `ncsys-lab/ibex-lib@dreal-perf-patches` (11 surgical patches on top of
 > mainline; see `../ibex-fork/MIGRATION.md`) + CAPD master (sole ODE backend,
 > with a CAPD-based `run_capd_trace` for `--visualize`). See `DEPENDENCIES.md`
 > for the current stack.
