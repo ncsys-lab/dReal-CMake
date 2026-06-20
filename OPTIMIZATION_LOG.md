@@ -358,3 +358,31 @@ no verdict changes vs HEAD on int/continuous/forall spot-checks):
 `fesetround` share **25–27% → 23–24%** (~2 pp absolute, ~9% relative), i.e. a few-% CPU
 recovery on `pow`-dense instances. The remaining ~24% is gaol's own `pow`/transcendental
 directed rounding — *that* part really is gaol-internal and untouched.
+
+## odeexpr `fesetround` — the gaol-internal slice, addressed in the ibex-fork (2026-06-20)
+
+The "gaol-internal and untouched" remainder above was made tractable by patching the vendored
+gaol itself (two surgical, **bit-identical** levers in `ncsys-lab/ibex-lib@dreal-perf-patches`;
+catalogued as patches #9/#10 in `../ibex-fork/MIGRATION.md`). Each interval transcendental
+(`gaol::cos`/`exp`/`tan`/`sinh`/…) toggles the FPU mode nearest⟷upward around every
+correctly-rounded mathlib call; on ARM64 each toggle was a libc `fesetround` whose `msr fpcr`
+is pipeline-serializing.
+
+- **Lever 1 (`ibex-fork@e0311233`):** inline aarch64 `mrs`/`msr` FPCR-RMode write replacing the
+  libc `fesetround` in gaol's `round_{nearest,upward,downward}` (same instruction sequence as
+  macOS `fesetround`, minus the call frame).
+- **Lever 2 (`ibex-fork@3902fa35`):** batch the two directed bounds of each transcendental into a
+  single `round_nearest()`/`round_upward()` pair (`<f>_dn_up` helpers), halving the toggle count
+  (~4→2 per transcendental).
+
+**Soundness:** bit-identical by construction (levers change only *when/how* the mode switches,
+never a computed value), enforced by a dReal-side gate `test/dreal/util/test/
+gaol_transcendental_bitidentity_test.cc` (+ committed golden, dReal `f55d48057`): a 132-case
+adversarial grid whose output endpoint bits must reproduce the pre-lever baseline bit-for-bit.
+Verified bit-identical on both levers; full ctest clean; clobber tripwire satisfied.
+
+**Measured (3-way, 36 baseline-solvable odeexpr, CPU time, same machine):** L1 alone ≈ **2%**
+aggregate (the `msr` *serialization*, not the call frame, dominates — so inlining the call buys
+little); L1+L2 ≈ **8%** aggregate and **7.5–11.8%** on the transcendental-dense long-runners
+(`tanh_decrease__J1.0` 264→245 s, `kuramoto__N5` 113→101 s, `kuramoto__N4`/`kuramoto_doe__N3`
+~−10–12%). Lever 2's toggle-halving carries the win. Both levers retained.
