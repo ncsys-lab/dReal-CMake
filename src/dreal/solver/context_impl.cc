@@ -37,8 +37,8 @@
 #include "dreal/util/if_then_else_eliminator.h"
 #include "dreal/util/interrupt.h"
 #include "dreal/util/logging.h"
-#include "dreal/util/rounded_double.h"
-#include "dreal/util/rounding_mode_guard.h"
+#include "dreal/util/rounded_interval.h"
+#include "dreal/util/rounding.h"
 
 namespace dreal {
 
@@ -66,7 +66,7 @@ void Tighten(Box* box, const double delta) {
   const UpwardRounding ur{round_scope.token()};
   for (int i = 0; i < box->size(); ++i) {
     auto& interval = (*box)[i];
-    if (safe_diam(interval) > delta) {
+    if (safe_diam(interval, ur) > delta) {
       const Variable& var{box->variable(i)};
       switch (var.get_type()) {
         case Variable::Type::BINARY:
@@ -80,8 +80,8 @@ void Tighten(Box* box, const double delta) {
           // under every single rounding mode (the lower endpoint pulled inward,
           // yielding a too-narrow box). The typed directed-rounding helpers make
           // the outward rounding explicit and compiler-checked; see
-          // util/rounded_double.h.
-          const Exact mid{safe_mid(interval)};
+          // util/rounded_interval.h.
+          const Exact mid{safe_mid(interval, ur)};
           const Exact half_delta{Exact{delta}.half()};
           interval &= make_sound_interval(sub_down(mid, half_delta, ur),
                                           add_up(mid, half_delta, ur));
@@ -89,7 +89,7 @@ void Tighten(Box* box, const double delta) {
         case Variable::Type::INTEGER: {
           // static_cast<int>(double) truncates toward zero independent of the
           // rounding mode; only the safe_mid() is FE_UPWARD-sensitive.
-          interval = static_cast<int>(safe_mid(interval));
+          interval = static_cast<int>(safe_mid(interval, ur));
         } break;
       }
     }

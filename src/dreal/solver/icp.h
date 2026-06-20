@@ -91,6 +91,6 @@ class Icp {
 /// for the UNSAT.
 optional<DynamicBitset> EvaluateBox(
     const std::vector<FormulaEvaluator>& formula_evaluators, const Box& box,
-    double precision, ContractorStatus* cs);
+    double precision, ContractorStatus* cs, const UpwardRounding& ur);
 
 }  // namespace dreal

@@ -19,7 +19,7 @@
 
 #include "dreal/solver/filter_assertion.h"
 #include "dreal/util/assert.h"
-#include "dreal/util/rounded_double.h"
+#include "dreal/util/rounded_interval.h"
 #include "dreal/util/logging.h"
 
 namespace dreal {
@@ -104,7 +104,7 @@ CounterexampleRefiner::CounterexampleRefiner(const Formula& query,
   }
 }
 
-Box CounterexampleRefiner::Refine(Box box) {
+Box CounterexampleRefiner::Refine(Box box, const UpwardRounding& ur) {
   if (!opt_) {
     return box;
   }
@@ -113,7 +113,7 @@ Box CounterexampleRefiner::Refine(Box box) {
   Environment env;
   int i = 0;
   for (const Variable& var : box.variables()) {
-    const double mid = safe_mid(box[var]);
+    const double mid = safe_mid(box[var], ur);
     if (forall_variables_.include(var)) {
       init_[i++] = mid;  // forall variable
     } else {

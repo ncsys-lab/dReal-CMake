@@ -39,7 +39,7 @@
 #include <gtest/gtest.h>
 
 #include "dreal/contractor/contractor_status.h"
-#include "dreal/util/rounding_mode_guard.h"
+#include "dreal/util/rounding.h"
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/box.h"
 

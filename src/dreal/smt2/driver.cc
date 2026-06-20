@@ -31,7 +31,9 @@
 #include <gmpxx.h>
 #pragma clang diagnostic pop
 
-#include <dreal/util/rounding_mode_guard.h>
+#include <dreal/util/json_guarded.h>
+#include <dreal/util/rounded_format.h>
+#include <dreal/util/rounding.h>
 
 #include "dreal/contractor/odes/contractor_odes.h"
 #include "dreal/smt2/scanner.h"
@@ -123,7 +125,8 @@ void Smt2Driver::error(const string& m) { cerr << m << "\n"; }
 void Smt2Driver::CheckSat() {
   const optional<Box> model{context_.CheckSat()};
   if (model) {
-    RoundingModeGuard g(FE_TONEAREST); // for printing precision correctly
+    const NearestRoundingScope g; // for printing precision correctly
+    const NearestRounding nr{g.token()};
     if (context_.config().smtlib2_compliant()) {
       cout << "delta-sat\n";
     } else {
@@ -158,7 +161,9 @@ void Smt2Driver::CheckSat() {
         json vis_json;
         vis_json["traces"] = traces;
 
-        nra_json_out << vis_json.dump() << std::endl;
+        // nlohmann serializes the trajectory doubles to decimal here; route
+        // through the token-gated dump_json so FE_TONEAREST is proven.
+        nra_json_out << dump_json(vis_json, nr) << std::endl;
       } catch (std::exception const & e) {
         DREAL_LOG_CRITICAL("The following exception is generated while computing "
                            "a trace (visualization).");
@@ -178,7 +183,8 @@ void Smt2Driver::CheckSat() {
 
 namespace {
 ostream& PrintModel(ostream& os, const Box& box) {
-  RoundingModeGuard g(FE_TONEAREST); // for printing double
+  const NearestRoundingScope g; // for printing double
+  const NearestRounding nr{g.token()};
   PrecisionGuard precision_guard(&os);
   os << "(model\n";
   for (int i = 0; i < box.size(); ++i) {
@@ -208,9 +214,11 @@ ostream& PrintModel(ostream& os, const Box& box) {
       }
     } else {
       if (iv.is_degenerated()) {
-        os << iv.lb();
+        format_double(os, iv.lb(), nr);
       } else {
-        os << iv;
+        // Non-degenerate interval: ibex's own interval operator<< formats both
+        // endpoints (external — covered by the FE_TONEAREST scope above).
+        os << iv;  // rounding-lint: allow ibex interval formatting under FE_TONEAREST
       }
     }
     os << ")\n";
@@ -219,7 +227,7 @@ ostream& PrintModel(ostream& os, const Box& box) {
 }
 
 string ToString(const mpz_class& z) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   if (sgn(z) == -1) {
     return fmt::format("(- {})", fmt::streamed(-z));
   }
@@ -227,7 +235,7 @@ string ToString(const mpz_class& z) {
 }
 
 string ToRational(const double d) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   const mpq_class r{d};
   if (r.get_den() == 1) {
     return fmt::format("{}", ToString(r.get_num()));
@@ -274,7 +282,12 @@ void Smt2Driver::GetValue(const vector<Term>& term_list) const {
         const ExpressionEvaluator evaluator{e};
         pp.Print(e);
         term_str = ss.str();
-        const Box::Interval iv{ExpressionEvaluator(term.expression())(box)};
+        // Interval (gaol) evaluation needs FE_UPWARD; ToString below formats
+        // under FE_TONEAREST. Scope the upward phase tightly around the eval.
+        const Box::Interval iv{[&] {
+          const UpwardRoundingScope eval_scope;
+          return ExpressionEvaluator(term.expression())(box, eval_scope.token());
+        }()};
         value_str = ToString(iv);
         break;
       }

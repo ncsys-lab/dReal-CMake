@@ -20,10 +20,10 @@
 #include <vector>
 
 #include "dreal/util/assert.h"
-#include "dreal/util/ibex_guarded.h"
 #include "dreal/util/logging.h"
 #include "dreal/util/math.h"
-#include "dreal/util/rounding_mode_guard.h"
+#include "dreal/util/rounded_interval.h"
+#include "dreal/util/rounding.h"
 #include "dreal/util/stat.h"
 #include "dreal/util/timer.h"
 
@@ -116,7 +116,7 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs, const UpwardRounding& ur)
   // 2-10, this beats the snapshot pattern by both allocation count and
   // comparison cost.
   bool changed{false};
-  // Token-gated wrapper for ibex's HC4 backward (see util/ibex_guarded.h) — the
+  // Token-gated wrapper for ibex's HC4 backward (see util/rounded_interval.h) — the
   // `ur` proves FE_UPWARD is established, and routing through the wrapper lets
   // the rounding lint forbid any raw ibex::Function::backward call.
   const bool is_inner{

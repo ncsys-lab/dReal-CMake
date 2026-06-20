@@ -390,8 +390,10 @@ namespace dreal
         const std::vector<std::pair<double, double>>& X_t_bounds,
         const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
+        const NearestRounding& /*nr*/,
         int n_steps_hint)
     {
+        DREAL_ASSERT_ROUNDING(FE_TONEAREST);
         CapdOdeResult result;
         if (!cache) return result;
         const int n = cache->n_state_vars;
@@ -445,8 +447,10 @@ namespace dreal
         const std::vector<std::pair<double, double>>& Xt_bounds,
         const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
+        const NearestRounding& /*nr*/,
         int n_steps_hint)
     {
+        DREAL_ASSERT_ROUNDING(FE_TONEAREST);
         CapdOdeResult result;
         if (!cache) return result;
         const int n = cache->n_state_vars;
@@ -499,8 +503,10 @@ namespace dreal
         const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
         bool forward,
+        const NearestRounding& /*nr*/,
         int n_steps)
     {
+        DREAL_ASSERT_ROUNDING(FE_TONEAREST);
         CapdTraceResult result;
         if (!cache) return result;
         const int n = cache->n_state_vars;

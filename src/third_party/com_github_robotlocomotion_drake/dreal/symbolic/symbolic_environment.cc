@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
-#include <dreal/util/rounding_mode_guard.h>
+#include <dreal/util/rounding.h>
 
 namespace dreal {
 namespace drake {
@@ -107,7 +107,7 @@ const Environment::mapped_type& Environment::operator[](
 }
 
 ostream& operator<<(ostream& os, const Environment& env) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   for (const auto& p : env) {
     os << p.first << " -> " << p.second << endl;
   }

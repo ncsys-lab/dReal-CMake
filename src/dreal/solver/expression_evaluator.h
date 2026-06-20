@@ -21,6 +21,7 @@
 
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/box.h"
+#include "dreal/util/rounding.h"
 
 namespace dreal {
 
@@ -28,8 +29,9 @@ class ExpressionEvaluator {
  public:
   explicit ExpressionEvaluator(Expression e);
 
-  /// Evaluates the expression with @p box.
-  Box::Interval operator()(const Box& box) const;
+  /// Evaluates the expression with @p box. The Visit functions use ibex/gaol,
+  /// so the caller must hold an UpwardRounding token (FE_UPWARD established).
+  Box::Interval operator()(const Box& box, const UpwardRounding& ur) const;
 
   const Variables& variables() const { return e_.GetVariables(); }
 

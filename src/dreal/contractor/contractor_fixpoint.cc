@@ -64,7 +64,7 @@ void ContractorFixpoint::Prune(ContractorStatus* cs, const UpwardRounding& ur) c
         return;
       }
     }
-  } while (!term_cond_(old_iv, iv));
+  } while (!term_cond_(old_iv, iv, ur));
 }
 
 ostream& ContractorFixpoint::display(ostream& os) const {

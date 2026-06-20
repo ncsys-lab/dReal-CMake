@@ -16,7 +16,7 @@
 #include "dreal/contractor/contractor_ibex_fwdbwd.h"
 
 #include <iostream>
-#include <dreal/util/rounding_mode_guard.h>
+#include <dreal/util/rounding.h>
 
 #include <gtest/gtest.h>
 
@@ -131,7 +131,7 @@ TEST_F(ContractorIbexFwdbwdTest, TestSmt2Problem20Lowlevel) {
 
   // Double check the arithmetic first.
   {
-    RoundingModeGuard g(FE_TONEAREST);
+    NearestRoundingScope g;
     EXPECT_EQ(v1 + v2 - v3, 0.0);
   }
 

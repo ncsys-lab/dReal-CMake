@@ -11,6 +11,7 @@
 
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/symbolic/odes/symbolic_odes_cell.h"
+#include "dreal/util/rounding.h"
 
 namespace dreal
 {
@@ -89,6 +90,7 @@ namespace dreal
         const std::vector<std::pair<double, double>>& X_t_bounds,
         const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
+        const NearestRounding& nr,
         int n_steps_hint = 20);
 
     // Run CAPD one-shot backward integration.
@@ -110,6 +112,7 @@ namespace dreal
         const std::vector<std::pair<double, double>>& Xt_bounds,
         const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
+        const NearestRounding& nr,
         int n_steps_hint = 20);
 
     // -------------------------------------------------------------------------
@@ -147,6 +150,7 @@ namespace dreal
         const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
         bool forward,
+        const NearestRounding& nr,
         int n_steps = 50);
 
 } // namespace dreal

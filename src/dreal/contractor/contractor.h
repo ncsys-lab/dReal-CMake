@@ -21,7 +21,7 @@
 #include "dreal/contractor/contractor_status.h"
 #include "dreal/solver/config.h"
 #include "dreal/util/box.h"
-#include "dreal/util/rounding_mode_guard.h"
+#include "dreal/util/rounding.h"
 #include "odes/ode_types.h"
 
 namespace dreal {
@@ -39,9 +39,12 @@ class contractor_ode_lohner;
 template <typename ContextType>
 class ContractorForall;
 
-// Box::IntervalVector × Box::IntervalVector → Bool
-using TerminationCondition =
-    std::function<bool(Box::IntervalVector const&, Box::IntervalVector const&)>;
+// Box::IntervalVector × Box::IntervalVector → Bool. Evaluated inside a fixpoint
+// Prune, so it carries the UpwardRounding token (it inspects interval diameters
+// via safe_diam, which is gaol).
+using TerminationCondition = std::function<bool(
+    Box::IntervalVector const&, Box::IntervalVector const&,
+    const UpwardRounding&)>;
 
 class Contractor {
  public:

@@ -128,7 +128,7 @@ void ContractorWorklistFixpoint::Prune(ContractorStatus* cs, const UpwardRoundin
       i_bit = contractors_to_check.find_next(i_bit);
     }
   }
-  if (worklist.none() || term_cond_(old_iv, iv)) {
+  if (worklist.none() || term_cond_(old_iv, iv, ur)) {
     return;
   }
 
@@ -152,7 +152,7 @@ void ContractorWorklistFixpoint::Prune(ContractorStatus* cs, const UpwardRoundin
         ctc_idx = worklist.find_first();
       }
     }
-  } while (!term_cond_(old_iv, iv));
+  } while (!term_cond_(old_iv, iv, ur));
 }
 
 ostream& ContractorWorklistFixpoint::display(ostream& os) const {

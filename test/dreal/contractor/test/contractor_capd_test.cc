@@ -22,7 +22,7 @@ along with dReal. If not, see <http://www.gnu.org/licenses/>.
 #include "dreal/contractor/odes/contractor_odes.h"
 
 #include <iostream>
-#include <dreal/util/rounding_mode_guard.h>
+#include <dreal/util/rounding.h>
 
 #include <gtest/gtest.h>
 

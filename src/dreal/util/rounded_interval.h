@@ -10,16 +10,22 @@
 #pragma once
 
 #include <cfenv>
+#include <utility>
 
 #include "ibex.h"
 
 #include "dreal/util/assert.h"
-#include "dreal/util/rounding_mode_guard.h"
+#include "dreal/util/rounding.h"
 
 namespace dreal {
 
+// Interval-regime (FE_UPWARD) token consumers: the gaol/ibex operations sound
+// only under FE_UPWARD, each gated by the UpwardRounding capability token (see
+// rounding.h). This header is the upward-regime mirror of rounded_format.h /
+// json_guarded.h (the nearest-regime consumers).
+//
 // Typed directed-rounding doubles — the scalar analog of the UpwardRounding
-// capability token (see rounding_mode_guard.h).
+// capability token (see rounding.h).
 //
 // The hazard these prevent: hand-written scalar `double` arithmetic that feeds
 // an interval endpoint. A sound interval [lo, hi] needs lo rounded toward -inf
@@ -106,17 +112,35 @@ inline ibex::Interval make_sound_interval(RoundedDown lo, RoundedUp hi) {
 
 /// FE_UPWARD-guarded accessors. ibex::Interval::mid()/diam() are gaol
 /// directed-rounding computations (NOT pure stored-value reads like lb()/ub())
-/// and are sound only under FE_UPWARD. Routing every call through these makes
-/// the requirement explicit and lets the rounding lint forbid raw .mid()/
-/// .diam() at sites that should be inside the FE_UPWARD phase.
-inline double safe_mid(const ibex::Interval& iv) {
+/// and are sound only under FE_UPWARD. The UpwardRounding token is the
+/// compile-time proof of the mode (uniform with sub_*/add_*/ibex_hc4_backward);
+/// the assert is the Debug drift backstop. The rounding lint forbids raw .mid()/
+/// .diam() so every call is routed here.
+inline double safe_mid(const ibex::Interval& iv, const UpwardRounding& /*ur*/) {
   DREAL_ASSERT_ROUNDING(FE_UPWARD);
   return iv.mid();
 }
 
-inline double safe_diam(const ibex::Interval& iv) {
+inline double safe_diam(const ibex::Interval& iv, const UpwardRounding& /*ur*/) {
   DREAL_ASSERT_ROUNDING(FE_UPWARD);
   return iv.diam();
+}
+
+/// IBEX HC4 backward contraction (the forward-backward workhorse). @p cb is the
+/// per-variable narrowing callback. Returns true if the box was already inner.
+///
+/// gaol is sound only under FE_UPWARD; the UpwardRounding token is the
+/// compile-time proof. Routing every raw ibex arithmetic call through a wrapper
+/// that *requires* the token lets the rounding lint forbid any direct
+/// ibex::Function::backward call (such a call could not prove its rounding
+/// mode). This closes the gap the per-Prune token alone leaves: the token gates
+/// Prune entry; this wrapper gates the arithmetic itself.
+template <typename Callback>
+bool ibex_hc4_backward(const ibex::Function& f, const ibex::Domain& rhs,
+                       ibex::IntervalVector& box, Callback&& cb,
+                       const UpwardRounding& /*ur*/) {
+  DREAL_ASSERT_ROUNDING(FE_UPWARD);
+  return f.backward(rhs, box, std::forward<Callback>(cb));
 }
 
 }  // namespace dreal

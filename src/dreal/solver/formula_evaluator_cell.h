@@ -54,8 +54,10 @@ class FormulaEvaluatorCell {
   /// in form of `e1 != e2` or `!(e1 == e2)`.
   bool is_neq() const { return is_neq_; }
 
-  /// Evaluates the constraint/formula with @p box.
-  virtual FormulaEvaluationResult operator()(const Box& box) const = 0;
+  /// Evaluates the constraint/formula with @p box. Interval (gaol) evaluation,
+  /// so the caller must hold an UpwardRounding token (FE_UPWARD established).
+  virtual FormulaEvaluationResult operator()(
+      const Box& box, const UpwardRounding& ur) const = 0;
 
   virtual const Variables& variables() const = 0;
 

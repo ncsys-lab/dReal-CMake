@@ -15,8 +15,8 @@
 */
 #include "dreal/solver/brancher.h"
 
-#include <dreal/util/rounding_mode_guard.h>
-#include <dreal/util/rounded_double.h>
+#include <dreal/util/rounding.h>
+#include <dreal/util/rounded_interval.h>
 
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
@@ -26,7 +26,8 @@ namespace dreal {
 using std::make_pair;
 using std::pair;
 
-pair<double, int> FindMaxDiam(const Box& box, const DynamicBitset& active_set) {
+pair<double, int> FindMaxDiam(const Box& box, const DynamicBitset& active_set,
+                              const UpwardRounding& ur) {
   DREAL_ASSERT_ROUNDING(FE_UPWARD); // using ibex operations. only non-ibex operations are comparison and assign
   DREAL_ASSERT(!active_set.none());
   double max_diam{0.0};
@@ -34,7 +35,7 @@ pair<double, int> FindMaxDiam(const Box& box, const DynamicBitset& active_set) {
   DynamicBitset::size_type idx = active_set.find_first();
   while (idx != DynamicBitset::npos) {
     const Box::Interval& iv_i{box[idx]};
-    const double diam_i{safe_diam(iv_i)};
+    const double diam_i{safe_diam(iv_i, ur)};
     if (diam_i > max_diam && iv_i.is_bisectable()) {
       max_diam = diam_i;
       max_diam_idx = idx;
@@ -45,11 +46,12 @@ pair<double, int> FindMaxDiam(const Box& box, const DynamicBitset& active_set) {
 }
 
 int BranchLargestFirst(const Box& box, const DynamicBitset& active_set,
-                       Box* const left, Box* const right) {
+                       Box* const left, Box* const right,
+                       const UpwardRounding& ur) {
   DREAL_ASSERT_ROUNDING(FE_UPWARD); // using ibex operations. only non-ibex operations are comparison and assign
   DREAL_ASSERT(!active_set.none());
 
-  const pair<double, int> max_diam_and_idx{FindMaxDiam(box, active_set)};
+  const pair<double, int> max_diam_and_idx{FindMaxDiam(box, active_set, ur)};
   const int branching_dim{max_diam_and_idx.second};
   if (branching_dim >= 0) {
     pair<Box, Box> bisected_boxes{box.bisect(branching_dim)};

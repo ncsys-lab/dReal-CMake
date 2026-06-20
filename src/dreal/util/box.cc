@@ -21,9 +21,9 @@
 #include <limits>
 #include <utility>
 
-#include "rounding_mode_guard.h"
+#include "rounding.h"
 #include "dreal/util/assert.h"
-#include "dreal/util/rounded_double.h"
+#include "dreal/util/rounded_interval.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"
 #include "dreal/util/math.h"
@@ -149,14 +149,16 @@ const Box::IntervalVector& Box::interval_vector() const { return values_; }
 Box::IntervalVector& Box::mutable_interval_vector() { return values_; }
 
 pair<double, int> Box::MaxDiam() const {
-  RoundingModeGuard g(FE_UPWARD);
-  DREAL_ASSERT_ROUNDING(FE_UPWARD);
+  // Standalone entry point: self-establish the FE_UPWARD scope and mint the
+  // token for safe_diam (the nearest-regime analog is a NearestRoundingScope).
+  const UpwardRoundingScope g;
+  const UpwardRounding ur{g.token()};
   double max_diam{0.0};
   int idx{-1};
   for (size_t i{0}; i < variables_->size(); ++i) {
     // safe_diam(): .diam() is a gaol directed-rounding computation, sound only
     // under the FE_UPWARD this function established above.
-    const double diam_i{safe_diam(values_[i])};
+    const double diam_i{safe_diam(values_[i], ur)};
     if (diam_i > max_diam && values_[i].is_bisectable()) {
       max_diam = diam_i;
       idx = i;

@@ -32,7 +32,7 @@ OdeFormulaEvaluator::~OdeFormulaEvaluator() {
 }
 
 FormulaEvaluationResult OdeFormulaEvaluator::operator()(
-    const Box& box) const {
+    const Box& box, const UpwardRounding& /*ur*/) const {
   // TODO: IMPLEMENT CAPD STUFF HERE
   return FormulaEvaluationResult{FormulaEvaluationResult::Type::VALID, Box::Interval(0.0, 0.0)};
 }

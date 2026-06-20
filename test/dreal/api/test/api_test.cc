@@ -39,8 +39,10 @@ class ApiTest : public ::testing::Test {
 ::testing::AssertionResult CheckSolution(const Formula& f,
                                          const Box& solution) {
   FormulaEvaluator formula_evaluator{make_relational_formula_evaluator(f)};
+  // Interval (gaol) evaluation needs FE_UPWARD; establish it and mint the token.
+  const UpwardRoundingScope rms;
   const FormulaEvaluationResult formula_evaluation_result{
-      formula_evaluator(solution)};
+      formula_evaluator(solution, rms.token())};
   if (formula_evaluation_result.type() ==
       FormulaEvaluationResult::Type::UNSAT) {
     return ::testing::AssertionFailure() << "UNSAT detected!";

@@ -64,8 +64,9 @@ FormulaEvaluator::FormulaEvaluator(std::shared_ptr<FormulaEvaluatorCell> ptr)
   DREAL_ASSERT(ptr_);
 }
 
-FormulaEvaluationResult FormulaEvaluator::operator()(const Box& box) const {
-  return (*ptr_)(box);
+FormulaEvaluationResult FormulaEvaluator::operator()(
+    const Box& box, const UpwardRounding& ur) const {
+  return (*ptr_)(box, ur);
 }
 
 const Variables& FormulaEvaluator::variables() const {

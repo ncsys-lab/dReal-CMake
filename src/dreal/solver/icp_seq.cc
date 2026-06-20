@@ -101,7 +101,8 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
     // under evaluation and it's small enough.
     eval_timer_guard.resume();
     const optional<DynamicBitset> evaluation_result{
-        EvaluateBox(formula_evaluators, current_box, config().precision(), cs)};
+        EvaluateBox(formula_evaluators, current_box, config().precision(), cs,
+                    ur)};
     if (!evaluation_result) {
       // 3.2.1. We detect that the current box is not a feasible solution.
       DREAL_LOG_DEBUG(
@@ -123,7 +124,7 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
     Box box_left;
     Box box_right;
     const int branching_dim = config().brancher()(
-        current_box, *evaluation_result, &box_left, &box_right);
+        current_box, *evaluation_result, &box_left, &box_right, ur);
     if (branching_dim >= 0) {
       if (stack_left_box_first_) {
         stack.emplace_back(box_left, branching_dim);

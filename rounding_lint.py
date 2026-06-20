@@ -9,14 +9,24 @@ compile DB hits a toolchain header mismatch. A scoped regex lint enforces the
 same *routing* rules (it does not, and clang-tidy could not either, verify
 rounding *correctness*) and runs anywhere with no build.
 
-Rules:
+Interval regime (FE_UPWARD) rules:
   1. No raw ibex::Function::backward — route through ibex_hc4_backward
-     (util/ibex_guarded.h), which requires the UpwardRounding token.
+     (util/rounded_interval.h), which requires the UpwardRounding token.
   2. No raw .mid()/.diam() gaol getters — route through safe_mid/safe_diam
-     (util/rounded_double.h), which assert FE_UPWARD.
+     (util/rounded_interval.h), which require the UpwardRounding token.
   3. Smell: an interval built from hand-written scalar +/- arithmetic (the
      mis-rounded `Interval(mid - half, mid + half)` pattern) — use
      make_sound_interval / interval ops so gaol rounds outward.
+
+Nearest regime (FE_TONEAREST) rule:
+  4. No raw json `.dump(` — route through dump_json (util/json_guarded.h),
+     which requires the NearestRounding token (nlohmann serializes its doubles
+     to decimal in dump(), correct only under FE_TONEAREST).
+
+Note on the nearest regime: scalar double->decimal formatting (`os << v`) is not
+syntactically distinctive enough for a regex to catch reliably, so that routing
+is enforced at *compile time* by format_double requiring the NearestRounding
+token, not by this lint. The lint covers the detectable json `.dump(` case.
 
 Legitimate exceptions carry an inline `// rounding-lint: allow <reason>` marker
 on the same line. Wrapper-definition files are fully allow-listed.
@@ -30,8 +40,9 @@ SRC = ROOT / "src" / "dreal"
 
 # Files that DEFINE the sanctioned wrappers/helpers.
 ALLOW_FILES = {
-    "util/rounded_double.h",  # safe_mid / safe_diam definitions
-    "util/ibex_guarded.h",    # ibex_hc4_backward definition
+    "util/rounded_interval.h",  # safe_mid / safe_diam / ibex_hc4_backward defs
+    "util/rounded_format.h",    # format_double definition
+    "util/json_guarded.h",      # dump_json definition
 }
 ALLOW_MARK = "rounding-lint: allow"
 
@@ -42,6 +53,8 @@ RULES = [
      re.compile(r'\.(?:mid|diam)\s*\(\s*\)')),
     ("interval built from hand scalar arithmetic (use make_sound_interval)",
      re.compile(r'(?:Box|ibex)::Interval\s*\([^;)]*\s[-+]\s[^;]*,')),
+    ("raw json .dump( (use dump_json under a NearestRounding token)",
+     re.compile(r'\.dump\s*\(')),
 ]
 
 

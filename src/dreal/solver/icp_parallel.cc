@@ -37,8 +37,9 @@ namespace {
 bool ParallelBranch(const DynamicBitset& bitset,
                     const bool stack_left_box_first, Box* const box,
                     Stack<Box>* const global_stack,
-                    atomic<int>* const number_of_boxes) {
-  const pair<double, int> max_diam_and_idx{FindMaxDiam(*box, bitset)};
+                    atomic<int>* const number_of_boxes,
+                    const UpwardRounding& ur) {
+  const pair<double, int> max_diam_and_idx{FindMaxDiam(*box, bitset, ur)};
   const int branching_point{max_diam_and_idx.second};
   if (branching_point >= 0) {
     const auto boxes = box->bisect(branching_point);
@@ -131,7 +132,8 @@ void Worker(const Contractor& contractor, const Config& config,
     // under evaluation and it's small enough.
     eval_timer_guard.resume();
     const optional<DynamicBitset> evaluation_result{
-        EvaluateBox(formula_evaluators, current_box, config.precision(), cs)};
+        EvaluateBox(formula_evaluators, current_box, config.precision(), cs,
+                    ur)};
     if (!evaluation_result) {
       // 3.2.1. We detect that the current box is not a feasible solution.
       number_of_boxes->fetch_sub(1, std::memory_order_acq_rel);
@@ -153,7 +155,7 @@ void Worker(const Contractor& contractor, const Config& config,
     // 3.2.3. This box is bigger than delta. Need branching.
     branch_timer_guard.resume();
     if (!ParallelBranch(*evaluation_result, stack_left_box_first, &current_box,
-                        global_stack, number_of_boxes)) {
+                        global_stack, number_of_boxes, ur)) {
       DREAL_LOG_DEBUG(
           "IcpParallel::Worker() Found that the current box is not "
           "satisfying "

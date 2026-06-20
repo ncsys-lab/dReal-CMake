@@ -25,6 +25,8 @@
 #include "dreal/symbolic/odes/symbolic_odes_cell.h"
 #include "nlohmann/json.hpp"
 
+#include "dreal/util/json_guarded.h"
+
 namespace dreal
 {
     std::ofstream literal_log("/tmp/dreal_audit_sat_literal_log.txt");
@@ -175,7 +177,8 @@ namespace dreal
             all_matches_json.emplace_back(match_conflict_str, subs_strs, tag, wna);
         }
         dump["all_matches"] = all_matches_json;
-        const auto dump_str = dump.dump(-1, ' ', true);
+        const NearestRoundingScope nearest_scope;
+        const auto dump_str = dump_json(dump, nearest_scope.token(), -1, ' ', true);
         std::cout << "; pm_dump_all = " << dump_str << '\n';
 
         static int audit_no = 0;

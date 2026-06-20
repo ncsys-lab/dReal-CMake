@@ -22,6 +22,7 @@
 #include "dreal/solver/config.h"
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/box.h"
+#include "dreal/util/rounding.h"
 
 namespace dreal {
 
@@ -43,7 +44,8 @@ class CounterexampleRefiner {
                         const Config& config);
 
   /// Refines an initial solution and returns an improved one if possible.
-  Box Refine(Box box);
+  /// Uses gaol (safe_mid), so the caller must hold an UpwardRounding token.
+  Box Refine(Box box, const UpwardRounding& ur);
 
  private:
   std::unique_ptr<NloptOptimizer> opt_;

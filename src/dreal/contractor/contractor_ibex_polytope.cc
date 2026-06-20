@@ -21,7 +21,7 @@
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
 #include "dreal/util/math.h"
-#include "dreal/util/rounding_mode_guard.h"
+#include "dreal/util/rounding.h"
 #include "dreal/util/stat.h"
 #include "dreal/util/timer.h"
 

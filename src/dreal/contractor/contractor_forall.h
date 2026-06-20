@@ -30,7 +30,7 @@
 #include "dreal/contractor/generic_contractor_generator.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/box.h"
-#include "dreal/util/rounded_double.h"
+#include "dreal/util/rounded_interval.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/interrupt.h"
 #include "dreal/util/logging.h"
@@ -156,7 +156,7 @@ class ContractorForall : public ContractorCell {
     // taking the mid-points of counterexample.
     for (const Variable& forall_var : get_quantified_variables(f_)) {
       contractor_status.mutable_box()[forall_var] =
-          safe_mid(counterexample[forall_var]);
+          safe_mid(counterexample[forall_var], ur);
     }
     contractor_.Prune(&contractor_status, ur);
     if (contractor_status.box().empty()) {
@@ -217,7 +217,7 @@ class ContractorForall : public ContractorCell {
                         counterexample);
 
         if (config().use_local_optimization()) {
-          counterexample = refiner_->Refine(counterexample);
+          counterexample = refiner_->Refine(counterexample, ur);
         }
         bool need_to_break_the_loop =
             PruneWithCounterexample(cs, &current_box, counterexample, ur);

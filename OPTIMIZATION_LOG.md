@@ -5,6 +5,12 @@ or **Rejected** (with numbers + reason). Acceptance bar: net PAR2 improvement �
 probe + gate sets, **zero** SAT/UNSAT correctness flips vs ground truth, no >1.5× regressions.
 Soundness guardrails (FE_UPWARD/FE_TONEAREST guards, no silent fallbacks) are non-negotiable.
 
+> **Scope:** §Adopted and §Rejected below are **all CAPD/ODE-path tuning** — the probe set
+> is ODE-heavy and the baseline profile is an ODE benchmark where `contractor_ode_lohner`
+> is 90.8% of runtime. The ODE-free `ode_expressivity` (odeexpr) family shares **none** of
+> this code; for its assumption re-check and its (different) hotspot, see the
+> **odeexpr** section at the bottom of this file.
+
 ## Measurement setup
 
 - **Baseline:** `benchmark/baseline_local.csv` (~30 stratified, refreshed on this branch).
@@ -230,3 +236,85 @@ per-step Taylor-coefficient cost (order) is the only step-cost lever, and it's
 at the order-10 floor. Kept tol 1e-10 (tighter = safer, no speed cost).
 Follow-up: the dead `n_steps`/`max_step` in fwd/bwd is a cleanup candidate
 (also the stale Codac-era file header comment).
+
+---
+
+## odeexpr (ODE-free QF_NRA) — assumption re-check (2026-06-20, HEAD `8a2367182`)
+
+**Why this section is separate.** Everything above is CAPD/ODE-path tuning. The
+high-priority `ode_expressivity` (odeexpr) family is **pure QF_NRA with no ODEs** (50
+`.smt2`, transcendental-heavy: `sin`/`tanh`/`pow`/`exp`; no quantifiers; each sets
+`:precision 5e-4`; Lyapunov positivity/stability/decrease obligations). It exercises a
+different code path, so the question "could any §Adopted/§Rejected idea backfire here?"
+needed a direct check.
+
+**Orthogonality — confirmed by measurement, not just by reading.** `sample` (20 s) of 5
+hard odeexpr benchmarks shows **0 samples** in any `capd*` / `run_capd*` /
+`contractor_ode*` frame. The active path is
+`IcpSeq → Fixpoint[ ContractorIbexFwdbwd × N, Integer ] → BranchLargestFirst`,
+single-threaded, with polytope / local-opt / pattern-matching all off by default
+(`run_batch.sh` passes no flags; `drpm_max_size` default 0). Every §Adopted/§Rejected idea
+(Taylor order, thread_local IMap reuse, C1 variational, Hermite-Obreshkov, CAPD tolerance,
+backward contractor, worklist-fixpoint, vector-field CSE) is in CAPD code that **never runs
+here** — none can help or backfire. *Correction to the §Adopted note: the thread_local
+IMap-reuse win is **neutral** on odeexpr, not beneficial — `IMap` is CAPD's map, built only
+for ODE constraints.*
+
+**The real odeexpr hotspot — two mechanical overheads the ODE campaign never saw.**
+Self-sample leaf attribution:
+
+| benchmark (verdict) | `fesetround` | exc-unwind | gaol arith | IBEX HC4 | malloc |
+|---|---|---|---|---|---|
+| size_sweep.kuramoto_doe_N5 (sin) | **44%** | 3% | 13% | 17% | 3% |
+| box_sweep.tanh_decrease_xwin2 | 37% | 24% | 6% | 13% | 3% |
+| box_sweep.tanh_decrease_J1 (SAT) | 37% | 22% | 7% | 14% | 2% |
+| tanh.decrease_slope | 23% | 31% | 9% | 14% | 3% |
+| tanh.composite_lipschitz_i1 | 30% | **37%** | 5% | 9% | 4% |
+
+1. **`fesetround` (FPU rounding-mode switch), 23–44%.** Verified caller chain
+   `gaol::cos → fesetround` (leaves `dubsin`/`ucos`/`uacos`): gaol's **ARM64 interval
+   transcendental functions switch the rounding mode per call** for directed-rounded bounds.
+   odeexpr is transcendental-dense and each ARM64 `fpcr` write is pipeline-serializing. This
+   is *gaol-internal* (vendored interval lib), one level below dreal's phase-hoisted
+   `UpwardRoundingScope`, so the existing dreal-side rounding optimization does not reach it.
+2. **C++ exception unwinding, 3–37%.** Verified `__cxa_throw` / `_Unwind_RaiseException` /
+   `__gxx_personality_v0` on the hot stack (+ the dyld per-frame image-lookup cluster the
+   unwinder uses). Origin: IBEX `HC4Revise.cpp` `throw EmptyBoxException()` (10+ sites in the
+   backward path), fired on every prune-to-empty — which dominates the UNSAT decrease proofs.
+   The dreal QF_NRA path doesn't catch it (`rounded_interval.h` `ibex_hc4_backward` forwards; `fwdbwd.cc:139`
+   reads `is_empty()`); the throw is caught/converted inside IBEX's callback-backward, per
+   prune.
+
+Combined, **~half of odeexpr runtime is mechanical overhead** (mode switches + unwinding);
+the actual interval algebra (gaol arith + HC4) is only ~20–30%. This is the inverse of the
+ODE families, where CAPD Taylor integration (90%+) buried both. **Future odeexpr work should
+target these two** — a gaol transcendental path that avoids per-call `fesetround` on ARM64,
+and an empty-domain *signaling* path that returns a flag instead of throwing — not anything
+in §Adopted/§Rejected.
+
+**A/B of the shared / default-off levers** (HEAD `8a2367182`, fresh clean-src build, all 50,
+600 s wall timeout, IcpSeq; reference = default flags):
+
+| arm | solved | SAT | UNSAT | TIM | PAR2 vs default | verdict flips |
+|---|---|---|---|---|---|---|
+| default | 36/50 | 11 | 25 | 14 | 1.00× | — |
+| `--worklist-fixpoint` | 34/50 | 10 | 24 | 16 | **5.58× worse** | none |
+| `--polytope` | 16/50\* | 0 | 16 | — | n/a (errors) | none |
+
+- **`--worklist-fixpoint`: net negative — the log's ODE-grounds rejection holds on odeexpr
+  too.** ~2× faster on the 12 commonly-solved (aggregate 0.49×) but pushes
+  `tanh_decrease__J1.0` (SAT 311 s → TIM) and `kuramoto_doe__N3` over the timeout, losing 2
+  solves — the same faster-on-some / catastrophic-on-others variance as k17/k70. No flips.
+- **`--polytope`: not a usable lever in this build.** \*The 16 "solved" are trivial instances
+  solved before the contractor fires; the rest exit 255 with `error: LPSolver method called
+  but no LPSolver has been configured` — IBEX was built without an LP backend (`-DLP_LIB`
+  unset). Evaluating polytope here (LP cuts might help the transcendental constraints) would
+  first require rebuilding IBEX with an LP solver.
+- **`--local-optimization`: not run — provably inert** (exist-forall-only per `--help`;
+  odeexpr is quantifier-free).
+
+**Bottom line.** No §Adopted/§Rejected decision can have the opposite effect on odeexpr —
+they are dead code for it. The one rejected lever that *shares* the QF_NRA fixpoint
+(`--worklist-fixpoint`) was re-tested directly and is net-negative here too, with no
+soundness flip. The genuine headroom is elsewhere (gaol ARM64 transcendental `fesetround`,
+EmptyBoxException unwinding), untouched by this log.

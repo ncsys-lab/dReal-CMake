@@ -34,7 +34,8 @@ class Config {
   ~Config() = default;
 
   using Brancher = std::function<int(
-      const Box& box, const DynamicBitset& bitset, Box* left, Box* right)>;
+      const Box& box, const DynamicBitset& bitset, Box* left, Box* right,
+      const UpwardRounding& ur)>;
 
   /// Returns the precision option.
   double precision() const;

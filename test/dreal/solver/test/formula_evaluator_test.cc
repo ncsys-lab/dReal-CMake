@@ -45,13 +45,19 @@ class FormulaEvaluatorTest : public ::testing::Test {
   const Formula neq_{x_ != y_};
 
   Box box_;
+
+  // The relational evaluator does gaol interval evaluation, which is sound only
+  // under FE_UPWARD; establish it for the test and mint the token operator()
+  // now requires.
+  const UpwardRoundingScope rms_;
+  const UpwardRounding ur{rms_.token()};
 };
 
 TEST_F(FormulaEvaluatorTest, Gt) {
   FormulaEvaluator formula_evaluator{make_relational_formula_evaluator(gt_)};
   box_[x_] = 10.0;
   box_[y_] = 0.0;
-  const Box::Interval result{formula_evaluator(box_).evaluation()};
+  const Box::Interval result{formula_evaluator(box_, ur).evaluation()};
   cerr << gt_ << "\t" << formula_evaluator << "\n" << result << endl;
   cerr << "-----------------------\n";
 }
@@ -60,7 +66,7 @@ TEST_F(FormulaEvaluatorTest, Gte) {
   FormulaEvaluator formula_evaluator{make_relational_formula_evaluator(gte_)};
   box_[x_] = 10.0;
   box_[y_] = 0.0;
-  const Box::Interval result{formula_evaluator(box_).evaluation()};
+  const Box::Interval result{formula_evaluator(box_, ur).evaluation()};
   cerr << gte_ << "\t" << formula_evaluator << "\n" << result << endl;
   cerr << "-----------------------\n";
 }
@@ -69,7 +75,7 @@ TEST_F(FormulaEvaluatorTest, Lt) {
   FormulaEvaluator formula_evaluator{make_relational_formula_evaluator(lt_)};
   box_[x_] = 10.0;
   box_[y_] = 0.0;
-  const Box::Interval result{formula_evaluator(box_).evaluation()};
+  const Box::Interval result{formula_evaluator(box_, ur).evaluation()};
   cerr << lt_ << "\t" << formula_evaluator << "\n" << result << endl;
   cerr << "-----------------------\n";
 }
@@ -78,7 +84,7 @@ TEST_F(FormulaEvaluatorTest, Lte) {
   FormulaEvaluator formula_evaluator{make_relational_formula_evaluator(lte_)};
   box_[x_] = 10.0;
   box_[y_] = 0.0;
-  const Box::Interval result{formula_evaluator(box_).evaluation()};
+  const Box::Interval result{formula_evaluator(box_, ur).evaluation()};
   cerr << lte_ << "\t" << formula_evaluator << "\n" << result << endl;
   cerr << "-----------------------\n";
 }
@@ -87,7 +93,7 @@ TEST_F(FormulaEvaluatorTest, Eq) {
   FormulaEvaluator formula_evaluator{make_relational_formula_evaluator(eq_)};
   box_[x_] = 10.0;
   box_[y_] = 0.0;
-  const Box::Interval result{formula_evaluator(box_).evaluation()};
+  const Box::Interval result{formula_evaluator(box_, ur).evaluation()};
   cerr << eq_ << "\t" << formula_evaluator << "\n" << result << endl;
   cerr << "-----------------------\n";
 }
@@ -96,7 +102,7 @@ TEST_F(FormulaEvaluatorTest, Neq) {
   FormulaEvaluator formula_evaluator{make_relational_formula_evaluator(neq_)};
   box_[x_] = 10.0;
   box_[y_] = 0.0;
-  const Box::Interval result{formula_evaluator(box_).evaluation()};
+  const Box::Interval result{formula_evaluator(box_, ur).evaluation()};
   cerr << neq_ << "\t" << formula_evaluator << "\n" << result << endl;
   cerr << "-----------------------\n";
 }

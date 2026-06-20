@@ -3,7 +3,7 @@
 
    Licensed under the Apache License, Version 2.0 (the "License").
 */
-#include "dreal/util/rounded_double.h"
+#include "dreal/util/rounded_interval.h"
 
 #include <cfenv>
 
@@ -11,7 +11,7 @@
 
 #include "ibex.h"
 
-#include "dreal/util/rounding_mode_guard.h"
+#include "dreal/util/rounding.h"
 
 namespace dreal {
 namespace {
@@ -54,7 +54,7 @@ TEST(RoundedDoubleTest, TightenConstructionRoundsOutward) {
   double nearest_lo{};
   double nearest_hi{};
   {
-    const RoundingModeGuard g{FE_TONEAREST};
+    const NearestRoundingScope g;
     nearest_lo = mid - half;
     nearest_hi = mid + half;
   }
@@ -77,11 +77,11 @@ TEST(RoundedDoubleTest, ExactHalfIsModeInvariant) {
   double up_half{};
   double near_half{};
   {
-    const RoundingModeGuard g{FE_UPWARD};
+    const UpwardRoundingScope g;
     up_half = Exact{0.1}.half().value();
   }
   {
-    const RoundingModeGuard g{FE_TONEAREST};
+    const NearestRoundingScope g;
     near_half = Exact{0.1}.half().value();
   }
   EXPECT_EQ(up_half, near_half);

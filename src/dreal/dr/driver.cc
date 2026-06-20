@@ -20,7 +20,9 @@
 #include <sstream>
 #include <string>
 #include <utility>
-#include <dreal/util/rounding_mode_guard.h>
+#include <dreal/util/rounded_format.h>
+#include <dreal/util/rounded_interval.h>
+#include <dreal/util/rounding.h>
 
 #include "dreal/dr/scanner.h"
 #include "dreal/solver/expression_evaluator.h"
@@ -108,13 +110,23 @@ void DrDriver::Solve() {
   }
   const optional<Box> model{context_.CheckSat()};
   if (model) {
-    RoundingModeGuard g(FE_TONEAREST); // for printing precision correctly
+    const NearestRoundingScope g; // for printing precision correctly
+    const NearestRounding nr{g.token()};
     cout << "delta-sat with delta = " << context_.config().precision() << endl;
     if (context_.config().produce_models()) {
       cout << *model << endl;
       for (const Expression& f : objectives_) {
-        cout << "Found minimum for " << f << " is "
-             << ExpressionEvaluator(f)(*model).mid() << endl;  // rounding-lint: allow (model printing under FE_TONEAREST)
+        // Interval (gaol) evaluation + safe_mid need FE_UPWARD; capture the
+        // scalar under a tight upward scope, then print it under the nearest
+        // scope `g` above.
+        const double minimum{[&] {
+          const UpwardRoundingScope eval_scope;
+          const UpwardRounding eval_ur{eval_scope.token()};
+          return safe_mid(ExpressionEvaluator(f)(*model, eval_ur), eval_ur);
+        }()};
+        cout << "Found minimum for " << f << " is ";
+        format_double(cout, minimum, nr);
+        cout << endl;
       }
     }
   } else {

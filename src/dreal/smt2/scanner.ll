@@ -15,7 +15,7 @@
 #include <string>
 
 #include "dreal/smt2/scanner.h"
-#include "dreal/util/rounding_mode_guard.h"
+#include "dreal/util/rounding.h"
 
 /* import the parser's token type into a local typedef */
 typedef dreal::Smt2Parser::token token;
@@ -211,7 +211,7 @@ simple_symbol   {sym_begin}{sym_continue}*
 }
 
 [-+]?0[xX]({hex}+\.?|{hex}*\.{hex}+)([pP][-+]?[0-9]+)? {
-    RoundingModeGuard g(FE_TONEAREST); // for parsing double
+    NearestRoundingScope g; // for parsing double
     yylval->build<double>(std::stod(yytext));
     return token::HEXFLOAT;
 }

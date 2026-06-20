@@ -20,7 +20,7 @@
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"
-#include "dreal/util/rounding_mode_guard.h"
+#include "dreal/util/rounding.h"
 
 namespace dreal
 {
@@ -119,7 +119,7 @@ namespace dreal
         }
 
         if (!m_ctr.second.empty()) {
-            RoundingModeGuard g(FE_UPWARD);
+            UpwardRoundingScope g;
             for (const auto& inv : m_ctr.second) {
                 const auto* const invc = to_forallT(inv);
                 if (is_conjunction(invc->get_bound_f())) {
@@ -143,7 +143,7 @@ namespace dreal
         for (const auto& [ode_var, _rhs] : icc->get_flow()->ode_list)
             m_ode_state_vars.push_back(ode_var);
         {
-            RoundingModeGuard g(FE_TONEAREST);
+            NearestRoundingScope g;
             // CAPD's IMap parser is moderately expensive; doing it here
             // keeps Prune off the cold per-flow translation path. If the RHS
             // cannot be translated/parsed, make_capd_ode_cache *raises* (rather
@@ -165,7 +165,7 @@ namespace dreal
         // failure here means something changed the FPU mode without a guard
         // (the classic CAPD-clobber / un-guarded-getter hazard). Debug-only.
         DREAL_ASSERT_ROUNDING_CONSISTENT();
-        RoundingModeGuard g(FE_TONEAREST);
+        NearestRoundingScope g;
         DREAL_ASSERT_ROUNDING(FE_TONEAREST);
 
         DREAL_LOG_DEBUG("contractor_ode_lohner::Prune [{} dir={}]",
@@ -335,9 +335,9 @@ namespace dreal
 
         CapdOdeResult res;
         if (m_dir == ode_direction::FWD) {
-            res = run_capd_fwd(m_capd_cache, u0_bounds, X_t_bounds, par_bounds, t_ub);
+            res = run_capd_fwd(m_capd_cache, u0_bounds, X_t_bounds, par_bounds, t_ub, g.token());
         } else {
-            res = run_capd_bwd(m_capd_cache, u0_bounds, par_bounds, t_ub);
+            res = run_capd_bwd(m_capd_cache, u0_bounds, par_bounds, t_ub, g.token());
         }
 
         if (!res.found) return;
@@ -398,7 +398,7 @@ namespace dreal
         // Prune() establishes this at its top; generate_trace is a separate
         // entry point (the --visualize path) and must establish it too, rather
         // than relying on whatever mode the caller left the FPU in.
-        RoundingModeGuard g(FE_TONEAREST);
+        NearestRoundingScope g;
 
         const auto& ic     = m_ctr.first;
         const auto* const icc = to_integral(ic);
@@ -436,7 +436,7 @@ namespace dreal
 
         const bool forward = (m_dir == ode_direction::FWD);
         const CapdTraceResult trace = run_capd_trace(
-            m_capd_cache, u0_bounds, par_bounds, t_ub, forward);
+            m_capd_cache, u0_bounds, par_bounds, t_ub, forward, g.token());
 
         if (trace.points.empty()) return json::array();
 

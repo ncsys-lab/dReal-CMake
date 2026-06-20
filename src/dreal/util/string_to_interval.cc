@@ -15,7 +15,7 @@
 */
 #include "dreal/util/string_to_interval.h"
 
-#include "dreal/util/rounding_mode_guard.h"
+#include "dreal/util/rounding.h"
 
 namespace dreal {
 
@@ -23,7 +23,7 @@ using std::stod;
 using std::string;
 
 Box::Interval StringToInterval(const string& s) {
-  RoundingModeGuard guard(FE_UPWARD);
+  UpwardRoundingScope guard;
   const double ub{stod(s)};
   double lb{};
   if (s[0] == '-') {

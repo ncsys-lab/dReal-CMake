@@ -91,8 +91,8 @@ RelationalFormulaEvaluator::~RelationalFormulaEvaluator() {
 }
 
 FormulaEvaluationResult RelationalFormulaEvaluator::operator()(
-    const Box& box) const {
-  const Box::Interval evaluation{expression_evaluator_(box)};
+    const Box& box, const UpwardRounding& ur) const {
+  const Box::Interval evaluation{expression_evaluator_(box, ur)};
   switch (op_) {
     case RelationalOperator::EQ: {
       // e₁ - e₂ = 0
