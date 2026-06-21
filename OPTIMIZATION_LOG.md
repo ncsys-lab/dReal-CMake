@@ -611,3 +611,72 @@ extended to cover the Lever-3 form. The payoff is at most the ~15% remaining fes
 on the currently-solvable benchmarks (already reduced from 30–44% by Levers 1+2 and the
 Phase-2 exit-path elimination). This is the last gaol-internal lever and should be attempted
 only if avenues A–D are exhausted.
+
+---
+
+## gaol `msr fpcr` — can we eliminate it, and what is the ceiling? (2026-06-20)
+
+Investigation of whether the per-transcendental `msr fpcr` toggles can be eliminated
+(not just reduced as in Levers 1+2), and measurement of the headroom before committing
+to any "Lever 3"-class rewrite.
+
+**Why the toggle is structural (not removable cheaply).** Accurate correctly-rounded
+transcendentals use double-double / multi-word internal arithmetic whose error analysis is
+valid *only in round-to-nearest*; gaol's interval ambient is FE_UPWARD (directed rounding).
+The two requirements conflict, so every interval transcendental round-trips
+upward→nearest→upward = **2 `msr fpcr` writes** (the Lever-2 floor).
+
+**Verified dead ends (the two "workaround" ideas):**
+- **Patch mathlib (libultim) to not require nearest — NOT viable.** Round-to-nearest is a
+  *documented correctness precondition*, not a runtime flag: mathlib contains zero
+  `fesetround`/`fpcr` references (it *assumes* the mode), and `AARCH64_DPChange.c::Init_Lib()`
+  sets `FE_DFL_ENV` "so that the math routines will work properly." Making it sound in
+  FE_UPWARD = rewriting its kernels and re-deriving all error bounds.
+- **Switch to the crlibm backend — does NOT help.** Verified in `gaol_double_op_crlibm.h`:
+  crlibm's directed functions (`cos_rd`/`cos_ru`/…) are *also* wrapped in
+  `round_nearest()`…restore. crlibm requires nearest mode internally for the same reason.
+- **The logged "Lever 3" (`lb = -round_up(-f(x))`) is a misconception.** That negation
+  identity converts upward⟷downward for *arithmetic*; it cannot avoid the nearest call,
+  because `f` is the mathlib routine, which still needs nearest. It does not remove a toggle.
+
+**The only true eliminations are architectural and NOT bit-identical** (so they can shift
+delta-sat/unsat verdicts at the boundary): (A) invert the ambient — keep the FPU in
+FE_TONEAREST globally and do interval arithmetic with `next_float`/`previous_float` ULP
+bumps (a rewrite of gaol's arithmetic core; not upstreamable); or (B) custom upward-mode
+directed transcendentals (our own filib/crlibm). Both are larger than Lever 3.
+
+**Measured ceiling (two methods).**
+1. *Microbench* (`/tmp/msr_microbench.cpp`, links `libultim.a`; 2 arms with identical
+   mathlib path, with vs without the 2 `msr`): the 2 writes are **65–80%** of a
+   *back-to-back* interval transcendental (`cos`/`exp`/`tan`/`tanh`/`atanh`; ~30 ns of `msr`
+   vs ~7–18 ns of actual mathlib). This over-states the solve-level share (a tight FP loop
+   maximizes the pipeline drain each `msr` pays).
+2. *In-solver redundant-`msr` A/B* (ecologically valid). Inject K extra `msr` round-trips
+   *between* the two mathlib calls in each `_dn_up` helper — net rounding mode unchanged ⇒
+   **identical values, identical search trajectory** (verdicts confirmed identical across
+   K=0/1/2). `(T_{K=1}−T_{K=0})` = in-context cost of 2 `msr`:
+
+   | benchmark (dense) | k0 (2 msr) | k1 (+2) | Δ/2msr | k2 (+4) | k2 step |
+   |---|---|---|---|---|---|
+   | kuramoto_doe__N3 (UNSAT, 2 s) | 1.744 | 2.006 | **+15.0%** | 2.228 | +12.7% |
+   | kuramoto__N5 (UNSAT, 82 s)    | 81.77 | 92.75 | **+13.4%** | 100.16 | +9.1% |
+   | tanh_decrease__J1.0 (SAT, 164 s) | 164.40 | 182.09 | **+10.8%** | 190.67 | +4.7% |
+
+   The clean long-runners give **+11–13%** per added pair. Sublinearity (k2 step < k1 step)
+   shows back-to-back `msr` drain saturates — so the *real* 2 toggles (full-drain,
+   compute-separated) cost somewhat **more** than the adjacent added pair, i.e. +11–13% is a
+   mild under-estimate. Consistent with the Lever-2 datum (~6% aggregate for ~1 full + 1
+   cheap toggle removed).
+
+**Ceiling: ≈13–16% on the transcendental-dense benchmarks, ~6–10% aggregate over the 50
+odeexpr.** This is right at the bar for accepting a non-bit-identical change.
+
+**Recommendation — NO-GO on the msr-elimination rewrite (for now).** The only mechanism to
+capture this is the ambient-inversion rewrite (A): non-bit-identical (verdict-shift risk,
+worst exactly on the dense boundary cases where the win is largest), non-upstreamable, a
+permanent fork liability — for a ceiling that only brushes 15% on the densest benchmarks and
+is ~6–10% aggregate. The still-unharvested **bit-identical avenues A–D above (ExpressionEvaluator
+~5–7%, allocation ~5%, …) are the better next step** — comparable headroom, zero soundness
+risk. Revisit msr-elimination only if A–D are exhausted and the densest instances remain
+msr-bound. (Measurement artifacts were throwaway; the gaol build tree was restored to
+pristine — `dreal4` msr count back to 132, verdict spot-checks unchanged.)
