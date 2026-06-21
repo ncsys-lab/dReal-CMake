@@ -82,6 +82,14 @@ add_library(dreal4_cmake STATIC
         ${BISON_smt2_parser_OUTPUTS} ${FLEX_smt2_scanner_OUTPUTS}
         ${BISON_dr_parser_OUTPUTS} ${FLEX_dr_scanner_OUTPUTS}
 )
+# -frounding-math tells the compiler not to assume a fixed FPU rounding mode, so it
+# cannot constant-fold or reorder FP arithmetic across fesetround calls. dReal runs
+# gaol/ibex under FE_UPWARD and formatting/CAPD under FE_TONEAREST; without this flag
+# Clang's #pragma STDC FENV_ACCESS ON support is incomplete and the directed-rounding
+# ops in rounded_interval.h (sub_up/sub_down/add_up/add_down) could be silently
+# mis-compiled. gaol itself is already compiled with -frounding-math by IBEX's
+# CMakeLists; this covers dReal4's own source. PUBLIC propagates to dreal4 and tests.
+target_compile_options(dreal4_cmake PUBLIC -frounding-math)
 target_include_directories(dreal4_cmake PUBLIC
         "${PARSERS_HOME}"
         "${PROJECT_SOURCE_DIR}/src/"
@@ -126,7 +134,9 @@ target_link_libraries(dreal4_cmake PUBLIC "${CADICAL_LIB}")
 #  10. gaol: batch the nearest-rounding region in transcendentals (perf: ~8% on odeexpr)
 #  11. function: empty domains via return-status instead of EmptyBoxException
 #      (perf: removes __cxa_throw unwinding from the HC4 backward hot path)
-# See ../ibex-fork/MIGRATION.md for the divergence catalog. All eleven are
+#  12. gaol: underflow_saturate backward targets (soundness: dreal/dreal4#321 —
+#      bwd_pow/exp/sqr/mul/div no longer false-unsat on subnormal-band targets)
+# See ../ibex-fork/MIGRATION.md for the divergence catalog. All twelve are
 # candidate upstream PRs; once they land, drop the fork and point at
 # ibex-team/ibex-lib directly.
 #
@@ -144,11 +154,11 @@ set(IBEX_INSTALL_DIR     "${CMAKE_BINARY_DIR}/ibex-install")
 set(IBEX_GIT_REPOSITORY  "https://github.com/ncsys-lab/ibex-lib.git"
     CACHE STRING "Git repository for the ibex fork (override with file://path for local dev)")
 # Pinned to the fork HEAD sha (reproducible) rather than the moving branch ref.
-# cf3928c7 = the 11-patch series; patch #11 replaces HC4Revise's EmptyBoxException
-# control flow with a bool return-status (no __cxa_throw on the backward hot path).
+# d9930909 = the 12-patch series; patch #12 adds underflow_saturate so HC4
+# backward ops stop false-unsat'ing on subnormal-band targets (dreal/dreal4#321).
 # Bump when fork patches land. (Local-dev iteration still works via
 # -DIBEX_GIT_TAG=<branch-or-sha> and -DIBEX_GIT_REPOSITORY=file:///path/to/ibex-fork.)
-set(IBEX_GIT_TAG         "cf3928c79a1b2c6c31deecfab0e5964b40417ae4"
+set(IBEX_GIT_TAG         "d99309094850efb84e2ebc11a62ee655d690639f"
     CACHE STRING "Git ref for the ibex fork (branch, tag, or sha)")
 
 set(EP_ARCH_ARGS "")

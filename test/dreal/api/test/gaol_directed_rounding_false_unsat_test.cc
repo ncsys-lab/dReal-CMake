@@ -70,5 +70,45 @@ TEST(GaolDirectedRoundingFalseUnsat, ExactProductControlStaysSat) {
       << "0.25 <= 1 with an exactly-representable coefficient must stay SAT.";
 }
 
+// === End-to-end net for dreal/dreal4#321 constant-fold underflow ============
+// A constant pow/mul/div of exactly-representable literals (Constant kind, what
+// the parser builds for 0.5 / integers) whose result underflows would fold to
+// the lying scalar 0.0, making `> 0` a false unsat. sound_constant_fold
+// (symbolic_expression.cc) folds to a sound RealConstant interval instead, so
+// these stay delta-SAT. The variabled case below is the one that previously
+// produced a malformed ExpressionMul (the symbolic-Pow attempt) -- folding to a
+// RealConstant avoids it. The actual parser path is DenormUnderflowSmt2.
+TEST(DenormUnderflowEndToEnd, PowUnderflowSat) {
+  const Formula f{pow(Expression{0.5}, Expression{1075.0}) > 0};
+  EXPECT_TRUE(CheckSatisfiability(f, kDelta))
+      << "pow(0.5,1075) > 0 must be delta-SAT; folding to 0.0 is a false UNSAT.";
+}
+
+TEST(DenormUnderflowEndToEnd, PowUnderflowVariabledSat) {
+  const Variable x{"x", Variable::Type::CONTINUOUS};
+  const Formula f{(x == pow(Expression{0.5}, Expression{1075.0})) && (x > 0)};
+  EXPECT_TRUE(CheckSatisfiability(f, kDelta))
+      << "x = pow(0.5,1075) & x > 0 must be delta-SAT.";
+}
+
+TEST(DenormUnderflowEndToEnd, DivUnderflowSat) {
+  const Formula f{(Expression{1e-320} / Expression{1e10}) > 0};  // 1e-330 -> 0
+  EXPECT_TRUE(CheckSatisfiability(f, kDelta))
+      << "1e-320/1e10 > 0 must be delta-SAT.";
+}
+
+TEST(DenormUnderflowEndToEnd, MulUnderflowSat) {
+  const Formula f{(Expression{1e-200} * Expression{1e-150}) > 0};  // 1e-350 -> 0
+  EXPECT_TRUE(CheckSatisfiability(f, kDelta))
+      << "1e-200 * 1e-150 > 0 must be delta-SAT.";
+}
+
+// CONTROL: a genuinely-false query stays UNSAT (no spurious SAT from the bracket).
+TEST(DenormUnderflowEndToEnd, FaithfulControlUnsat) {
+  const Formula f{pow(Expression{2.0}, Expression{3.0}) < 0};  // 8 < 0
+  EXPECT_FALSE(CheckSatisfiability(f, kDelta))
+      << "pow(2,3) = 8; 8 < 0 must stay UNSAT.";
+}
+
 }  // namespace
 }  // namespace dreal
