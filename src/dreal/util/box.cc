@@ -203,7 +203,7 @@ pair<Box, Box> Box::bisect_int(const int i) const {
   const Interval& intv_i{values_[i]};
   const double lb{ceil(intv_i.lb())};
   const double ub{floor(intv_i.ub())};
-  const double mid{intv_i.mid()};  // rounding-lint: allow (integer bisection; bounds are exact integers)
+  const double mid{intv_i.mid()};  // lint: allow (integer bisection; bounds are exact integers)
   const double mid_floor{floor(mid)};
   DREAL_ASSERT(intv_i.lb() <= lb);
   DREAL_ASSERT(lb <= mid_floor);

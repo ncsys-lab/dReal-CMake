@@ -18,10 +18,11 @@ set -euo pipefail
 BUILD_DIR="${1:-cmake-build-debug}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Static routing lint first (cheap, no build): forbids raw ibex backward and raw
-# .mid()/.diam() outside the token-gated wrappers / FE_UPWARD-asserting helpers.
-echo "[rounding-gate] static routing lint ..."
-python3 "$REPO_ROOT/rounding_lint.py"
+# Static source-hygiene lint first (cheap, no build): rounding-mode routing
+# (raw ibex backward, .mid()/.diam(), hand-rolled intervals, raw json .dump)
+# plus the iteration-shape rule (no parallel-counter subscript arr[i++]).
+echo "[rounding-gate] static lint ..."
+python3 "$REPO_ROOT/lint.py"
 
 cd "$REPO_ROOT/$BUILD_DIR"
 

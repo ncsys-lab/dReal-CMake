@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Rounding-mode routing lint for dReal (src/dreal only).
+"""Source-hygiene regex lint for dReal (src/dreal only).
 
-Syntactic enforcement of the FE_UPWARD routing discipline. This is the AST-level
-intent of the planned clang-tidy check, realized dependency-free: a real
-clang-tidy custom check must be compiled into clang-tidy (or built as a
-libTooling tool against the clang libs), and clang-query against the project's
-compile DB hits a toolchain header mismatch. A scoped regex lint enforces the
-same *routing* rules (it does not, and clang-tidy could not either, verify
-rounding *correctness*) and runs anywhere with no build.
+Two rule families, one mechanism (file walk + per-line regex + an inline
+`// lint: allow <reason>` escape marker). This is the AST-level intent of a
+clang-tidy check, realized dependency-free: a real clang-tidy custom check must
+be compiled into clang-tidy (or built as a libTooling tool against the clang
+libs), and clang-query against the project's compile DB hits a toolchain header
+mismatch. A scoped regex lint enforces the same *routing/shape* rules (it does
+not, and clang-tidy could not either, verify rounding *correctness*) and runs
+anywhere with no build.
 
-Interval regime (FE_UPWARD) rules:
+== Rounding-mode routing (FE_UPWARD / FE_TONEAREST regimes) ==
   1. No raw ibex::Function::backward — route through ibex_hc4_backward
      (util/rounded_interval.h), which requires the UpwardRounding token.
   2. No raw .mid()/.diam() gaol getters — route through safe_mid/safe_diam
@@ -17,8 +18,6 @@ Interval regime (FE_UPWARD) rules:
   3. Smell: an interval built from hand-written scalar +/- arithmetic (the
      mis-rounded `Interval(mid - half, mid + half)` pattern) — use
      make_sound_interval / interval ops so gaol rounds outward.
-
-Nearest regime (FE_TONEAREST) rule:
   4. No raw json `.dump(` — route through dump_json (util/json_guarded.h),
      which requires the NearestRounding token (nlohmann serializes its doubles
      to decimal in dump(), correct only under FE_TONEAREST).
@@ -28,8 +27,15 @@ syntactically distinctive enough for a regex to catch reliably, so that routing
 is enforced at *compile time* by format_double requiring the NearestRounding
 token, not by this lint. The lint covers the detectable json `.dump(` case.
 
-Legitimate exceptions carry an inline `// rounding-lint: allow <reason>` marker
-on the same line. Wrapper-definition files are fully allow-listed.
+== Iteration shape ==
+  5. No subscript by a side-effecting counter (`arr[i++]`, `arr[++i]`). A manual
+     index advancing in parallel with a range-`for` loop variable silently
+     drifts out of sync with it once the two containers' orders differ — the
+     dreal/dreal4 BUG-005 scrambled-model class (commit 5774191f2, fixed
+     0296a8e19). Use one shared index, or index the same container both places.
+
+Legitimate exceptions carry an inline `// lint: allow <reason>` marker on the
+same line. Wrapper-definition files are fully allow-listed.
 """
 import re
 import sys
@@ -44,7 +50,7 @@ ALLOW_FILES = {
     "util/rounded_format.h",    # format_double definition
     "util/json_guarded.h",      # dump_json definition
 }
-ALLOW_MARK = "rounding-lint: allow"
+ALLOW_MARK = "lint: allow"
 
 RULES = [
     ("raw ibex backward (use ibex_hc4_backward)",
@@ -55,6 +61,9 @@ RULES = [
      re.compile(r'(?:Box|ibex)::Interval\s*\([^;)]*\s[-+]\s[^;]*,')),
     ("raw json .dump( (use dump_json under a NearestRounding token)",
      re.compile(r'\.dump\s*\(')),
+    ("subscript by a side-effecting counter (parallel index drifts out of "
+     "sync with a range-for loop variable; use one shared index)",
+     re.compile(r'\[\s*(?:(?:\+\+|--)\s*[A-Za-z_]\w*|[A-Za-z_]\w*\s*(?:\+\+|--))\s*\]')),
 ]
 
 
@@ -81,13 +90,13 @@ def main() -> int:
                 if rx.search(code):
                     violations.append((rel, n, desc, line.strip()))
     if violations:
-        sys.stderr.write("Rounding-mode routing lint FAILED:\n\n")
+        sys.stderr.write("Source-hygiene lint FAILED:\n\n")
         for rel, n, desc, line in violations:
             sys.stderr.write(f"  src/dreal/{rel}:{n}: {desc}\n        {line}\n")
         sys.stderr.write(f"\n{len(violations)} violation(s). Add a "
                          f"`// {ALLOW_MARK} <reason>` marker if intentional.\n")
         return 1
-    print("Rounding-mode routing lint: clean.")
+    print("Source-hygiene lint: clean.")
     return 0
 
 
