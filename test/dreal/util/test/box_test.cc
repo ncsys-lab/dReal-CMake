@@ -308,5 +308,46 @@ TEST_F(BoxTest, IntervalPrintDoesNotClobberRounding) {
   EXPECT_FALSE(oss.str().empty());
 }
 
+// Regression for BUG-005 (dreal/dreal4): Box::operator<< must pair every
+// variable with its own value. A previous version sorted the variable names
+// alphabetically but indexed values_ by a parallel counter, so once insertion
+// order != alphabetical order each variable printed another's value (visible as
+// a "scrambled model" on QF_NRA_ODE problems, whose vars x_0_0/x_0_t/time_0/...
+// are declared out of alphabetical order). Insert in non-alphabetical order with
+// distinct values and confirm each line carries its own value, in insertion
+// order.
+TEST_F(BoxTest, PrintPairsEachVariableWithItsOwnValue) {
+  Box b;
+  b.Add(y_, 1, 1);  // insertion order y, w, x -- distinct from alphabetical w,x,y
+  b.Add(w_, 2, 2);
+  b.Add(x_, 3, 3);
+  std::ostringstream oss;
+  oss << b;
+  const std::string s{oss.str()};
+
+  auto line_for = [&s](const std::string& name) -> std::string {
+    std::istringstream iss{s};
+    std::string line;
+    while (std::getline(iss, line)) {
+      if (line.rfind(name + " :", 0) == 0) return line;
+    }
+    return {};
+  };
+  // y=1, w=2, x=3: each line has its own digit and neither other's.
+  EXPECT_NE(line_for("y").find('1'), std::string::npos);
+  EXPECT_EQ(line_for("y").find('2'), std::string::npos);
+  EXPECT_EQ(line_for("y").find('3'), std::string::npos);
+  EXPECT_NE(line_for("w").find('2'), std::string::npos);
+  EXPECT_EQ(line_for("w").find('1'), std::string::npos);
+  EXPECT_EQ(line_for("w").find('3'), std::string::npos);
+  EXPECT_NE(line_for("x").find('3'), std::string::npos);
+  EXPECT_EQ(line_for("x").find('1'), std::string::npos);
+  EXPECT_EQ(line_for("x").find('2'), std::string::npos);
+
+  // Output is in insertion order (the alphabetical sort was reverted).
+  EXPECT_LT(s.find("y :"), s.find("w :"));
+  EXPECT_LT(s.find("w :"), s.find("x :"));
+}
+
 }  // namespace
 }  // namespace dreal

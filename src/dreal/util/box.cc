@@ -240,12 +240,9 @@ Box& Box::InplaceUnion(const Box& b) {
 
 ostream& operator<<(ostream& os, const Box& box) {
   PrecisionGuard precision_guard(&os, numeric_limits<double>::max_digits10);
-  int i{0};
-
-  std::vector<Variable> sorted_vars = *(box.variables_);
-  std::sort(sorted_vars.begin(), sorted_vars.end(), [](const Variable& a, const Variable& b) { return a.get_name() < b.get_name(); });
-  for (const Variable& var : sorted_vars) {
-    const Box::Interval interval(box.values_[i++]);
+  for (int i = 0; i < box.size(); ++i) {
+    const Variable& var{box.variable(i)};
+    const Box::Interval interval(box.values_[i]);
     os << var << " : ";
     switch (var.get_type()) {
       case Variable::Type::INTEGER:
@@ -277,7 +274,7 @@ ostream& operator<<(ostream& os, const Box& box) {
         }
         break;
     }
-    if (i != box.size()) {
+    if (i != box.size() - 1) {
       os << "\n";
     }
   }
