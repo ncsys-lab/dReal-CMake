@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Select benchmarks for a run: 8 random + all current anomalies.
+"""Select benchmarks for a run.
 
-Usage: python3 select.py [--n N] [--seed SEED]
-Prints full file paths, one per line, to stdout.
+Default mode: 8 family-weighted random + all current anomalies.
+  python3 select.py [--n N] [--seed SEED]
+
+Family-subset mode (for A/B over a targeted family, e.g. the ODE families —
+the random weighting favours odeexpr, which has no ODEs):
+  python3 select.py --family github,tacas,saradc --all   # every job in those
+  python3 select.py --family github --n 6                 # 6 random from github
+
+Prints TSV (csv_name <TAB> filepath), one per line, to stdout.
 """
 import argparse
 import csv
@@ -11,7 +18,7 @@ import os
 import random
 import sys
 
-from odeexpr import load_odeexpr_names, resolve_odeexpr, weight_of
+from odeexpr import family_of, load_odeexpr_names, resolve_odeexpr, weight_of
 
 BENCHMARK_DIR = "/Users/kunalsheth/Documents/new_dreal/nraode_to_nra"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -81,6 +88,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=8, help="random benchmarks to add (not counting anomalies)")
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--family", default=None,
+                        help="comma-separated family filter (odeexpr,saradc,github,tacas); "
+                             "restricts the corpus to those families before selection")
+    parser.add_argument("--all", action="store_true",
+                        help="emit EVERY benchmark of the (filtered) corpus, deterministically "
+                             "sorted — no random sampling, no anomaly injection. Intended for an "
+                             "A/B over a fixed family set (e.g. --family github,tacas,saradc --all)")
     args = parser.parse_args()
 
     baseline_csv = os.path.join(SCRIPT_DIR, "baseline.csv")
@@ -89,6 +103,29 @@ def main():
     # Corpus = the frozen baseline CSV rows (saradc/github/tacas) plus the
     # manifest-derived odeexpr family (4th family, content-addressed).
     all_names = load_benchmarks(baseline_csv) + load_odeexpr_names()
+
+    if args.family:
+        want = {f.strip() for f in args.family.split(",") if f.strip()}
+        all_names = [n for n in all_names if family_of(n) in want]
+        if not all_names:
+            print(f"ERROR: no benchmarks match --family {sorted(want)}", file=sys.stderr)
+            return 1
+
+    # --all: deterministic full enumeration of the (filtered) corpus. No
+    # anomalies, no random — an A/B wants a fixed, reproducible job set.
+    if args.all:
+        rows = sorted((n, resolve_path(n)) for n in all_names)
+        emitted = 0
+        for name, path in rows:
+            if not path:
+                print(f"WARN: could not find file for {name}", file=sys.stderr)
+                continue
+            print(f"{name}\t{path}")
+            emitted += 1
+        print(f"Selected {emitted} benchmarks (--all"
+              f"{', --family ' + args.family if args.family else ''}); "
+              f"{len(rows) - emitted} not found on disk (skipped).", file=sys.stderr)
+        return 0
 
     with open(state_path) as f:
         state = json.load(f)
@@ -133,4 +170,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
