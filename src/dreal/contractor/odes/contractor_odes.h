@@ -26,22 +26,25 @@ namespace dreal
 
     std::ostream& operator<<(std::ostream& out, ode_direction const& d);
 
-    // ODE contractor using IBEX interval arithmetic + CAPD order-10 Taylor.
+    // ODE contractor using IBEX interval arithmetic + CAPD order-20 Taylor.
     //
     // Prune() runs the following steps in order:
     //   1. Parameter consistency: pars_0 ∩ pars_t (parameters are constant
     //      along the trajectory and must agree at t=0 and t=T).
     //   2. T=0 special case: X_0 ∩ X_t (initial and final states must agree
     //      when time horizon is zero).
-    //   3. ForallT invariant checking at the X_0 endpoint via IBEX HC4
-    //      contractors built in the ctor.
-    //   4. Trivial-flow short-circuit: if every RHS is the literal 0, just
+    //   3. Trivial-flow short-circuit: if every RHS is the literal 0, just
     //      intersect X_0 ∩ X_t (no integration needed — variables are
     //      constant along the trajectory).
-    //   5. ODE trajectory integration via CAPD's IOdeSolver (order 10) +
-    //      ITimeMap, with backward integration via the negated -f(x) map.
+    //   4. ODE trajectory integration via CAPD's IOdeSolver (order 20) +
+    //      ITimeMap (backward via the negated -f(x) map), then cav26's
+    //      per-slice tube filter: the ForallT invariant is checked on EACH
+    //      trajectory slice (not just the endpoint — interior violations would
+    //      otherwise be missed), each terminal-eligible slice is intersected
+    //      with the X_t gate, survivors are hulled to narrow X_t and time, and
+    //      an empty survivor set refutes (set_empty). See contractor_odes.cc.
     //
-    // Sound for ODE problems: CAPD's order-10 Taylor enclosure provides a
+    // Sound for ODE problems: CAPD's order-20 Taylor enclosure provides a
     // guaranteed over-approximation of all trajectories from X_0.
     class contractor_ode_lohner : public ContractorCell
     {

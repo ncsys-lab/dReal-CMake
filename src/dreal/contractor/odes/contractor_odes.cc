@@ -1,6 +1,7 @@
 //
 // Created by Kunal Sheth on 9/2/25.
-// Post-Codac elimination: CAPD is the sole ODE backend (order-10 Taylor).
+// Post-Codac elimination: CAPD is the sole ODE backend (order-20 Taylor; see
+// kCapdTaylorOrder in contractor_odes_capd.cc for why per-slice wants order-20).
 //
 
 #include "contractor_odes.h"
@@ -213,63 +214,55 @@ namespace dreal
             return;
         }
 
-        // --- Step 3: Invariant checking at X_0 endpoint ---
-        if (m_need_to_check_inv) {
-            const auto& invs = m_ctr.second;
-            DREAL_ASSERT(invs.size() == m_inv_ctcs.size());
-            ContractorStatus cs_0 = *cs;
-            // We are inside the CAPD FE_TONEAREST guard, but the invariant
-            // contractors are ibex/gaol and need FE_UPWARD. Re-establish it
-            // with an UpwardRoundingScope, which also mints the token they
-            // require — the token makes this reentrant mode switch mandatory
-            // rather than easy-to-forget.
-            const UpwardRoundingScope inv_scope;
-            for (size_t i = 0; i < invs.size(); ++i) {
-                if (!is_negation(invs[i])) {
-                    m_inv_ctcs[i].Prune(&cs_0, inv_scope.token());
-                    if (cs_0.box().empty()) {
-                        DREAL_LOG_INFO("contractor_ode_lohner::Prune - invariant violated at X_0");
-                        cs->mutable_box().set_empty();
-                        cs->AddUsedConstraint(ic);
-                        cs->AddUsedConstraint(m_ctr.second);
-                        cs->mutable_output().set();
-                        return;
-                    }
-                } else {
-                    DREAL_LOG_WARN("contractor_ode_lohner::Prune - negated invariant ignored: {}", invs[i]);
-                }
-            }
-        }
-
-        // --- Step 4: ODE trajectory integration via CAPD order-10 Taylor ---
+        // --- Step 3: ODE trajectory integration via CAPD order-20 Taylor ---
+        //
+        // The ForallT invariant is NOT checked here at the pre-integration box.
+        // It is checked per trajectory slice in the filter below: an invariant
+        // that holds at the endpoints but is violated in the trajectory
+        // *interior* is invisible to a box-only check (the regression this
+        // restores — cav26 checked check_invariant on every tube slice).
         //
         // Direction handling:
+        //   FWD (m_dir == FWD): m_vars_0 = original X_0, m_vars_t = original
+        //     X_t. run_capd_fwd forward-integrates f(x) from X_0 over [0, t_ub]
+        //     and returns the trajectory slices; we intersect each terminal-
+        //     eligible slice with X_t. X_0 narrowing is the standalone BWD
+        //     contractor's job (theory_solver queues one per ODE constraint).
+        //   BWD (m_dir == BWD): the constructor swapped variables, so m_vars_0
+        //     = original X_t, m_vars_t = original X_0. run_capd_bwd integrates
+        //     -f(x) from u0 (= original X_t); the slices are the backward image
+        //     (states whose forward trajectory reaches X_t), intersected with
+        //     m_vars_t (= original X_0). Sound by construction.
         //
-        // FWD contractor (m_dir == FWD): m_vars_0 = original X_0,
-        //   m_vars_t = original X_t. We call run_capd_fwd which forward-
-        //   integrates f(x) from X_0 over [0, t_ub], intersects the
-        //   terminal enclosure with X_t (→ vars_t_narrowed), then backward-
-        //   integrates -f(x) from the narrowed terminal back to t=0 to
-        //   recover the joint narrowing on X_0 (→ vars_0_narrowed).
-        //
-        // BWD contractor (m_dir == BWD): the constructor swapped variables
-        //   so m_vars_0 = original X_t, m_vars_t = original X_0. We call
-        //   run_capd_bwd, which integrates -f(x) from u0 (= original X_t)
-        //   over [0, t_ub] using the negated IMap stored in the cache.
-        //   The terminal enclosure is the backward image — the set of
-        //   states at real time 0 whose forward trajectory under f(x)
-        //   reaches the original X_t. Intersecting this with m_vars_t
-        //   (= original X_0) is sound by construction.
-        //
-        // If CAPD diverges (step-control failure / over-approximation
-        // explodes), the run returns found=false and we silently skip
-        // narrowing on this pass. There is no other backend to fall back to.
+        // If CAPD diverges (step-control failure), the run returns found=false
+        // and we skip narrowing this pass; a genuine integrator error is raised
+        // inside the adapter (cav26's exception differentiation). There is no
+        // other backend to fall back to.
 
         if (!m_capd_cache) return;  // RHS not translatable to capd::IMap
-        if (!is_variable(icct)) return;
-        const Variable time_var = get_variable(icct);
-        const double t_ub = cs->box()[time_var].ub();
-        if (t_ub <= 0.0) return;
+
+        // Integration-time window [win_lb, win_ub]. cav26 accepted a time that
+        // is a variable, a real-constant interval, or an exact constant; the
+        // rewrite had narrowed this to is_variable only, silently skipping the
+        // ODE for a literal duration (a latent false delta-sat). Restore all
+        // three. (T == 0 was already handled in Step 2.)
+        double win_lb, win_ub;
+        bool time_is_var = false;
+        Variable time_var;
+        if (is_variable(icct)) {
+            time_is_var = true;
+            time_var = get_variable(icct);
+            win_lb = cs->box()[time_var].lb();
+            win_ub = cs->box()[time_var].ub();
+        } else if (is_real_constant(icct)) {
+            win_lb = get_lb_of_real_constant(icct);
+            win_ub = get_ub_of_real_constant(icct);
+        } else if (is_constant(icct)) {
+            win_lb = win_ub = get_constant_value(icct);
+        } else {
+            return;  // unsupported time term
+        }
+        if (win_ub <= 0.0) return;
 
         const int n = static_cast<int>(m_vars_0.size());
 
@@ -312,16 +305,6 @@ namespace dreal
             u0_bounds.emplace_back(iv.lb(), iv.ub());
         }
 
-        // Prepare X_t bounds (used only in FWD; ignored in BWD).
-        std::vector<std::pair<double, double>> X_t_bounds;
-        if (m_dir == ode_direction::FWD) {
-            X_t_bounds.reserve(static_cast<size_t>(n));
-            for (int i = 0; i < n; ++i) {
-                const ibex::Interval& iv = cs->box()[m_vars_t[static_cast<size_t>(i)]];
-                X_t_bounds.emplace_back(iv.lb(), iv.ub());
-            }
-        }
-
         // Flow parameters (d/dt == 0 vars): bound the CAPD map's par: section
         // to their current box intervals. Ordered to match the cache's
         // par_names (== ode_list parameter order == m_pars_0 order). Params are
@@ -333,59 +316,145 @@ namespace dreal
             par_bounds.emplace_back(iv.lb(), iv.ub());
         }
 
-        CapdOdeResult res;
-        if (m_dir == ode_direction::FWD) {
-            res = run_capd_fwd(m_capd_cache, u0_bounds, X_t_bounds, par_bounds, t_ub, g.token());
-        } else {
-            res = run_capd_bwd(m_capd_cache, u0_bounds, par_bounds, t_ub, g.token());
-        }
+        const CapdTubeResult res =
+            (m_dir == ode_direction::FWD)
+            ? run_capd_fwd(m_capd_cache, u0_bounds, par_bounds, win_ub, g.token())
+            : run_capd_bwd(m_capd_cache, u0_bounds, par_bounds, win_ub, g.token());
 
+        // found == false means CAPD diverged (step-control failure): no sound
+        // enclosure, so skip narrowing for this call. This is NOT infeasibility
+        // — divergence carries no information, whereas a successful integration
+        // whose tube is disjoint from the gate (or whose interior violates the
+        // invariant) IS infeasibility and is refuted below.
         if (!res.found) return;
 
-        bool changed = false;
+        // --- Per-slice filter (cav26 compute_enclosures terminal-window filter
+        //     + check_invariant), done here where the box and invariant
+        //     contractors live so CAPD stays numeric-only:
+        //   * walk slices in forward-time order;
+        //   * invariant: write each slice's state into m_vars_t (of a box copy)
+        //     and run the ForallT contractors; the FIRST slice they EMPTY is a
+        //     trajectory-interior violation — every later terminal is then
+        //     unreachable, so stop;
+        //   * terminal window: a slice that precedes any violation and whose
+        //     time overlaps [win_lb, win_ub] is terminal-eligible; intersect its
+        //     state with the X_t gate (m_vars_t box) and keep non-empty results;
+        //   * hull the kept intersections → narrowed X_t, hull their times →
+        //     narrowed T. If NONE survive → infeasible → set_empty.
+        // CAPD enclosures are outward over-approximations, so an empty survivor
+        // set (disjoint tube and/or invariant violation) proves true
+        // infeasibility: set_empty is sound and cannot cause a false unsat.
+        //
+        // FE_UPWARD for the ibex/gaol invariant contractors; the interval ops
+        // (& / hull) are mode-independent so they ride along safely.
+        const UpwardRoundingScope inv_scope;
+        DREAL_ASSERT(m_ctr.second.size() == m_inv_ctcs.size());
 
-        // Narrow m_vars_t intervals from ODE terminal enclosure
+        // The ForallT invariant is enforced per-slice ONLY in the FWD contractor.
+        // The invariant constrains the *forward* trajectory x(t); FWD's slices
+        // ARE that trajectory (m_vars_t = original X_t = the invariant's
+        // variables), so writing a slice into m_vars_t and running the HC4
+        // invariant contractors tests the invariant at that trajectory time.
+        // The theory solver queues a FWD contractor alongside every BWD one, so
+        // FWD always runs and the invariant is always enforced. The BWD slices
+        // are the backward image expressed over m_vars_t = original X_0 (NOT the
+        // invariant's variables), so a BWD invariant check would only re-test the
+        // invariant against the static X_t box — cav26's BWD check was exactly
+        // this no-op-ish form; we drop it (sound: FWD covers the invariant, and
+        // an over-permissive BWD only under-narrows). This also lets us hoist a
+        // single box copy: for FWD the invariant touches only m_vars_t, which we
+        // overwrite each slice, so one reused copy is behavior-identical to a
+        // fresh per-slice copy — without the O(box) copy on every sub-slice that
+        // made invariant-heavy flows (e.g. the k256 thermostat) time out.
+        const bool check_inv = m_need_to_check_inv && m_dir == ode_direction::FWD;
+        std::unique_ptr<ContractorStatus> cs_inv;       // one copy, reused
+        if (check_inv) cs_inv = std::make_unique<ContractorStatus>(*cs);
+
+        bool have_keep = false;
+        std::vector<ibex::Interval> keep_state(static_cast<size_t>(n));
+        double keep_t_lb = 0.0, keep_t_ub = 0.0;
+
+        for (const CapdTubeSlice& slice : res.slices) {
+            // Invariant: a slice enclosure wholly outside the invariant region
+            // (the contractor empties it) proves the trajectory leaves that
+            // region at some interior time → infeasible from here onward.
+            if (check_inv) {
+                for (size_t i = 0; i < m_vars_t.size(); ++i)
+                    cs_inv->mutable_box()[m_vars_t[i]] =
+                        ibex::Interval(slice.state[i].first, slice.state[i].second);
+                bool violated = false;
+                for (size_t i = 0; i < m_inv_ctcs.size(); ++i) {
+                    if (is_negation(m_ctr.second[i])) continue;
+                    m_inv_ctcs[i].Prune(cs_inv.get(), inv_scope.token());
+                    if (cs_inv->box().empty()) { violated = true; break; }
+                }
+                if (violated) break;
+            }
+
+            // Terminal-eligible only if the slice's time overlaps the dwell
+            // window [win_lb, win_ub].
+            if (slice.t_ub < win_lb || slice.t_lb > win_ub) continue;
+
+            // Intersect this slice's state with the X_t gate (m_vars_t box).
+            std::vector<ibex::Interval> inter(static_cast<size_t>(n));
+            bool slice_kept = true;
+            for (int i = 0; i < n; ++i) {
+                const ibex::Interval gate = cs->box()[m_vars_t[static_cast<size_t>(i)]];
+                const ibex::Interval enc(slice.state[static_cast<size_t>(i)].first,
+                                         slice.state[static_cast<size_t>(i)].second);
+                inter[static_cast<size_t>(i)] = gate & enc;
+                if (inter[static_cast<size_t>(i)].is_empty()) { slice_kept = false; break; }
+            }
+            if (!slice_kept) continue;
+
+            if (!have_keep) {
+                keep_state = std::move(inter);
+                keep_t_lb = slice.t_lb;
+                keep_t_ub = slice.t_ub;
+                have_keep = true;
+            } else {
+                for (int i = 0; i < n; ++i)
+                    keep_state[static_cast<size_t>(i)] |= inter[static_cast<size_t>(i)];
+                keep_t_lb = std::min(keep_t_lb, slice.t_lb);
+                keep_t_ub = std::max(keep_t_ub, slice.t_ub);
+            }
+        }
+
+        // No surviving terminal slice → the constraint is infeasible on this box.
+        if (!have_keep) {
+            cs->mutable_box().set_empty();
+            cs->AddUsedConstraint(ic);
+            cs->AddUsedConstraint(m_ctr.second);
+            cs->mutable_output() |= input();
+            return;
+        }
+
+        // Narrow the X_t gate (m_vars_t) to the surviving-slice state hull, and
+        // the time variable to the surviving-slice time hull.
+        bool changed = false;
         for (int i = 0; i < n; ++i) {
-            ibex::Interval old_iv = cs->box()[m_vars_t[static_cast<size_t>(i)]];
-            ibex::Interval encl(res.vars_t_narrowed[static_cast<size_t>(i)].first,
-                                res.vars_t_narrowed[static_cast<size_t>(i)].second);
-            ibex::Interval narrowed = old_iv & encl;
-            if (!narrowed.is_empty() && narrowed != old_iv) {
-                cs->mutable_box()[m_vars_t[static_cast<size_t>(i)]] = narrowed;
+            const ibex::Interval old_iv = cs->box()[m_vars_t[static_cast<size_t>(i)]];
+            if (keep_state[static_cast<size_t>(i)] != old_iv) {
+                cs->mutable_box()[m_vars_t[static_cast<size_t>(i)]] =
+                    keep_state[static_cast<size_t>(i)];
                 cs->mutable_output().set(cs->box().index(m_vars_t[static_cast<size_t>(i)]));
                 changed = true;
             }
         }
-
-        // Narrow m_vars_0 intervals from ODE initial enclosure (CtcLohner BWD
-        // pass; populated only by the FWD path's run_lohner_integration).
-        // The BWD contractor's run_lohner_bwd_oneshot leaves this empty.
-        if (!res.vars_0_narrowed.empty()) {
-            for (int i = 0; i < n; ++i) {
-                ibex::Interval old_iv = cs->box()[m_vars_0[static_cast<size_t>(i)]];
-                ibex::Interval encl(res.vars_0_narrowed[static_cast<size_t>(i)].first,
-                                    res.vars_0_narrowed[static_cast<size_t>(i)].second);
-                ibex::Interval narrowed = old_iv & encl;
-                if (!narrowed.is_empty() && narrowed != old_iv) {
-                    cs->mutable_box()[m_vars_0[static_cast<size_t>(i)]] = narrowed;
-                    cs->mutable_output().set(cs->box().index(m_vars_0[static_cast<size_t>(i)]));
-                    changed = true;
-                }
-            }
-        }
-
-        // Narrow time variable
-        {
-            ibex::Interval old_t = cs->box()[time_var];
-            ibex::Interval narrowed_t = old_t & ibex::Interval(res.t_new_lb, res.t_new_ub);
-            if (!narrowed_t.is_empty() && narrowed_t != old_t) {
-                cs->mutable_box()[time_var] = narrowed_t;
+        if (time_is_var) {
+            const ibex::Interval old_t = cs->box()[time_var];
+            const ibex::Interval new_t = old_t & ibex::Interval(keep_t_lb, keep_t_ub);
+            if (!new_t.is_empty() && new_t != old_t) {
+                cs->mutable_box()[time_var] = new_t;
                 cs->mutable_output().set(cs->box().index(time_var));
                 changed = true;
             }
         }
 
-        if (changed) cs->AddUsedConstraint(ic);
+        if (changed) {
+            cs->AddUsedConstraint(ic);
+            cs->AddUsedConstraint(m_ctr.second);
+        }
     }
 
     // ---------------------------------------------------------------------------

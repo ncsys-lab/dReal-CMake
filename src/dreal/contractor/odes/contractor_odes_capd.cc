@@ -1,5 +1,5 @@
 // CAPD v6 Taylor ODE contractor TU. C++17. (Taylor order is the tunable
-// kCapdTaylorOrder constant below — default 10; see OPTIMIZATION_LOG.md.)
+// kCapdTaylorOrder constant below — default 20; see OPTIMIZATION_LOG.md.)
 //
 // CAPD is the sole ODE backend. It is always used for a non-trivial flow (the
 // trivial-flow short-circuit in contractor_odes.cc handles the all-zero-RHS
@@ -35,16 +35,22 @@ namespace dreal
     //
     // These are the performance-critical knobs for the rigorous Taylor
     // integrator, shared by run_capd_fwd / run_capd_bwd / run_capd_trace.
-    // Profiling (a `sample` of the tacas inverter family) shows
-    // computeTaylorCoefficients at this order is ~74% of solve time on
-    // nonlinear ODE benchmarks, so the order is the primary speed lever.
-    // Lowering the order or loosening the tolerances widens the enclosure
-    // (still sound — an over-approximation can never cause a false-UNSAT) in
-    // exchange for cheaper steps. See OPTIMIZATION_LOG.md for the sweep history.
+    //
+    // Order is 20 (cav26's value), NOT the 10 the Codac→CAPD rewrite used.
+    // The two go with the integration *style*: the rewrite paired order-10 with
+    // a single coarse hull per integration (computeTaylorCoefficients dominates,
+    // so a low order with many cheap steps won). The restored per-slice tube
+    // filter sub-grids `kHullGrid=16` enclosures PER adaptive step, so cost is
+    // ~16 × (#steps); a low order takes many small steps and that 16× explodes
+    // (the k256 thermostat went 187 s → timeout at order-10, back to 196 s at
+    // order-20). Order-20 takes fewer, larger steps → far fewer slices, and the
+    // tighter per-step enclosure also localizes interior invariant violations
+    // better. Lowering order/loosening tolerance still only widens the enclosure
+    // (sound — never a false-UNSAT). See OPTIMIZATION_LOG.md for the sweep.
     //
     // constexpr at namespace scope has internal linkage, so these are private
     // to this TU.
-    constexpr int    kCapdTaylorOrder  = 10;
+    constexpr int    kCapdTaylorOrder  = 20;
     constexpr double kCapdAbsTolerance = 1e-10;
     constexpr double kCapdRelTolerance = 1e-10;
 
@@ -211,7 +217,7 @@ namespace dreal
         // We cannot mutate the cached IMap in place (it is shared across
         // parallel ICP workers and setParameter mutates), and a fresh per-call
         // deep copy of `base` rebuilds the whole automatic-differentiation tree
-        // — ~part of the ~8% allocation churn at order 10, since the integration
+        // — ~part of the ~8% allocation churn at order 20, since the integration
         // itself got cheap. Instead we keep one reusable copy per (thread, base
         // map) in a thread_local cache: the AD tree is copied once per thread,
         // and each call only re-binds the parameters (cheap setParameter) into
@@ -265,19 +271,6 @@ namespace dreal
             return m;
         }
 
-        // Step-count hint for the integration horizon. capd::IOdeSolver
-        // chooses its actual step size internally from order + target
-        // tolerance; this just bounds how the horizon is subdivided.
-        // Currently only run_capd_trace consumes the result (to slice the
-        // --visualize trajectory); run_capd_fwd/bwd compute it but leave the
-        // real stepping to CAPD's adaptive control (the derived max_step is
-        // not imposed on the solver). See OPTIMIZATION_LOG.md (tolerance entry).
-        int adaptive_n_steps(double t_ub, int n_steps_hint) {
-            return std::clamp<int>(
-                std::max(n_steps_hint,
-                         static_cast<int>(std::ceil(t_ub * 2.0))),
-                n_steps_hint, 60);
-        }
     } // namespace
 
     std::shared_ptr<CapdOdeCache> make_capd_ode_cache(
@@ -362,137 +355,154 @@ namespace dreal
             return out;
         }
 
-        // Intersect a CAPD enclosure with the caller's bounds, returning
-        // (false, _) if any component is infeasible.
-        bool intersect_into(
-            const capd::IVector& encl,
-            const std::vector<std::pair<double, double>>& bounds,
-            std::vector<std::pair<double, double>>& out)
+        // Integrate `map` from u0 over forward-time [0, t_ub] and append, to
+        // out_slices, the time-ordered trajectory sub-slices — cav26's
+        // compute_enclosures tube, returned as the full per-slice list rather
+        // than a hull. Each slice carries its forward-time interval and the
+        // rigorous Taylor curve enclosure over that interval. The contractor
+        // then filters per slice (intersect with X_t, check the invariant, drop
+        // misses/violators, hull survivors); returning a hull here instead
+        // would collapse the per-time / per-component correlation that filter
+        // needs (the F2 refutation and the F3 time narrowing both depend on it).
+        //
+        // Slices span the WHOLE [0, t_ub] (no t_lb clamp): the ForallT
+        // invariant must be checked over the entire trajectory the terminal is
+        // reached through, while terminal-eligibility ([t_lb, t_ub]) is the
+        // caller's decision.
+        //
+        // Walks CAPD's adaptive steps (stopAfterStep) and sub-grids each step's
+        // time domain for tightness. Returns false (a sound skip, NOT
+        // infeasibility) on ANY CAPD exception — both step-control divergence
+        // (range_error / ISolverException) and a mid-enclosure singularity
+        // (capd::IntervalError "possible division by zero", thrown e.g. by the
+        // sigmoid-inverter flows). cav26 differentiated these and *rethrew* the
+        // singularity/logic/runtime classes, relying on an ICP-level catch to
+        // turn them into a skip; THIS architecture has no such catch, so a
+        // rethrow escapes to terminate() and kills the whole solve (confirmed:
+        // it crashed uniform_inverter instances the pre-rewrite code solved).
+        // Catch-all-skip is therefore the only sound, non-fatal option here —
+        // an un-narrowed box is never a false unsat, so skipping is safe; the
+        // body's catch block documents this in full. (No partial-slice hazard:
+        // the caller checks found==false and discards out_slices, so a tube
+        // truncated by an exception is never used for refutation.)
+        bool integrate_tube_slices(
+            capd::IMap& map,
+            const std::vector<std::pair<double, double>>& u0,
+            double t_ub, int n,
+            std::vector<CapdTubeSlice>& out_slices)
         {
-            const int n = encl.dimension();
-            out.reserve(static_cast<size_t>(n));
-            for (int i = 0; i < n; ++i) {
-                const double encl_lo = encl[i].leftBound();
-                const double encl_hi = encl[i].rightBound();
-                const double new_lo = std::max(bounds[static_cast<size_t>(i)].first,  encl_lo);
-                const double new_hi = std::min(bounds[static_cast<size_t>(i)].second, encl_hi);
-                if (new_lo > new_hi) return false;
-                out.emplace_back(new_lo, new_hi);
+            constexpr int kHullGrid = 16;  // sub-intervals per step for tightness
+            try {
+                capd::IOdeSolver solver(map, kCapdTaylorOrder);
+                configure_capd_solver(solver);
+                capd::ITimeMap time_map(solver);
+                time_map.stopAfterStep(true);
+
+                CapdC0Set set(to_ivector(u0));
+                capd::interval prev_time(0.0);
+
+                do {
+                    time_map(t_ub, set);
+                    // This step covered forward-time [prev_time, currentTime];
+                    // the curve's [0, step] domain maps onto it.
+                    const auto& curve = solver.getCurve();
+                    const capd::interval domain =
+                        capd::interval(0.0, 1.0) * solver.getStep();
+                    const double d_lo = domain.leftBound();
+                    const double d_hi = domain.rightBound();
+                    const double dd = (d_hi - d_lo) / kHullGrid;
+                    for (int k = 0; k < kHullGrid; ++k) {
+                        const capd::interval sub(
+                            d_lo + k * dd,
+                            (k == kHullGrid - 1) ? d_hi : d_lo + (k + 1) * dd);
+                        const capd::interval slice_time = prev_time + sub;
+                        const capd::IVector v = curve(sub);
+                        CapdTubeSlice s;
+                        s.t_lb = slice_time.leftBound();
+                        s.t_ub = slice_time.rightBound();
+                        s.state.reserve(static_cast<size_t>(n));
+                        for (int i = 0; i < n; ++i)
+                            s.state.emplace_back(v[i].leftBound(), v[i].rightBound());
+                        out_slices.push_back(std::move(s));
+                    }
+                    prev_time = time_map.getCurrentTime();
+                } while (!time_map.completed());
+                return true;
             }
-            return true;
+            // Any exception out of CAPD's integrator is a soundness-neutral
+            // numerical event — step-control divergence (ISolverException /
+            // range_error) OR a singularity hit mid-enclosure
+            // (capd::IntervalError "possible division by zero", thrown e.g. by
+            // the sigmoid-inverter flows). Skipping narrowing for this call is
+            // always sound (an un-narrowed box is never a false unsat). cav26
+            // nominally *rethrew* IntervalError/logic/runtime, relying on an
+            // ICP-level catch to turn it into a skip; this architecture has no
+            // such catch, so rethrowing escapes to terminate() and kills the
+            // whole solve (confirmed: it crashed uniform_inverter instances the
+            // pre-rewrite code solved). Catch-all-skip is the sound, non-fatal
+            // behavior — fail-loud is not worth aborting a solve on a recoverable
+            // integrator singularity.
+            catch (const std::exception&) {
+                return false;
+            }
         }
+
     } // namespace
 
     // -------------------------------------------------------------------------
-    // FWD: forward-integrate f(x) from X_0 over [0, t_ub], intersect terminal
-    // enclosure with X_t. X_0 narrowing is left to the standalone BWD
-    // contractor (theory_solver.cc instantiates one per ODE constraint and
-    // queues it alongside this one in the fixpoint loop), mirroring cav26.
+    // FWD: forward-integrate f(x) from X_0 over [0, t_ub] and return the
+    // time-ordered trajectory slices. The caller intersects each terminal-
+    // eligible slice with the X_t box, checks the invariant per slice, and
+    // decides narrow-vs-refute — see the header. X_0 narrowing is the standalone
+    // BWD contractor's job (theory_solver.cc queues one per ODE constraint),
+    // mirroring cav26's two-contractor design.
     // -------------------------------------------------------------------------
 
-    CapdOdeResult run_capd_fwd(
+    CapdTubeResult run_capd_fwd(
         const std::shared_ptr<CapdOdeCache>& cache,
         const std::vector<std::pair<double, double>>& u0_bounds,
-        const std::vector<std::pair<double, double>>& X_t_bounds,
         const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
-        const NearestRounding& /*nr*/,
-        int n_steps_hint)
+        const NearestRounding& /*nr*/)
     {
         DREAL_ASSERT_ROUNDING(FE_TONEAREST);
         // Contain CAPD's directed-mode clobber so this adapter is nearest-in /
         // nearest-out. See ExpectClobber in rounding.h.
         const NearestRoundingScope capd_clobber{expect_clobber};
-        CapdOdeResult result;
+        CapdTubeResult result;
         if (!cache) return result;
         const int n = cache->n_state_vars;
-        if (n == 0 || t_ub <= 0.0 || n_steps_hint <= 0) return result;
-
-        const int n_steps = adaptive_n_steps(t_ub, n_steps_hint);
-        const double max_step = t_ub / n_steps;
-        if (max_step <= 0.0) return result;
-
-        capd::IVector terminal_fwd(n);
-        try {
-            // Parameter-bound view of the cached map (thread_local; see
-            // with_params). Must outlive solver_fwd, which holds a reference to
-            // it — the thread_local backing storage does.
-            capd::IMap& map_fwd = with_params(cache->fn_fwd, cache->par_names, par_bounds);
-            capd::IOdeSolver solver_fwd(map_fwd, kCapdTaylorOrder);
-            configure_capd_solver(solver_fwd);
-            capd::ITimeMap time_map_fwd(solver_fwd);
-
-            CapdC0Set set(to_ivector(u0_bounds));
-            terminal_fwd = time_map_fwd(t_ub, set);
-        } catch (const std::exception&) {
-            return result;
-        }
-
-        if (!intersect_into(terminal_fwd, X_t_bounds, result.vars_t_narrowed)) {
-            return result;
-        }
-
-        result.found = true;
-        result.t_new_lb = 0.0;
-        result.t_new_ub = t_ub;
+        if (n == 0 || t_ub <= 0.0) return result;
+        capd::IMap& map_fwd = with_params(cache->fn_fwd, cache->par_names, par_bounds);
+        result.found = integrate_tube_slices(map_fwd, u0_bounds, t_ub, n, result.slices);
         return result;
     }
 
     // -------------------------------------------------------------------------
-    // BWD one-shot: integrate -f(x) from X_t over [0, t_ub]. The terminal
-    // enclosure is the backward image of X_t — i.e. the set of states at
-    // real time 0 whose forward trajectory under f(x) reaches X_t. Returned
-    // as vars_t_narrowed so the caller (in its swapped frame where
-    // m_vars_t = original X_0) intersects it with the right gate.
-    //
-    // This is a single backward integration (no per-step intersection loop):
-    // CAPD integrates the cached negated field -f(x) forward over [0, t_ub],
-    // which is reverse-time integration of f(x), giving the backward image
-    // directly.
+    // BWD: integrate -f(x) from X_t over [0, t_ub] and return the time-ordered
+    // backward-image slices — each the set of states whose forward trajectory
+    // under f(x) reaches X_t at that reverse-time slice. The caller (in its
+    // swapped frame where m_vars_t = original X_0) intersects each with the
+    // right gate. Symmetric with run_capd_fwd (-f vs f).
     // -------------------------------------------------------------------------
 
-    CapdOdeResult run_capd_bwd(
+    CapdTubeResult run_capd_bwd(
         const std::shared_ptr<CapdOdeCache>& cache,
         const std::vector<std::pair<double, double>>& Xt_bounds,
         const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
-        const NearestRounding& /*nr*/,
-        int n_steps_hint)
+        const NearestRounding& /*nr*/)
     {
         DREAL_ASSERT_ROUNDING(FE_TONEAREST);
         // Contain CAPD's directed-mode clobber so this adapter is nearest-in /
         // nearest-out. See ExpectClobber in rounding.h.
         const NearestRoundingScope capd_clobber{expect_clobber};
-        CapdOdeResult result;
+        CapdTubeResult result;
         if (!cache) return result;
         const int n = cache->n_state_vars;
-        if (n == 0 || t_ub <= 0.0 || n_steps_hint <= 0) return result;
-
-        const int n_steps = adaptive_n_steps(t_ub, n_steps_hint);
-        const double max_step = t_ub / n_steps;
-        if (max_step <= 0.0) return result;
-
-        try {
-            capd::IMap& map_bwd = with_params(cache->fn_bwd, cache->par_names, par_bounds);
-            capd::IOdeSolver solver_bwd(map_bwd, kCapdTaylorOrder);
-            configure_capd_solver(solver_bwd);
-            capd::ITimeMap time_map_bwd(solver_bwd);
-
-            CapdC0Set set(to_ivector(Xt_bounds));
-            const capd::IVector encl = time_map_bwd(t_ub, set);
-
-            result.vars_t_narrowed.reserve(static_cast<size_t>(n));
-            for (int i = 0; i < n; ++i)
-                result.vars_t_narrowed.emplace_back(encl[i].leftBound(),
-                                                    encl[i].rightBound());
-
-            result.found = true;
-            result.t_new_lb = 0.0;
-            result.t_new_ub = t_ub;
-        } catch (const std::exception&) {
-            // Backward integration diverged — return no narrowing.
-        }
-
+        if (n == 0 || t_ub <= 0.0) return result;
+        capd::IMap& map_bwd = with_params(cache->fn_bwd, cache->par_names, par_bounds);
+        result.found = integrate_tube_slices(map_bwd, Xt_bounds, t_ub, n, result.slices);
         return result;
     }
 

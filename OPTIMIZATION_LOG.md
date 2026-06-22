@@ -119,6 +119,35 @@ Current best = order 10. Subsequent experiments measure vs the order-20 frozen
 probe_baseline, so their net ratio reflects cumulative gain; compare against
 0.859 (full) / 0.517 (fast) to detect incremental regressions.
 
+> **REVERSED — order 10 → 20 (per-slice restoration, this branch).** Entry #1's
+> order-10 win was measured against the **coarse endpoint-narrowing** ODE
+> contractor — which was also **unsound**. Its `run_capd_fwd` intersected the
+> terminal box with only the enclosure at the *single endpoint* `t_ub`, so a
+> free-time integral whose solution is reached at an *interior* time `< t_ub`
+> was over-narrowed away → **false `unsat`** (the catastrophic direction).
+> **Proven** on `github_oct5_0hz_k2_prostate_cancer_*`: committed HEAD → `unsat`
+> in 0.03 s, while cav26 (the trusted reference) and the restored per-slice form
+> both → `delta-sat`, with a concrete witness at interior times ≈ 1.7–4.4 «
+> horizon 20 — which HEAD's `enclosure(20)` intersection cannot contain. (dReal3
+> segfaults on these inputs, so cav26 + the witness are the oracle.)
+>
+> Restoring cav26's **per-slice tube filter** (sub-grids `kHullGrid=16` enclosures
+> *per step*, considering **all** trajectory times) fixes this — at a real cost:
+> the cost model goes from ∝ #steps to ∝ 16 × #steps, so a low order's many small
+> steps *explode* the slice count. Hence order-20 (cav26's co-designed partner:
+> fewer, larger steps + tighter per-step enclosures that also localize interior
+> invariant violations). Per-slice verdicts match cav26; on the proven case mine
+> is even faster than cav26 (68 s vs 209 s — both `delta-sat`). Net timing across
+> the ODE families is **under measurement** via `benchmark/do_ab.sh` (coarse-
+> endpoint vs per-slice over `--family github,tacas,saradc --all`); the order-10
+> sweep numbers above are **superseded** for the per-slice path. So
+> `kCapdTaylorOrder = 20` on this branch.
+>
+> *Caveat on attribution:* the per-slice change is **orthogonal** to the
+> `..._inverter_sigmoid_UNS` UNSAT↔delta-sat flip — that one is the dreal/dreal4
+> #321 ibex-backward `underflow_saturate` tradeoff (see CLAUDE.md "do not
+> re-investigate"); do not credit/blame the ODE contractor for it.
+
 ### 2. thread_local reuse of the parameter-bound IMap (commit pending)
 
 `with_params` deep-copied the cached IMap (the full automatic-differentiation
