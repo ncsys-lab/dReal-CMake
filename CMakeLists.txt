@@ -6,6 +6,13 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 
+# Emit gcc_build/compile_commands.json so clangd/editors resolve the project's
+# full -I list (ibex-install, capd-install, generated parsers, the drake
+# third_party tree). Symlink it to the repo root for clangd to find it:
+#   ln -sf gcc_build/compile_commands.json compile_commands.json
+# Survives a fresh FULL_BUILD.sh (which reconfigures without -D flags).
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # NOTE: CMAKE_OSX_ARCHITECTURES is no longer forced to x86_64.
 # CAPD (the original x86-only ODE library) has been replaced with Codac, which
 # supports ARM64 natively. If you need to override (e.g. for cross-compilation),
