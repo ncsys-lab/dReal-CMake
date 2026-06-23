@@ -1,0 +1,23 @@
+# Copy-only clang-tidy config — the type-aware companion to the regex lint.py.
+#
+# This C++ is memory-bound; the dominant cost is data movement / cache behavior,
+# and an accidental by-value copy of a heavy type (Box, capd::IMap, Environment,
+# IntervalVector, ...) is a silent regression a regex lint cannot see (a copy is
+# semantic, not syntactic). These five built-in performance checks are exactly the
+# copy-detection subset. Run them via ./copy_lint.sh (incremental, changed .cc vs.
+# merge-base) — it adds --warnings-as-errors and the macOS -isysroot fixup.
+#
+# Findings are resolved by fixing (const& / move / drop a no-op std::move) or, when
+# a copy is genuinely needed, justified inline with // NOLINT(performance-...) <why>
+# — the native twin of lint.py's `// lint: allow`.
+#
+# No WarningsAsErrors here on purpose: editors/clangd surface these as plain
+# warnings; the hard fail is the gate script's job.
+Checks: >
+  -*,
+  performance-unnecessary-value-param,
+  performance-for-range-copy,
+  performance-unnecessary-copy-initialization,
+  performance-move-const-arg,
+  performance-implicit-conversion-in-loop
+HeaderFilterRegex: 'src/dreal/.*'

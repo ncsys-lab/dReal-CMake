@@ -103,6 +103,8 @@ ctest --output-on-failure
 
 Brew packages (auto-detected by `find_brew_package` in `CMakeLists.txt`): `bison`, `flex`, `gmp`, `cadical`.
 
+Optional dev-lint tool: `./copy_lint.sh` (the incremental clang-tidy copy gate) needs `brew install llvm` for its `clang-tidy`. It is not a build dependency — `CMAKE_CXX_CLANG_TIDY` stays unset and the build never invokes it.
+
 ### Linux (Ubuntu 24.04 + clang-18) via Docker
 
 The `Dockerfile.dreal_ubuntu` is the hermetic Linux test harness. Because the IBEX source-build needs `../ibex-fork` available inside the container, the Docker build context must be the parent of `dreal4-cmake/`:
