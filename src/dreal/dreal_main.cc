@@ -462,7 +462,7 @@ void MainProgram::ExtractOptions() {
 
 int MainProgram::Run() {
   if (opt_.isSet("--version")) {
-    cout << "dReal " << get_version_string() << endl;
+    cout << "dReal " << get_version_string() << '\n';
     return 0;
   }
   if (opt_.isSet("--help")) {
@@ -481,7 +481,7 @@ int MainProgram::Run() {
     }
   }
   if (!opt_.isSet("--in") && !file_exists(filename)) {
-    cerr << "File not found: " << filename << "\n" << endl;
+    cerr << "File not found: " << filename << "\n" << '\n';
     PrintUsage();
     return 1;
   }
@@ -497,7 +497,7 @@ int MainProgram::Run() {
     RunDr(filename, config_, opt_.isSet("--debug-scanning"),
           opt_.isSet("--debug-parsing"));
   } else {
-    cerr << "Unknown extension: " << filename << "\n" << endl;
+    cerr << "Unknown extension: " << filename << "\n" << '\n';
     PrintUsage();
     return 1;
   }
@@ -517,7 +517,7 @@ int main(int argc, const char* argv[]) {
   // default stack size is 8MB
   // CPS-pattern matching algo goes DEEP...
   // doing 63MB because that's approximately the max on macOS
-  constexpr rlim_t desired_stack_size = 63 * 1024 * 1024;
+  constexpr rlim_t desired_stack_size = rlim_t{63} * 1024 * 1024;
   rlimit rl{0};
   getrlimit(RLIMIT_STACK, &rl);
   rl.rlim_cur = std::max(rl.rlim_cur, desired_stack_size);
@@ -526,10 +526,10 @@ int main(int argc, const char* argv[]) {
   getrlimit(RLIMIT_STACK, &rl);
   if (rl.rlim_cur < desired_stack_size) {
     // `DREAL_LOG_*` functions have not been initialized yet.
-    std::cerr << "Failed to configure desired stack size limit. Exiting." << std::endl;
-    std::cerr << "\tCurrent Size = " << rl.rlim_cur << std::endl;
-    std::cerr << "\tMaximum Size = " << rl.rlim_max << std::endl;
-    std::cerr << "\tDesired Size = " << desired_stack_size << std::endl;
+    std::cerr << "Failed to configure desired stack size limit. Exiting." << '\n';
+    std::cerr << "\tCurrent Size = " << rl.rlim_cur << '\n';
+    std::cerr << "\tMaximum Size = " << rl.rlim_max << '\n';
+    std::cerr << "\tDesired Size = " << desired_stack_size << '\n';
     // exit(-1);
   }
 

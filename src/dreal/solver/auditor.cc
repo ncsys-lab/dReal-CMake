@@ -34,7 +34,7 @@ namespace dreal
 
     void sat_log_label_clause(const std::string& s) {
         if (!DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) return;
-        literal_log << s << std::endl;
+        literal_log << s << '\n';
     }
 
     void sat_log_literal(const int lit, const std::optional<Variable>& def) {
@@ -43,7 +43,7 @@ namespace dreal
 
         static std::set<Variable> seen_literals;
         if (def && !seen_literals.count(*def)) {
-            literal_log << "def:\t" << ::abs(lit) << " := " << *def << std::endl;
+            literal_log << "def:\t" << ::abs(lit) << " := " << *def << '\n';
             seen_literals.emplace(*def);
         }
 
@@ -53,7 +53,7 @@ namespace dreal
     void sat_log_literal0() {
         if (!DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) return;
         for (int v : literal_log_clause) literal_log << v << ' ';
-        literal_log << '0' << std::endl;
+        literal_log << '0' << '\n';
         literal_log_clause.clear();
     }
 
@@ -115,7 +115,7 @@ namespace dreal
             lemma_comment = s.str();
         }
 
-        std::cout << lemma_comment << std::endl; // todo: gate with macro or flag and use spdlog
+        std::cout << lemma_comment << '\n'; // todo: gate with macro or flag and use spdlog
 
         static int audit_no = 0;
         std::ofstream myfile;
@@ -135,7 +135,7 @@ namespace dreal
 
         myfile << "(assert " << ToPrefix(!formula) << " )\n";
 
-        myfile << "(check-sat)(exit)" << std::endl;
+        myfile << "(check-sat)(exit)" << '\n';
         myfile.flush();
         myfile.close();
     }
@@ -184,7 +184,7 @@ namespace dreal
         static int audit_no = 0;
         std::ofstream myfile;
         myfile.open("/tmp/dreal_audit/pm" + std::to_string(audit_no++) + ".json");  // lint: allow int
-        myfile << dump_str << std::endl;
+        myfile << dump_str << '\n';
         myfile.flush();
         myfile.close();
     }

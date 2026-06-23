@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# copy_lint.sh — incremental clang-tidy gate against accidental C++ copies.
+# copy_lint.sh — incremental clang-tidy gate for copies, perf, and UB.
 #
 # WHY: this solver is memory-bound; an accidental by-value copy of a heavy type
 # (Box, capd::IMap, Environment, IntervalVector, ...) where a const-ref / move
 # belongs is a silent performance regression. A copy is *semantic* (type-
-# dependent), so the regex lint.py structurally cannot see it. clang-tidy's
-# built-in performance-* copy checks are type-aware and catch exactly this; the
-# check set + header filter live in .clang-tidy. This script wires them into a
-# gate: brew clang-tidy + the macOS SDK isysroot fixup + --warnings-as-errors.
+# dependent), so the regex lint.py structurally cannot see it. The same is true
+# of undefined behavior (use-after-move, dangling handles, undefined memory
+# manipulation, ptr/array mismatches, ...). clang-tidy's built-in checks are
+# type-aware and catch exactly these; the gated set (all performance-* minus
+# enum-size, plus an explicit UB/memory-safety bugprone-* allow-list) + header
+# filter live in .clang-tidy. This script wires them into a gate: brew clang-tidy
+# + the macOS SDK isysroot fixup + --warnings-as-errors. The tree is currently
+# clean on every gated check, so the UB checks are zero-noise future protection.
 #
 # It is INCREMENTAL by default: only .cc files changed vs. the merge-base (plus
 # staged/unstaged) are analyzed, so it flags copies in new/changed code without
@@ -19,9 +23,9 @@
 # with no changed includer is not analyzed this run — accepted for an incremental
 # gate; use --all before a merge to cover everything.
 #
-# A flagged copy is resolved by fixing it (const& / move / drop a no-op
-# std::move) or, when genuinely needed, justified inline with
-#   // NOLINT(performance-unnecessary-value-param)  <reason>
+# A flagged finding is resolved by fixing it (const& / move / drop a no-op
+# std::move / the real bug) or, when genuinely needed, justified inline with
+#   // NOLINT(<check>)  <reason>
 # the native twin of lint.py's `// lint: allow`.
 #
 # Usage: ./copy_lint.sh [--all] [build_dir]
@@ -95,10 +99,10 @@ done
 
 if [[ ${#failed[@]} -gt 0 ]]; then
   echo >&2
-  echo "FAIL: copy findings in ${#failed[@]} file(s):" >&2
+  echo "FAIL: findings in ${#failed[@]} file(s):" >&2
   printf '  %s\n' "${failed[@]}" >&2
-  echo "Fix (const& / move) or justify with // NOLINT(performance-...) <reason>." >&2
+  echo "Fix (const& / move / the real bug) or justify with // NOLINT(<check>) <reason>." >&2
   exit 1
 fi
 
-echo "[copy-lint] PASS: no copy findings."
+echo "[copy-lint] PASS: no findings."

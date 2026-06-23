@@ -145,7 +145,7 @@ void Smt2Driver::CheckSat() {
         std::ofstream nra_json_out;
         nra_json_out.open(filename, std::ofstream::out | std::ofstream::trunc);
         if (nra_json_out.fail()) {
-          cout << "Cannot create a file: " << filename << std::endl;
+          cout << "Cannot create a file: " << filename << '\n';
           exit(1);
         }
 
@@ -163,7 +163,7 @@ void Smt2Driver::CheckSat() {
 
         // nlohmann serializes the trajectory doubles to decimal here; route
         // through the token-gated dump_json so FE_TONEAREST is proven.
-        nra_json_out << dump_json(vis_json, nr) << std::endl;
+        nra_json_out << dump_json(vis_json, nr) << '\n';
       } catch (std::exception const & e) {
         DREAL_LOG_CRITICAL("The following exception is generated while computing "
                            "a trace (visualization).");

@@ -31,7 +31,7 @@ Profiler::~Profiler() {
   using duration = std::chrono::duration<double>;
   const auto diff = std::chrono::high_resolution_clock::now() - begin_;
   out_ << name_ << ": " << std::chrono::duration_cast<duration>(diff).count()
-       << endl;
+       << '\n';
 }
 
 }  // namespace dreal

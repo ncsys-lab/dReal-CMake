@@ -33,6 +33,7 @@ namespace dreal
 
         if (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) {
             std::vector<Formula> a;
+            a.reserve(conflicting_conjunction.size());
             for (const Formula& f : conflicting_conjunction) a.emplace_back(!predicate_abstractor_.Convert(f));
             theory_audit_literals("AddLearnedClauseDirect", predicate_abstractor_, a, unfitted_box);
         }
@@ -445,7 +446,7 @@ namespace dreal
         }
         if (expected_clause_size <= LOG_INFO_SIZE) {
             const Formula sat_clause = !make_conjunction(neg_conjunction);
-            std::cerr << "SAT Solver Learned: " << sat_clause << std::endl;
+            std::cerr << "SAT Solver Learned: " << sat_clause << '\n';
         }
     }
 } // namespace dreal

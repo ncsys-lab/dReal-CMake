@@ -71,10 +71,10 @@ bool DrDriver::parse_string(const string& input, const string& sname) {
 }
 
 void DrDriver::error(const location& l, const string& m) {
-  cerr << l << " : " << m << endl;
+  cerr << l << " : " << m << '\n';
 }
 
-void DrDriver::error(const string& m) { cerr << m << endl; }
+void DrDriver::error(const string& m) { cerr << m << '\n'; }
 
 const Variable& DrDriver::lookup_variable(const std::string& name) {
   const auto it = scope_.find(name);
@@ -112,9 +112,9 @@ void DrDriver::Solve() {
   if (model) {
     const NearestRoundingScope g; // for printing precision correctly
     const NearestRounding nr{g.token()};
-    cout << "delta-sat with delta = " << context_.config().precision() << endl;
+    cout << "delta-sat with delta = " << context_.config().precision() << '\n';
     if (context_.config().produce_models()) {
-      cout << *model << endl;
+      cout << *model << '\n';
       for (const Expression& f : objectives_) {
         // Interval (gaol) evaluation + safe_mid need FE_UPWARD; capture the
         // scalar under a tight upward scope, then print it under the nearest
@@ -126,11 +126,11 @@ void DrDriver::Solve() {
         }()};
         cout << "Found minimum for " << f << " is ";
         format_double(cout, minimum, nr);
-        cout << endl;
+        cout << '\n';
       }
     }
   } else {
-    cout << "unsat" << endl;
+    cout << "unsat" << '\n';
   }
   Context::Exit();
 }
