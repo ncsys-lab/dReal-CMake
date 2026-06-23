@@ -35,17 +35,21 @@ namespace dreal
     // Helpers
     // ---------------------------------------------------------------------------
 
-    // Parse the step number from a variable name of the form "<name>_<step>_{0,t}".
-    // E.g. "height_3_t" -> 3.  Returns 0 on parse failure.
-    static unsigned int extract_step(const std::string& name) {
+    // See contractor_odes.h for the contract (both unroller naming conventions).
+    unsigned int ode_step_from_name(const std::string& name) {
         const size_t last = name.rfind('_');
-        if (last != std::string::npos && last > 0) {
-            const size_t second_last = name.rfind('_', last - 1);
-            if (second_last != std::string::npos) {
-                const std::string step_part = name.substr(second_last + 1, last - second_last - 1);
-                try { return static_cast<unsigned int>(std::stoi(step_part)); }
-                catch (...) {}
-            }
+        if (last == std::string::npos || last == 0) return 0;
+        // SMT-LIB BMC unroller: trailing "_k<int>"  (x_decay_IntX_k0 -> 0).
+        if (last + 1 < name.size() && name[last + 1] == 'k') {
+            try { return static_cast<unsigned int>(std::stoi(name.substr(last + 2))); }
+            catch (...) {}
+        }
+        // dReach unroller: integer between the last two '_'  (height_3_t -> 3).
+        const size_t second_last = name.rfind('_', last - 1);
+        if (second_last != std::string::npos) {
+            const std::string step_part = name.substr(second_last + 1, last - second_last - 1);
+            try { return static_cast<unsigned int>(std::stoi(step_part)); }
+            catch (...) {}
         }
         return 0;
     }
@@ -551,7 +555,7 @@ namespace dreal
             json entry;
             entry["key"]    = name;
             entry["mode"]   = mode_name;
-            entry["step"]   = extract_step(name);
+            entry["step"]   = ode_step_from_name(name);
             entry["values"] = json::array();
             for (const auto& pt : trace.points) {
                 json value;
@@ -570,7 +574,7 @@ namespace dreal
             json entry;
             entry["key"]    = name;
             entry["mode"]   = mode_name;
-            entry["step"]   = extract_step(name);
+            entry["step"]   = ode_step_from_name(name);
             entry["values"] = json::array();
             json v_begin, v_end;
             v_begin["time"]      = {0.0, 0.0};

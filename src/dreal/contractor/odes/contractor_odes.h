@@ -26,6 +26,14 @@ namespace dreal
 
     std::ostream& operator<<(std::ostream& out, ode_direction const& d);
 
+    // Parse the BMC step index out of an ODE state-variable name, for the
+    // --visualize trace's per-segment `step` metadata. Two unroller naming
+    // conventions are supported:
+    //   dReach:      <base>_<step>_{0,t}   (e.g. height_3_t -> 3)
+    //   SMT-LIB BMC: <base>_k<step>        (e.g. x_decay_IntX_k0 -> 0)
+    // Returns 0 when neither shape is present (also the legitimate step-0 value).
+    unsigned int ode_step_from_name(const std::string& name);
+
     // ODE contractor using IBEX interval arithmetic + CAPD order-20 Taylor.
     //
     // Prune() runs the following steps in order:

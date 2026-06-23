@@ -405,24 +405,19 @@ namespace dreal
                 << "BUG-004: non-conventional name must still get a trajectory";
         }
 
-        // BUG-007 (OPEN — aspirational): generate_trace derives each segment's
-        // `step` field by parsing an integer out of the start-var name, expecting
-        // the `<base>_<step>_{0,t}` shape. For the translator's `x_k<step>` names
-        // extract_step can't find the step and defaults to 0, so consumers that
-        // key trajectories on `step` collapse all BMC segments onto index 0. The
-        // desired behavior is that `x_k1`'s segment reports step 1. This is
-        // currently unfixed (mitigated consumer-side in the translator's parity
-        // runner), so the assertion is skipped — flip the SKIP to a hard check
-        // when extract_step learns the `_k<int>` suffix.
+        // BUG-007 (FIXED): generate_trace derives each segment's `step` field
+        // via ode_step_from_name, which now recognizes the SMT-LIB BMC
+        // unroller's `x_k<step>` suffix in addition to dReach's
+        // `<base>_<step>_{0,t}`. The segment starting at `x_k1` must report
+        // step 1 (was 0 — all segments collapsed onto index 0). See
+        // docs/dreal-bugs.md BUG-007 and OdeStepFromName.* for the parser unit
+        // tests covering both conventions.
         TEST_F(ContractorCapdNonConvNameTest, StepFieldReflectsSegmentIndex) {
-            GTEST_SKIP() << "BUG-007 open: extract_step does not parse the "
-                            "`x_k<step>` suffix; step defaults to 0. Mitigated "
-                            "consumer-side. See docs/dreal-bugs.md BUG-007.";
             const nlohmann::json trace = Trace();
             ASSERT_TRUE(trace.is_array());
             ASSERT_FALSE(trace.empty());
             EXPECT_EQ(trace[0]["step"].get<int>(), 1)
-                << "BUG-007: x_k1's segment should report step 1, not 0";
+                << "BUG-007: x_k1's segment must report step 1, not 0";
         }
     } // namespace
 } // namespace dreal
