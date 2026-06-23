@@ -396,7 +396,7 @@ namespace dreal
         bool integrate_tube_slices(
             capd::IMap& map,
             const std::vector<std::pair<double, double>>& u0,
-            double t_ub, int n,
+            double win_lb, double t_ub, int n,
             std::vector<CapdTubeSlice>& out_slices)
         {
             constexpr int kHullGrid = 16;  // sub-intervals per step for tightness
@@ -419,6 +419,11 @@ namespace dreal
                     const double d_lo = domain.leftBound();
                     const double d_hi = domain.rightBound();
                     const double dd = (d_hi - d_lo) / kHullGrid;
+                    // Curve-domain image of the terminal window [win_lb, t_ub].
+                    // CAPD's interval subtraction is outward-rounded, so taking
+                    // [lb, ub] of the result yields a sound (over-wide) clip.
+                    const capd::interval win_dom =
+                        capd::interval(win_lb, t_ub) - prev_time;
                     for (int k = 0; k < kHullGrid; ++k) {
                         const capd::interval sub(
                             d_lo + k * dd,
@@ -431,6 +436,23 @@ namespace dreal
                         s.state.reserve(static_cast<size_t>(n));
                         for (int i = 0; i < n; ++i)
                             s.state.emplace_back(v[i].leftBound(), v[i].rightBound());
+                        // gate_state: the trajectory clipped to the terminal
+                        // window. curve(clipped) ⊆ curve(sub), and for a pinned
+                        // time the clip collapses to the endpoint point x(t_ub)
+                        // — so the X_t gate sees the tight endpoint, not the fat
+                        // last-slice tube (BUG-005/008). Left empty (no overlap)
+                        // when the sub-slice's curve-domain misses the window.
+                        const double gd_lo =
+                            std::max(sub.leftBound(), win_dom.leftBound());
+                        const double gd_hi =
+                            std::min(sub.rightBound(), win_dom.rightBound());
+                        if (gd_lo <= gd_hi) {
+                            const capd::IVector gv = curve(capd::interval(gd_lo, gd_hi));
+                            s.gate_state.reserve(static_cast<size_t>(n));
+                            for (int i = 0; i < n; ++i)
+                                s.gate_state.emplace_back(gv[i].leftBound(),
+                                                          gv[i].rightBound());
+                        }
                         out_slices.push_back(std::move(s));
                     }
                     prev_time = time_map.getCurrentTime();
@@ -470,6 +492,7 @@ namespace dreal
         const std::shared_ptr<CapdOdeCache>& cache,
         const std::vector<std::pair<double, double>>& u0_bounds,
         const std::vector<std::pair<double, double>>& par_bounds,
+        double win_lb,
         double t_ub,
         const NearestRounding& /*nr*/)
     {
@@ -482,7 +505,7 @@ namespace dreal
         const int n = cache->n_state_vars;
         if (n == 0 || t_ub <= 0.0) return result;
         capd::IMap& map_fwd = with_params(cache->fn_fwd, cache->par_names, par_bounds);
-        result.found = integrate_tube_slices(map_fwd, u0_bounds, t_ub, n, result.slices);
+        result.found = integrate_tube_slices(map_fwd, u0_bounds, win_lb, t_ub, n, result.slices);
         return result;
     }
 
@@ -498,6 +521,7 @@ namespace dreal
         const std::shared_ptr<CapdOdeCache>& cache,
         const std::vector<std::pair<double, double>>& Xt_bounds,
         const std::vector<std::pair<double, double>>& par_bounds,
+        double win_lb,
         double t_ub,
         const NearestRounding& /*nr*/)
     {
@@ -510,7 +534,7 @@ namespace dreal
         const int n = cache->n_state_vars;
         if (n == 0 || t_ub <= 0.0) return result;
         capd::IMap& map_bwd = with_params(cache->fn_bwd, cache->par_names, par_bounds);
-        result.found = integrate_tube_slices(map_bwd, Xt_bounds, t_ub, n, result.slices);
+        result.found = integrate_tube_slices(map_bwd, Xt_bounds, win_lb, t_ub, n, result.slices);
         return result;
     }
 

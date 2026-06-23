@@ -104,6 +104,25 @@ namespace dreal
         const auto& ic = m_ctr.first;
         const auto* const icc = to_integral(ic);
 
+        // Guard an otherwise-silent assumption: the flow is always integrated
+        // from t=0 (run_capd_* start the integrator at 0 with u0 = X_0), so the
+        // integral's LOWER time bound get_time_0() is never read. A non-zero (or
+        // variable) t0 would silently integrate from the wrong start — a
+        // soundness hole — so fail loud in every build (not a debug-only
+        // DREAL_ASSERT). Covers both Prune and generate_trace (same icc).
+        {
+            const Expression& t0 = icc->get_time_0();
+            const bool t0_is_zero =
+                is_constant(t0, 0.0) ||
+                (is_real_constant(t0) && get_lb_of_real_constant(t0) == 0.0 &&
+                 get_ub_of_real_constant(t0) == 0.0);
+            if (!t0_is_zero)
+                throw DREAL_RUNTIME_ERROR(
+                    "contractor_ode_lohner: integral lower time bound must be 0 "
+                    "(the flow is integrated from t=0); non-zero/variable t0 "
+                    "is unsupported");
+        }
+
         DynamicBitset& inp{mutable_input()};
         for (const auto& var : ic.GetFreeVariables()) inp.set(box.index(var));
 
@@ -318,8 +337,8 @@ namespace dreal
 
         const CapdTubeResult res =
             (m_dir == ode_direction::FWD)
-            ? run_capd_fwd(m_capd_cache, u0_bounds, par_bounds, win_ub, g.token())
-            : run_capd_bwd(m_capd_cache, u0_bounds, par_bounds, win_ub, g.token());
+            ? run_capd_fwd(m_capd_cache, u0_bounds, par_bounds, win_lb, win_ub, g.token())
+            : run_capd_bwd(m_capd_cache, u0_bounds, par_bounds, win_lb, win_ub, g.token());
 
         // found == false means CAPD diverged (step-control failure): no sound
         // enclosure, so skip narrowing for this call. This is NOT infeasibility
@@ -391,32 +410,42 @@ namespace dreal
                 if (violated) break;
             }
 
-            // Terminal-eligible only if the slice's time overlaps the dwell
-            // window [win_lb, win_ub].
-            if (slice.t_ub < win_lb || slice.t_lb > win_ub) continue;
+            // Terminal-eligible iff the slice overlaps the dwell window
+            // [win_lb, win_ub] — encoded as a non-empty gate_state (the
+            // window-clipped enclosure; integrate_tube_slices leaves it empty
+            // off-window). NB: the invariant check above still ran on the full
+            // tube `state`, over the whole [0, win_ub] interior.
+            if (slice.gate_state.empty()) continue;
 
-            // Intersect this slice's state with the X_t gate (m_vars_t box).
+            // Intersect the WINDOW-CLIPPED enclosure (not the full tube `state`)
+            // with the X_t gate. This is the BUG-005/008 fix: for a pinned time
+            // the clip collapses to the point x(win_ub), so X_t contracts to the
+            // tight endpoint rather than the fat last-slice tube.
             std::vector<ibex::Interval> inter(static_cast<size_t>(n));
             bool slice_kept = true;
             for (int i = 0; i < n; ++i) {
                 const ibex::Interval gate = cs->box()[m_vars_t[static_cast<size_t>(i)]];
-                const ibex::Interval enc(slice.state[static_cast<size_t>(i)].first,
-                                         slice.state[static_cast<size_t>(i)].second);
+                const ibex::Interval enc(slice.gate_state[static_cast<size_t>(i)].first,
+                                         slice.gate_state[static_cast<size_t>(i)].second);
                 inter[static_cast<size_t>(i)] = gate & enc;
                 if (inter[static_cast<size_t>(i)].is_empty()) { slice_kept = false; break; }
             }
             if (!slice_kept) continue;
 
+            // Time hull uses the in-window portion of the slice, matching the
+            // clipped gate_state.
+            const double in_t_lb = std::max(slice.t_lb, win_lb);
+            const double in_t_ub = std::min(slice.t_ub, win_ub);
             if (!have_keep) {
                 keep_state = std::move(inter);
-                keep_t_lb = slice.t_lb;
-                keep_t_ub = slice.t_ub;
+                keep_t_lb = in_t_lb;
+                keep_t_ub = in_t_ub;
                 have_keep = true;
             } else {
                 for (int i = 0; i < n; ++i)
                     keep_state[static_cast<size_t>(i)] |= inter[static_cast<size_t>(i)];
-                keep_t_lb = std::min(keep_t_lb, slice.t_lb);
-                keep_t_ub = std::max(keep_t_ub, slice.t_ub);
+                keep_t_lb = std::min(keep_t_lb, in_t_lb);
+                keep_t_ub = std::max(keep_t_ub, in_t_ub);
             }
         }
 

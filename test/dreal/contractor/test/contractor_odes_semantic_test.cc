@@ -697,5 +697,99 @@ TEST_F(DecayFlowTest, FwdConstantTime_Infeasible_BoxEmpties) {
          "box must empty [F4 GATE]";
 }
 
+// =============================================================================
+// Fixture 8: pinned terminal time — the endpoint must contract to the
+// trajectory value AT t_ub, not to the fat tube over the last sub-grid slice.
+//
+// Regression for BUG-005 (witness mis-print) and BUG-008 (false delta-sat).
+// integrate_tube_slices sub-grids each CAPD step's full domain [0,step] and
+// sets each slice's enclosure to curve(sub) = the trajectory TUBE over that
+// time sub-interval. For a pinned time (win_lb == win_ub == t_ub) the only
+// window-overlapping slice is [t_ub - step/16, t_ub], whose tube fattens the
+// endpoint by ~step/16·|dx/dt|. Intersecting X_t with that tube binds the
+// endpoint variable to an interior-time value (BUG-005) and lets a sub-true
+// gate survive (BUG-008). The gate must use the trajectory clipped to the
+// time window, which for a pinned time collapses to the point x(t_ub).
+// =============================================================================
+
+// BUG-005: dx/dt = -0.5 x, x0=100, time pinned to [1,1]. True x(1)=100·e^-0.5
+// ≈ 60.6531. With a wide X_t gate the FWD contractor must narrow X_t to a tight
+// band around 60.6531 — NOT [60.6531, ~61.6] (the fat last-slice tube).
+class PinnedDecayTest : public ::testing::Test {
+ protected:
+  inline static const Variable x_{"pd_x", Variable::Type::CONTINUOUS};
+  inline static const Variable x0_{"pd_x_0_0", Variable::Type::CONTINUOUS};
+  inline static const Variable xt_{"pd_x_0_t", Variable::Type::CONTINUOUS};
+  inline static const Variable t0_{"pd_time_0", Variable::Type::CONTINUOUS};
+  Box box_{vector<Variable>{x_, x0_, xt_, t0_}};
+  inline static const std::shared_ptr<const OdeFlow> ode_ = make_shared<OdeFlow>(
+      "pinned_decay",
+      vector<std::pair<Variable, Expression>>{{x_, -0.5 * x_}});
+  Formula MakeIc() const { return integral(0.0, t0_, {x0_}, {xt_}, ode_); }
+};
+
+TEST_F(PinnedDecayTest, FwdPinnedEndpoint_NarrowsToTrueValue) {
+  box_[x_] = Box::Interval(-200.0, 200.0);
+  box_[x0_] = Box::Interval(100.0, 100.0);
+  box_[xt_] = Box::Interval(-200.0, 200.0);  // wide gate
+  box_[t0_] = Box::Interval(1.0, 1.0);       // PINNED terminal time
+  Config config;
+  ContractorStatus cs{box_};
+  const auto ic = MakeIc();
+  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
+                                            config, 0.0);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  ASSERT_FALSE(cs.box().empty()) << "pinned decay endpoint is reachable: SAT";
+  const double true_xt = 100.0 * std::exp(-0.5);  // ≈ 60.6531
+  const ibex::Interval xt = cs.box()[xt_];
+  // The whole narrowed band must sit tightly around x(1) — NOT fattened to the
+  // last-slice tube [60.65, ~61.6] (the bug). Tolerance bounds (true_xt ± 0.05)
+  // avoid ULP-level sensitivity of the libm reference to the ambient FPU
+  // rounding mode left by a prior test. The bug's ub (~61.6) and width (~3.25)
+  // both blow past 0.05; the fix's band is ~1e-9 wide centered on x(1).
+  EXPECT_GT(xt.lb(), true_xt - 0.05) << "narrowed X_t must sit near x(1)≈60.6531";
+  EXPECT_LT(xt.ub(), true_xt + 0.05)
+      << "pinned endpoint must contract to x(1)≈60.6531, not the fat last-slice "
+         "tube reaching ~61.6 [BUG-005 GATE]";
+  EXPECT_LT(xt.ub() - xt.lb(), 0.05)
+      << "pinned endpoint band must be tight (a single value), not the fat "
+         "last-slice tube [BUG-005 GATE]";
+}
+
+// BUG-008: rising flow dx/dt = 0.5(100-x), x0=20, time pinned [1,1]. True
+// endpoint x(1)=100-80·e^-0.5 ≈ 51.4775. X_t gate [0,51.0] sits below the true
+// value by 0.477 ≫ delta, so the only sound verdict is refutation (box empties).
+// The bug's fat last-slice tube reaches down to ~50.9 and wrongly survives the
+// gate (false delta-sat).
+class PinnedRiseTest : public ::testing::Test {
+ protected:
+  inline static const Variable x_{"pr_x", Variable::Type::CONTINUOUS};
+  inline static const Variable x0_{"pr_x_0_0", Variable::Type::CONTINUOUS};
+  inline static const Variable xt_{"pr_x_0_t", Variable::Type::CONTINUOUS};
+  inline static const Variable t0_{"pr_time_0", Variable::Type::CONTINUOUS};
+  Box box_{vector<Variable>{x_, x0_, xt_, t0_}};
+  inline static const std::shared_ptr<const OdeFlow> ode_ = make_shared<OdeFlow>(
+      "pinned_rise",
+      vector<std::pair<Variable, Expression>>{{x_, 0.5 * (100.0 - x_)}});
+  Formula MakeIc() const { return integral(0.0, t0_, {x0_}, {xt_}, ode_); }
+};
+
+TEST_F(PinnedRiseTest, FwdPinnedSubTrueGate_BoxEmpties) {
+  box_[x_] = Box::Interval(-200.0, 200.0);
+  box_[x0_] = Box::Interval(20.0, 20.0);
+  box_[xt_] = Box::Interval(0.0, 51.0);  // sub-true gate (true endpoint ≈51.4775)
+  box_[t0_] = Box::Interval(1.0, 1.0);   // PINNED terminal time
+  Config config;
+  ContractorStatus cs{box_};
+  const auto ic = MakeIc();
+  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
+                                            config, 0.0);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_TRUE(cs.box().empty())
+      << "pinned rise: x(1)≈51.4775 > gate ub 51.0 by 0.477 ≫ delta; the "
+         "endpoint clipped to t=1 is disjoint from X_t → box must empty "
+         "[BUG-008 SOUNDNESS GATE]";
+}
+
 }  // namespace
 }  // namespace dreal

@@ -26,7 +26,17 @@ namespace dreal
     struct CapdTubeSlice {
         double t_lb;
         double t_ub;
+        // Full trajectory tube over [t_lb, t_ub]. Used for the per-slice ForallT
+        // invariant check, which must see the entire interior the terminal is
+        // reached through.
         std::vector<std::pair<double, double>> state;
+        // The trajectory enclosure CLIPPED to the terminal window [win_lb,
+        // win_ub] — i.e. over [max(t_lb,win_lb), min(t_ub,win_ub)]. Empty when
+        // the slice does not overlap the window. The terminal X_t gate
+        // intersects against THIS, not `state`: for a pinned time the clip
+        // collapses to the point x(win_ub), so the endpoint contracts tightly
+        // instead of fattening to the whole last sub-slice tube (BUG-005/008).
+        std::vector<std::pair<double, double>> gate_state;
     };
 
     // Result of a tube integration: the time-ordered slices plus a `found`
@@ -100,10 +110,16 @@ namespace dreal
     // cache's parameter list (== ode_list parameter order == m_pars_0 order).
     // These are bound into a private copy of the cached IMap via
     // setParameter before integration; they are NOT integration variables.
+    //
+    // win_lb is the lower bound of the terminal window [win_lb, t_ub] (t_ub ==
+    // win_ub == the integration horizon). Each slice's `gate_state` is the
+    // trajectory clipped to that window; for a pinned time (win_lb == t_ub) the
+    // terminal slice's gate_state collapses to the point x(t_ub).
     CapdTubeResult run_capd_fwd(
         const std::shared_ptr<CapdOdeCache>& cache,
         const std::vector<std::pair<double, double>>& u0_bounds,
         const std::vector<std::pair<double, double>>& par_bounds,
+        double win_lb,
         double t_ub,
         const NearestRounding& nr);
 
@@ -123,6 +139,7 @@ namespace dreal
         const std::shared_ptr<CapdOdeCache>& cache,
         const std::vector<std::pair<double, double>>& Xt_bounds,
         const std::vector<std::pair<double, double>>& par_bounds,
+        double win_lb,
         double t_ub,
         const NearestRounding& nr);
 
