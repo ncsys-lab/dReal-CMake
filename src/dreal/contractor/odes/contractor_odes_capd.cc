@@ -94,10 +94,16 @@ namespace dreal
         // system has dimension n_state_vars; parameters are NOT integrated.
         std::vector<std::string> par_names;
 
-        CapdOdeCache(capd::IMap f, capd::IMap f_neg, int n, bool is_trivial,
-                     std::vector<std::string> pars)
-            : fn_fwd(std::move(f)),
-              fn_bwd(std::move(f_neg)),
+        // fwd/bwd are the CAPD vector-field strings. capd::IMap parses each and
+        // builds its AD tree at construction; it is neither movable nor cheap to
+        // copy, so build it *directly into the member* from the string rather
+        // than copy a prebuilt IMap in. (The old by-value params + std::move were
+        // two full IMap copies each — the std::move was a silent no-op because
+        // IMap has no move ctor, so it bound to the copy ctor.)
+        CapdOdeCache(const std::string& fwd, const std::string& bwd, int n,
+                     bool is_trivial, std::vector<std::string> pars)
+            : fn_fwd(fwd),
+              fn_bwd(bwd),
               n_state_vars(n),
               trivial(is_trivial),
               par_names(std::move(pars)) {}
@@ -324,10 +330,11 @@ namespace dreal
         }
 
         try {
-            capd::IMap fn_fwd(strs.fwd);
-            capd::IMap fn_bwd(strs.bwd);
+            // CapdOdeCache builds both IMaps in place from these strings — no
+            // intermediate IMap to copy. A malformed string throws here inside
+            // make_shared (IMap ctor) and is caught below.
             auto cache = std::make_shared<CapdOdeCache>(
-                std::move(fn_fwd), std::move(fn_bwd),
+                strs.fwd, strs.bwd,
                 strs.n_vars, is_trivial, std::move(strs.par_names));
             std::lock_guard<std::mutex> lock(flow_cache_mutex());
             auto& m = flow_cache_map();
