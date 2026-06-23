@@ -25,22 +25,33 @@ These are parsed from both SMT2 (`define-ode`, `integral`, `forall_t`) and dReal
 
 The ODE contractor `contractor_ode_lohner` integrates flows with **CAPD**'s interval ODE solver — the sole ODE backend since the Codac elimination (see `CODAC_MIGRATION.md`). CAPD computes a **guaranteed** interval enclosure of the flow `dx/dt = f(x, t)`: a sequence of boxes certain to contain every trajectory starting anywhere in the initial box, with internal control of the **wrapping effect** (the exponential blow-up naive interval box arithmetic suffers because it cannot represent rotated or skewed sets).
 
-### Mechanism
+### Mechanism — per-slice tube + filter
 
-Each RHS expression is translated once into CAPD's `IMap` string format (`to_capd_string`, `to_capd_string.h`) and cached per flow in a `CapdOdeCache` — both the forward map `f(x)` and the negated map `-f(x)`. Integration uses `capd::IOdeSolver` at Taylor order `kCapdTaylorOrder = 10` driven by `capd::ITimeMap` over `[0, t_ub]`. `IOdeSolver` chooses its step size adaptively; instances are constructed per call (they carry mutable step state and so cannot be shared across parallel ICP workers — unlike Codac's `const CtcLohner::contract`).
+The contraction is split into a **numeric tube builder** (`contractor_odes_capd.cc`, CAPD-only) and a **box/invariant filter** (`contractor_ode_lohner::Prune`, `contractor_odes.cc`), so the CAPD layer stays purely numeric and all symbolic-box logic lives in one place. This restores the cav26 per-slice design that the Codac→CAPD rewrite had collapsed into a coarse single-endpoint intersection (an unsound over-narrowing — see *Soundness* below).
 
-Two integration entry points (`contractor_odes_capd.h`):
+**1. Feed.** Each RHS expression is translated once into CAPD's `IMap` string format (`to_capd_string`, `to_capd_string.h`) and cached per flow in a `CapdOdeCache` — both the forward map `f(x)` and the negated map `-f(x)`. Flow **parameters** (a flow variable whose `d/dt` is the literal `0`) are emitted in the `IMap`'s `par:` section and bound per call via `setParameter` to their current box intervals — they are constant along the flow and are *not* integration variables (emitting them as variables overruns the `C0Rect2Set`'s buffers; see the `build_imap_strings` comment).
 
-- **`run_capd_fwd`** — integrate the cached `f(x)` forward from the initial box `X_0`, intersect the terminal enclosure with `X_t` (→ narrowed terminal state), then integrate the cached `-f(x)` backward from the narrowed terminal to narrow `X_0`. A single call narrows **both** endpoints — recovering the joint narrowing that Codac's `CtcLohner` FWD_BWD did, in one pass.
-- **`run_capd_bwd`** — a one-shot backward image: integrate `-f(x)` from `X_t`; the terminal enclosure is the set of time-0 states whose forward trajectory reaches `X_t`. The caller intersects it with the current initial bounds. One-way narrowing.
+**2. Tube.** `run_capd_fwd` / `run_capd_bwd` integrate the cached `f(x)` / `-f(x)` from the start box `u0` over `[0, t_ub]` with `capd::IOdeSolver` at Taylor order `kCapdTaylorOrder = 20`, driven by `capd::ITimeMap` in `stopAfterStep` mode. Each adaptive step's rigorous Taylor curve is **sub-gridded into `kHullGrid = 16` sub-slices** (`integrate_tube_slices`), and the result is the **full time-ordered list of per-slice enclosures** `{(t_lb, t_ub), state-box}` — *not* a coarse component-wise hull. The per-slice form is what preserves the per-time / per-component correlation the filter needs; a hull would collapse it and under-refute (a false delta-sat). `IOdeSolver` instances are per call (mutable step state, not shareable across parallel ICP workers); the parsed `IMap` AD-tree is the cached, reused part.
 
-Flow **parameters** (a flow variable whose `d/dt` is the literal `0`) are bound into a private copy of the cached `IMap` via `setParameter` before integration; they are not integration variables.
+**3. Filter** (`contractor_ode_lohner::Prune`). Walk the slices in forward-time order:
+   - **Invariant** (FWD only): write each slice's state into the `ForallT` variables (a reused box copy) and run the HC4 invariant contractors. The *first* slice they empty is a trajectory-**interior** violation → every later terminal is unreachable, so stop.
+   - **Terminal window**: a slice whose time overlaps the dwell window `[win_lb, win_ub]` is terminal-eligible. Intersect its state with the `X_t` gate (`m_vars_t` box) component-wise; keep the non-empty intersections.
+   - **Narrow / refute**: hull the kept intersections → narrowed `X_t`, hull their times → narrowed time variable. **No surviving slice → `set_empty()`** — a sound refutation, because CAPD's enclosures are outward over-approximations, so an empty survivor set proves true infeasibility.
+
+`run_capd_fwd` narrows `X_t` and the time variable; `run_capd_bwd` runs the symmetric filter in a swapped frame (`m_vars_0 = original X_t`) to narrow `X_0`. The theory solver queues **both** a FWD and a BWD contractor per ODE constraint (mirroring cav26's two-contractor design), so each endpoint is narrowed by its own pass — the FWD pass is also the one that enforces the `ForallT` invariant.
 
 ### Short-circuits and divergence
 
 - **Trivial flow** (every RHS is the literal `0`, `capd_ode_cache_is_trivial`): bypass CAPD entirely and just intersect `X_0 ∩ X_t`.
-- **`T = 0`** (time upper bound pinned to `0`): a zero-duration trajectory means initial = final, so intersect `vars_0[i] ∩ vars_t[i]` directly.
-- **Divergence**: if CAPD's step control fails (stiff tube / over-approximation explosion), `run_capd_fwd`/`run_capd_bwd` catch the integrator exception internally and report `CapdOdeResult::found == false`; the contractor (`if (!res.found) return;`) then narrows nothing for that `Prune` call — sound but incomplete. (An *untranslatable* RHS is different: it raises at cache-build time.)
+- **`T = 0`** (time upper bound pinned to `0`): a zero-duration trajectory means initial = final, so intersect `vars_0[i] ∩ vars_t[i]` directly. The integration time may be a variable, a `RealConstant` interval, or an exact constant — all three are handled.
+- **Divergence**: ANY CAPD exception — step-control failure (stiff tube / over-approximation explosion) *or* a mid-enclosure singularity (`capd::IntervalError` "possible division by zero", e.g. the sigmoid-inverter flows) — is caught inside `integrate_tube_slices` and reported as `found == false`; the contractor (`if (!res.found) return;`) narrows nothing for that `Prune` call (sound but incomplete). The catch is **catch-all-and-skip with no rethrow**: this architecture has no ICP-level contractor catch, so an escaping exception would `terminate()` the whole solve. (An *untranslatable* RHS is different: it raises at cache-build time — a loud failure, not a silent skip.)
+
+### Soundness: feed faithfulness and the per-slice filter
+
+The integrator is sound only if **two** things hold, and both were soundness bugs that have been fixed:
+
+1. **The vector field CAPD integrates must be faithful to the true RHS.** `to_capd_string` renders every constant at `std::numeric_limits<double>::max_digits10` (17) significant digits, so CAPD's interval-parse of the decimal literal brackets the exact double. The previous `std::to_string` rendered only **6** fractional digits (`sprintf %f`), so a coefficient like `1/3 → "0.333333"` made CAPD integrate `3·(1/3)` as `0.999999` — a vector field unfaithful by `1e-6`. A clock whose terminal gate sits at the integration-window end (`tau=1` at `t=t_ub`) then has no surviving terminal slice → **false-`unsat`** (the water/thermostat automata; `ode_soundness_repros/ws_taupin.smt2`). Decimal formatting is correctly rounded only in `FE_TONEAREST`, so `to_capd_string` asserts that mode (it is always reached under `make_capd_ode_cache`'s `NearestRoundingScope`); see CLAUDE.md "FPU rounding mode".
+2. **The filter must keep per-time/per-component correlation.** Intersecting a single coarse endpoint hull with `X_t` (the Codac→CAPD rewrite's form) combines `x` reached at one time with `p` reached at another → a false delta-sat on anti-correlated tubes, or a missed interior invariant violation. The per-slice filter above keeps the correlation. Regression coverage: `contractor_odes_semantic_test.cc` (`GravityInvariantTest`, `AntiCorrelatedTest`, `DecayFlowTest.*`) and `contractor_capd_test.cc` (`CapdFwd`/`CapdBwd` — the cumulative-gaussian witness `p=Φ(10)−Φ(-10)<1`).
 
 ---
 
@@ -63,7 +74,7 @@ The benchmark `bouncing_ball_with_drag_10_0.smt2` is a 10-mode bouncing ball —
 
 ## Performance
 
-CAPD became the sole ODE backend after benchmarking confirmed it was at or below the old Codac `CtcLohner` runtime on the tested ODE families (cardiac, prostate, bouncing-ball); the Taylor order was later tuned 20 → 10 (`kCapdTaylorOrder`). Per-flow caching of the `IMap` (built once, reused across every `Prune`) keeps steady-state integration off the expression-translation path.
+CAPD became the sole ODE backend after benchmarking confirmed it was at or below the old Codac `CtcLohner` runtime on the tested ODE families (cardiac, prostate, bouncing-ball). The Taylor order is `kCapdTaylorOrder = 20`: the per-slice tube sub-grids `kHullGrid = 16` enclosures *per adaptive step*, so cost scales with the step count — a low order takes many small steps and the `16×` explodes (the k256 thermostat went 187 s → timeout at order 10, back to 196 s at order 20). Order 20 takes fewer, larger steps and its tighter per-step enclosure also localizes interior invariant violations better. Lowering order or loosening tolerance only *widens* a sound enclosure (never a false-`unsat`). Per-flow caching of the parsed `IMap` (built once, reused across every `Prune`) keeps steady-state integration off the expression-translation path.
 
 See `CODAC_MIGRATION.md` for the headline benchmark table and `OPTIMIZATION_LOG.md` for the order-tuning and full optimization timeline.
 
@@ -71,7 +82,7 @@ See `CODAC_MIGRATION.md` for the headline benchmark table and `OPTIMIZATION_LOG.
 
 ## CAPD build wiring
 
-CAPD runs on ARM64 via `CAPD_INTERVAL_TYPE=NATIVE` (master SHA `b353e170`), which uses CAPD's own `DoubleRounding` and skips FILIB entirely. See `DEPENDENCIES.md` § "CAPD" for the full build-wiring details. CAPD expects the FPU in `FE_TONEAREST`; `contractor_ode_lohner::Prune` establishes that mode internally and restores `FE_UPWARD` on exit — see CLAUDE.md "FPU rounding mode". (The earlier Codac/CAPD gated hybrid, and the `--capd-t-gate` / `--capd-ndim-gate` flags that selected between them, were retired when Codac was removed.)
+CAPD runs on ARM64 via `CAPD_INTERVAL_TYPE=NATIVE` (master SHA `b353e170`), which uses CAPD's own `DoubleRounding` and skips FILIB entirely. See `DEPENDENCIES.md` § "CAPD" for the full build-wiring details. CAPD expects the FPU in `FE_TONEAREST`; `contractor_ode_lohner::Prune` establishes a nested `NearestRoundingScope` for the CAPD work (and a further nested `UpwardRoundingScope` around the ibex invariant sub-contractors it calls), and the `run_capd_*` / `make_capd_ode_cache` adapters open an `ExpectClobber` `NearestRoundingScope` to contain CAPD's directed-mode clobber (CAPD leaves the FPU in a directed mode on return rather than restoring nearest) — see CLAUDE.md "FPU rounding mode". (The earlier Codac/CAPD gated hybrid, and the `--capd-t-gate` / `--capd-ndim-gate` flags that selected between them, were retired when Codac was removed.)
 
 ---
 

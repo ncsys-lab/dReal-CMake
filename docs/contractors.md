@@ -29,7 +29,7 @@ Defined in `Contractor::Kind`:
 | `WORKLIST_FIXPOINT` | `contractor_worklist_fixpoint.cc` | Fixpoint with dependency tracking |
 | `FORALL` | `contractor_forall.h` | ForallT (universal quantification over time) |
 | `JOIN` | `contractor_join.cc` | Disjunctive composition (convex hull of results) |
-| `ODE_LOHNER` | `odes/contractor_odes.cc` | CAPD order-10 Taylor integration for ODEs |
+| `ODE_LOHNER` | `odes/contractor_odes.cc` | CAPD order-20 Taylor integration for ODEs (per-slice tube + filter) |
 
 ---
 
@@ -125,7 +125,7 @@ Handles `ForallT` formulas: `∀t ∈ [t₀, t₁]: φ(x, t)`. These appear in O
 
 See `docs/ode-integration.md` for a full description.
 
-At the contractor interface level: given an ODE constraint and a time window, `contractor_ode_lohner::Prune` integrates with **CAPD** (order-10 `IOdeSolver` + `ITimeMap`) — the sole ODE backend since the Codac elimination. `run_capd_fwd` integrates `f(x)` forward from the initial box to narrow the terminal state, then integrates the negated `-f(x)` backward from the narrowed terminal to narrow the initial state, so a single call narrows both endpoints. A trivial-flow short-circuit (every RHS is the literal `0`) and a `T=0` short-circuit bypass CAPD entirely. On integration divergence the call narrows nothing for that `Prune` (sound but incomplete). The previous Codac / CAPD-gated hybrid (and the `--capd-t-gate` / `--capd-ndim-gate` flags) was retired — see `CODAC_MIGRATION.md`.
+At the contractor interface level: given an ODE constraint and a time window, `contractor_ode_lohner::Prune` integrates with **CAPD** (order-20 `IOdeSolver` + `ITimeMap`) — the sole ODE backend since the Codac elimination. `run_capd_fwd` / `run_capd_bwd` return the **time-ordered per-slice tube** (each adaptive step's Taylor curve sub-gridded into `kHullGrid=16` enclosures); the `Prune` filter then walks the slices, checks the `ForallT` invariant per slice (FWD), intersects each terminal-eligible slice with the `X_t` gate, and hulls the survivors → narrowed `X_t` + time (no survivor → sound `set_empty`). The theory solver queues both a FWD (narrows `X_t`/time) and a BWD (narrows `X_0`) contractor per ODE constraint. A trivial-flow short-circuit (every RHS is the literal `0`) and a `T=0` short-circuit bypass CAPD entirely. On integration divergence (any CAPD exception, caught-and-skipped — no rethrow) the call narrows nothing for that `Prune` (sound but incomplete). The CAPD-integrated field must be a faithful image of the RHS — `to_capd_string` renders constants at 17 sig figs (a 6-digit truncation was a false-`unsat` soundness bug; see `docs/ode-integration.md` § Soundness). The previous Codac / CAPD-gated hybrid (and the `--capd-t-gate` / `--capd-ndim-gate` flags) was retired — see `CODAC_MIGRATION.md`.
 
 ---
 

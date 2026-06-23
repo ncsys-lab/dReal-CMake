@@ -14,23 +14,50 @@
 // multiple-definition errors.
 
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <string>
 
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
+#include "dreal/util/rounding.h"
 
 namespace dreal
 {
+    // Render a double as a decimal literal CAPD's IMap parser accepts, with
+    // *enough digits to round-trip the exact double*. This is a soundness
+    // obligation, not cosmetics: CAPD parses the literal into an outward-rounded
+    // interval, so as long as the string carries all 17 significant digits
+    // (max_digits10), that interval brackets the true double and the integrated
+    // vector field is faithful. The previous std::to_string rendered only 6
+    // fractional digits (sprintf %f), so 1/3 -> "0.333333" and CAPD integrated
+    // 3*(1/3) as 0.999999 — a 1e-6-unfaithful field that false-unsats clock ODEs
+    // whose terminal gate sits at the integration-window end (water/thermostat
+    // automata; ode_soundness_repros/ws_taupin.smt2).
+    //
+    // FE_TONEAREST: a double->decimal conversion is correctly rounded only in
+    // round-to-nearest; under FE_UPWARD the last digit can mis-round. Every call
+    // site reaches here under a NearestRoundingScope (make_capd_ode_cache builds
+    // the IMap strings), so this asserts the inherited mode rather than threading
+    // a NearestRounding token (cf. format_double in util/rounded_format.h). The
+    // assert compiles out under NDEBUG.
     inline std::string to_capd_string(double value) {
-        std::string name = std::to_string(value);
+        DREAL_ASSERT_ROUNDING(FE_TONEAREST);
+        std::ostringstream ss;
+        ss << std::setprecision(std::numeric_limits<double>::max_digits10)
+           << value;
+        std::string name = ss.str();
         if (name.find('e') != std::string::npos || name.find('E') != std::string::npos) {
-            // Round-trip scientific notation into fixed (CAPD parser doesn't
-            // accept "1e-3" reliably across all builds).
-            std::ostringstream ss;
-            ss << std::setprecision(16) << std::fixed << std::stod(name);
-            name = ss.str();
+            // CAPD's IMap parser does not accept "1e-3" reliably across builds,
+            // so re-render in fixed notation. setprecision(40) fractional digits
+            // round-trips any double down to ~1e-23 in magnitude (trailing zeros
+            // are harmless to the parser); below the default-format threshold
+            // (|value| < 1e-4) this is the only branch that runs, so normal-
+            // magnitude coefficients keep their short default-format string.
+            std::ostringstream fx;
+            fx << std::fixed << std::setprecision(40) << value;
+            name = fx.str();
         }
         if (!name.empty() && name.front() == '-') {
             name = "(" + name + ")";

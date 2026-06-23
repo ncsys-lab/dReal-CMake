@@ -127,27 +127,34 @@ namespace dreal
 
             { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
 
-            // The box EMPTIES — and this is the sound, correlation-aware
-            // refutation, not a regression. x'=1 reaches xt=10 only at t=20;
-            // the cumulative gaussian p(t) is monotone increasing and, by the
-            // time x=10, CAPD's *rigorous* enclosure of p already exceeds the
-            // pt gate [0,1] (the full C0Rect2Set enclosure reads
-            // p ∈ [1.00000002, 1.00000003] at t≈19.5 — verified directly). So
-            // NO single trajectory time satisfies x=10 ∧ p∈[0,1]: the constraint
-            // is infeasible w.r.t. CAPD's interval reasoning, and dReal's
-            // soundness is defined relative to that backend.
+            // The box must NOT refute: this instance is genuinely delta-sat.
+            // x'=1 gives x=10 at t=20; p is the cumulative standard normal, and
+            // p(20) = Φ(10)−Φ(-10) = erf(10/√2) is *strictly below 1* (the
+            // normal mass outside ±10 is ~1e-22 but nonzero). So the true
+            // terminal (x=10, p≈0.99999998 ∈ [0,1]) satisfies every gate, and a
+            // sound contractor keeps it. The per-slice filter does: it narrows
+            // to that witness band — t0 ∋ 20 and pt to the sub-1 cumulative.
             //
-            // The previous expectation (box stays non-empty) was calibrated to
-            // the coarse component-wise *hull* contractor, which intersected
-            // hull_x∋10 with hull_p⊇[0,1] independently — a false delta-sat
-            // that combined x=10 (at t=20) with p∈[0,1] (only true at earlier
-            // t). The per-slice filter (cav26-faithful) keeps the per-time
-            // correlation and correctly refutes. See contractor_odes.cc's
-            // per-slice filter and contractor_odes_semantic_test.cc's
-            // AntiCorrelatedTest (the same effect, distilled).
-            EXPECT_TRUE(cs.box().empty())
-                << "no trajectory time has x=10 AND p∈[0,1] (CAPD puts p>1 by "
-                   "the time x reaches 10); the box must refute [sound]";
+            // The previous "box EMPTIES" expectation was a FALSE-UNSAT, not a
+            // sound refutation. It was calibrated to the to_capd_string 6-digit
+            // truncation (std::to_string), which fed CAPD an unfaithful gaussian
+            // coefficient (1/√(2π) → "0.398942") so its rigorous enclosure
+            // tracked the *wrong* vector field and the filter wrongly refuted.
+            // Restoring full-precision coefficients (to_capd_string.h, 17 sig
+            // figs) makes CAPD integrate the true field → correct delta-sat.
+            // Same root cause as the water/thermostat automaton false-unsats and
+            // ode_soundness_repros/ws_taupin.smt2 (a clock whose gate sits at the
+            // integration-window end). The CAPD per-slice filter itself is sound;
+            // it was the feed that lied.
+            ASSERT_FALSE(cs.box().empty())
+                << "(x=10, p=Φ(10)−Φ(-10)<1) is a true witness in the gates; "
+                   "refuting it is a false-unsat";
+            // Narrowed to the real witness time x=10 ⇒ t=20.
+            EXPECT_LE(cs.box()[t0_].lb(), 20.0);
+            EXPECT_GE(cs.box()[t0_].ub(), 20.0);
+            // pt narrowed within the gate to the near-1 cumulative.
+            EXPECT_LE(cs.box()[pt_].ub(), 1.0);
+            EXPECT_GT(cs.box()[pt_].ub(), 0.999);
         }
 
         TEST_F(ContractorCapdFullTest, CapdBwd) {
@@ -183,18 +190,26 @@ namespace dreal
 
             { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
 
-            // The box EMPTIES — the BWD mirror of CapdFwd's sound refutation.
-            // BWD integrates -f from the pinned terminal (xt=10, pt=1) back to
-            // X_0=(x0=-10, p0∈[0,1]). To forward-reach (x=10, p=1) from x0=-10
-            // requires p0 = 1 − ∫₋₁₀¹⁰ gaussian ≈ 1 − 1.00000002 < 0, outside
-            // the p0 gate [0,1]: no single reverse-time slice lands in X_0.
-            // The per-slice filter refutes; the prior coarse-hull expectation
-            // (non-empty, untouched) was the same false delta-sat as CapdFwd.
-            EXPECT_TRUE(cs.box().empty())
-                << "backward image of (x=10,p=1) misses X_0 gate (needs p0<0); "
-                   "the box must refute [sound]";
+            // The BWD mirror of CapdFwd: must NOT refute. BWD integrates -f from
+            // the pinned terminal (xt=10, pt=1) back to X_0=(x0=-10, p0∈[0,1]).
+            // To forward-reach (x=10, p=1) from x0=-10 needs p0 = 1 − ∫₋₁₀¹⁰
+            // gaussian = 1 − (Φ(10)−Φ(-10)) ≈ 1.96e-8, which is *just above 0*
+            // and inside the gate [0,1] (because the faithful integral is < 1).
+            // So a sound contractor keeps it and narrows p0 to ≈[0, ~3e-9],
+            // t0 ∋ 20. The earlier "box EMPTIES / needs p0<0" expectation was the
+            // same to_capd_string-truncation false-unsat as CapdFwd (the
+            // truncated coefficient drove the enclosed integral past 1, forcing
+            // p0<0); the precision fix restores the correct delta-sat.
+            ASSERT_FALSE(cs.box().empty())
+                << "backward image of (x=10,p=1) lands at p0≈1−erf>0, inside the "
+                   "gate; refuting it is a false-unsat";
+            EXPECT_LE(cs.box()[t0_].lb(), 20.0);
+            EXPECT_GE(cs.box()[t0_].ub(), 20.0);
+            // p0 narrowed to the tiny residual 1 − ∫gaussian, within [0,1].
+            EXPECT_GE(cs.box()[p0_].lb(), 0.0);
+            EXPECT_LT(cs.box()[p0_].ub(), 0.5);
 
-            // On refutation the contractor records the integral constraint.
+            // On a narrowing prune the contractor records the integral constraint.
             const auto& used = cs.UsedConstraints();
             EXPECT_TRUE(used.find(ic) != used.end());
         }
