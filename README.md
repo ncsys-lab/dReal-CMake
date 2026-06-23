@@ -27,7 +27,7 @@ cat YOUR_QUERY.smt2 | docker run --platform linux/amd64 --rm -i dreal/my_dreal_i
 
 Install dependencies via Homebrew:
 ```
-brew install bison flex gmp cadical eigen cmake
+brew install bison flex gmp cadical cmake
 ```
 
 Then build:
@@ -42,7 +42,7 @@ The binary is at `gcc_build/dreal4`. CMakeLists.txt auto-detects Homebrew paths.
 
 Install dependencies:
 ```
-apt-get install -y clang cmake git bison flex libgmp-dev libeigen3-dev
+apt-get install -y clang cmake git bison flex libgmp-dev
 ```
 
 Build CaDiCaL 3.0.0 from source (not yet packaged on Ubuntu):

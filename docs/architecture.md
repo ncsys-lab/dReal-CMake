@@ -164,4 +164,4 @@ See `docs/pattern-matching.md` for full details. At a high level: when the theor
 
 ## ODE Support
 
-See `docs/ode-integration.md` for details. ODE constraints (`d/dt[x] = f(x,t)` combined with `Integral` and `ForallT` AST nodes) are handled by `contractor_ode_lohner`, which integrates with CAPD's `IOdeSolver` (order-10 Taylor) + `ITimeMap` — the sole ODE backend — to compute guaranteed interval enclosures of ODE trajectories.
+See `docs/ode-integration.md` for details. ODE constraints (`d/dt[x] = f(x,t)` combined with `Integral` and `ForallT` AST nodes) are handled by `contractor_ode_lohner`, which integrates with CAPD's `IOdeSolver` (order-20 Taylor) + `ITimeMap` — the sole ODE backend — to compute guaranteed interval enclosures of ODE trajectories.

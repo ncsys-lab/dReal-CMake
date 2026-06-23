@@ -23,7 +23,7 @@ These are parsed from both SMT2 (`define-ode`, `integral`, `forall_t`) and dReal
 
 **Files:** `src/dreal/contractor/odes/contractor_odes.cc` (contractor) and `contractor_odes_capd.cc` (CAPD backend)
 
-The ODE contractor `contractor_ode_lohner` integrates flows with **CAPD**'s interval ODE solver — the sole ODE backend since the Codac elimination (see `CODAC_MIGRATION.md`). CAPD computes a **guaranteed** interval enclosure of the flow `dx/dt = f(x, t)`: a sequence of boxes certain to contain every trajectory starting anywhere in the initial box, with internal control of the **wrapping effect** (the exponential blow-up naive interval box arithmetic suffers because it cannot represent rotated or skewed sets).
+The ODE contractor `contractor_ode_lohner` integrates flows with **CAPD**'s interval ODE solver — the sole ODE backend since the Codac elimination (see `docs/decisions.md` "ODE backend"). CAPD computes a **guaranteed** interval enclosure of the flow `dx/dt = f(x, t)`: a sequence of boxes certain to contain every trajectory starting anywhere in the initial box, with internal control of the **wrapping effect** (the exponential blow-up naive interval box arithmetic suffers because it cannot represent rotated or skewed sets).
 
 ### Mechanism — per-slice tube + filter
 
@@ -76,7 +76,7 @@ The benchmark `bouncing_ball_with_drag_10_0.smt2` is a 10-mode bouncing ball —
 
 CAPD became the sole ODE backend after benchmarking confirmed it was at or below the old Codac `CtcLohner` runtime on the tested ODE families (cardiac, prostate, bouncing-ball). The Taylor order is `kCapdTaylorOrder = 20`: the per-slice tube sub-grids `kHullGrid = 16` enclosures *per adaptive step*, so cost scales with the step count — a low order takes many small steps and the `16×` explodes (the k256 thermostat went 187 s → timeout at order 10, back to 196 s at order 20). Order 20 takes fewer, larger steps and its tighter per-step enclosure also localizes interior invariant violations better. Lowering order or loosening tolerance only *widens* a sound enclosure (never a false-`unsat`). Per-flow caching of the parsed `IMap` (built once, reused across every `Prune`) keeps steady-state integration off the expression-translation path.
 
-See `CODAC_MIGRATION.md` for the headline benchmark table and `OPTIMIZATION_LOG.md` for the order-tuning and full optimization timeline.
+See `docs/decisions.md` "ODE backend" for the CAPD-vs-Codac finding and `OPTIMIZATION_LOG.md` for the order-tuning and full optimization timeline.
 
 ---
 
@@ -88,7 +88,7 @@ CAPD runs on ARM64 via `CAPD_INTERVAL_TYPE=NATIVE` (master SHA `b353e170`), whic
 
 ## Dependency history
 
-The current CAPD-only design is the result of two migrations: an earlier move to a Codac-based ODE contractor, then the **removal** of Codac (Codac and Eigen are no longer dependencies). The current stack source-builds the IBEX fork (`ncsys-lab/ibex-lib@dreal-perf-patches`) and CAPD (`CAPDGroup/CAPD@b353e170`); ODE boundary values cross the interface as `ibex::Interval` / `ibex::IntervalVector`. See `DEPENDENCIES.md` for the current stack and `CODAC_MIGRATION.md` for the full migration narrative.
+The current CAPD-only design is the result of two migrations: an earlier move to a Codac-based ODE contractor, then the **removal** of Codac (Codac and Eigen are no longer dependencies). The current stack source-builds the IBEX fork (`ncsys-lab/ibex-lib@dreal-perf-patches`) and CAPD (`CAPDGroup/CAPD@b353e170`); ODE boundary values cross the interface as `ibex::Interval` / `ibex::IntervalVector`. See `DEPENDENCIES.md` for the current stack and `docs/decisions.md` "ODE backend" for the migration rationale.
 
 ---
 

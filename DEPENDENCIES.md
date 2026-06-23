@@ -3,39 +3,41 @@
 This document describes the external libraries dReal4 depends on, including the
 rationale for choosing specific versions and the changes made from upstream.
 
-> **Status (2026-06-08):** Codac is no longer used. IBEX is now source-built
-> from the dReal team's fork (`ncsys-lab/ibex-lib@dreal-perf-patches`) and
-> CAPD is the sole ODE backend. See `CODAC_MIGRATION.md` for the historical
-> context and `../ibex-fork/MIGRATION.md` for the (minimal) patch catalog of
-> the IBEX fork.
+> **Status:** Codac is no longer used. IBEX is source-built from the dReal
+> team's fork (`ncsys-lab/ibex-lib@dreal-perf-patches`) and CAPD is the sole
+> ODE backend. See `docs/decisions.md` "ODE backend" for the migration
+> rationale and `../ibex-fork/MIGRATION.md` for the IBEX fork's patch catalog.
 
 ---
 
 ## IBEX (`ncsys-lab/ibex-lib`)
 
-**Version**: `dreal-perf-patches` @ `cf3928c7` (11 patches on top of mainline `ibex-team/ibex-lib@65ed5877`; `CMakeLists.txt` pins this sha).
+**Version**: `dreal-perf-patches` on top of mainline `ibex-team/ibex-lib`; `CMakeLists.txt` pins the exact fork sha.
 **Build**: `ExternalProject_Add` source-build from `https://github.com/ncsys-lab/ibex-lib.git` (cache var `IBEX_GIT_REPOSITORY`, overridable to a `file://` path for local-dev iteration against `../ibex-fork`), installed into `gcc_build/ibex-install/`.
 **Role**: Interval arithmetic + constraint propagation. Provides `IntervalVector`, `Function`, `HC4Revise` (the forward-backward contractor), polytope hull (`CtcPolytopeHull`), and the symbolic expression tree.
 
 ### Why a fork at all
 
-The fork hosts eleven surgical patches that aren't yet upstream (see `../ibex-fork/MIGRATION.md` for the full catalog):
+The fork hosts a series of surgical, intended-as-upstream-PR patches that aren't yet in
+mainline. The authoritative, per-patch catalog (with file/line counts, soundness gates, and
+measured effects) lives in **`../ibex-fork/MIGRATION.md`** — it is the single source of truth for
+the patch set and its count; do not restate the list here (it drifts). The categories:
 
-1. **`function: lazy-init gradient`** (2 files, ~24 lines). `Function::init` no longer eagerly allocates the `Gradient` object; an inline `lazy_grad()` accessor builds it on first use. Profiling in `CODAC_MIGRATION.md` traced ~65% of `Function::init` wall time to this allocation when dReal never touches the gradient API.
-2. **`Function::backward callback`** (4 files, ~16 lines). Adds an optional `std::function<void(int, const Interval&, const Interval&)>` argument to `Function::backward`. dReal's HC4 contractor (`contractor_ibex_fwdbwd.cc`) uses the callback to track narrowed variables without an `IntervalVector` snapshot.
-3. **`parser.yc namespace fix`** (2 files, ~6 lines). Qualifies two unqualified `apply(...)` calls in the Bison-generated parser as `ibex::parser::apply(...)`, which avoids ADL ambiguities on modern toolchains (clang-18 + libc++ and GCC 13 + libstdc++).
-4. **`mathlib: support aarch64/arm64 Linux`** (1 file, ~8 lines). Mainline mathlib's `CMakeLists.txt` doesn't recognize arm64 Linux as a supported platform; without this, `Dockerfile.dreal_ubuntu` fails to build on Apple Silicon (Docker defaults to native `linux/arm64`).
-5. **`function: fire backward callback for non-scalar args`** (2 files, ~100 lines additive). Audit fix for patch #2: the non-scalar branch of `read_arg_domains` previously bypassed the callback for vector/matrix-typed function arguments. SMT theory-lemma generation relies on per-variable change events for soundness; this patch closes the gap via a new callback-aware `load()` overload in `ibex_TemplateDomain.h`.
-6. **`function: copy old-value in backward callback to avoid alias`** (1 file, 1 line). Audit fix for patch #2: the scalar branch bound `old_value` as a const reference to a memory cell that the next line overwrote. Callers that retain `old_value` would see stale data. Copy by value.
-7. **`HC4Revise: report partial narrowings on EmptyBoxException`** (1 file, ~7 lines). Audit fix for patch #2: when backward propagation throws `EmptyBoxException`, surface any narrowings that completed before the contradiction before calling `set_empty()`. Tightens theory-lemma precision for callers (dReal stays sound either way via its own empty-box handling).
-8. **`gaol: Interval::log/pow soundness gaps`** (wrapper + test, ~12 lines). `Interval::log` switched to strict `<` so `log([0,0])` surfaces gaol's `(-oo,-DBL_MAX]` instead of empty; `Interval::pow(x, double)` wraps the exponent in a degenerate interval so fractional exponents dispatch correctly.
-9. **`gaol: inline aarch64 FPCR rounding fast-path`** (vendored-gaol build patch, +56 lines). The directed interval transcendentals toggle the FPU mode nearest⟷upward per mathlib call; on ARM64 each toggle was a libc `fesetround`. Replaces gaol's `round_{nearest,upward,downward}` bodies (under `#if defined(__aarch64__)`) with an inline `mrs`/`msr` FPCR-RMode write — bit-identical, same sequence as macOS `fesetround` minus the call frame.
-10. **`gaol: batch the nearest-rounding region in transcendentals`** (vendored-gaol build patch, +250/−14 lines). Pairs the two directed bounds of each transcendental into one `round_nearest()`/`round_upward()` window (`<f>_dn_up` helpers), halving the per-transcendental mode toggles. Bit-identical. ~8% CPU on transcendental-dense odeexpr (#9 alone ~2%). Both gated by dReal's `gaol_transcendental_bitidentity` test.
-11. **`function: signal empty domains via return-status instead of EmptyBoxException`** (8 files, +432/−370). `HC4Revise`/`InHC4Revise`/`Gradient` backward methods (and the shared `CompiledFunction::backward<V>` driver) report an emptied domain by returning `false` and short-circuiting, instead of throwing a nested `EmptyBoxException`. Removes `__cxa_throw`/`_Unwind_*` from the contraction hot path (measured up to ~27% of CPU on throw-dense odeexpr proofs → 0%). Public `Function::backward(y,x,cb)` signature is unchanged, so dReal needs no change (it detects emptiness via `iv.is_empty()`). Bit-identical contraction; supersedes the partial-narrowing precision of #7 (now reported on the same return path). Guarded by `TestHC4Revise::empty01/empty02`, `TestInHC4Revise::empty01`, and the dReal Phase-0 soundness net.
+- **Performance levers (the reason the fork exists):** lazy-init `Gradient` (the dominant
+  non-ODE cost — ~65% of `Function::init` wall time built an object `Function::backward` never
+  reads; see `docs/decisions.md` "ODE backend"); inline aarch64 FPCR rounding write + batched
+  nearest-rounding region in gaol transcendentals (bit-identical, ~8% on transcendental-dense
+  odeexpr); and replacing `HC4Revise`'s `EmptyBoxException` control flow with a return-status
+  (`__cxa_throw` off the contraction hot path).
+- **Correctness / soundness:** `Function::backward` per-variable callback (lemma quality) plus
+  its audit fixes for non-scalar args, reference aliasing, and partial-narrowing precision; gaol
+  `Interval::log`/`pow` soundness gaps; and `underflow_saturate` for subnormal-band HC4 backward
+  targets (dreal/dreal4#321 — see `docs/decisions.md` "Denormal / underflow soundness").
+- **Platform / build:** Bison-parser `apply(...)` namespace qualification (clang-18/GCC-13 ADL);
+  mathlib aarch64/arm64-Linux support (Apple-Silicon Docker build).
 
-Total fork diff vs mainline: 23 files, +1019/−399 (excluding docs).
-
-All eleven are intended as upstream PRs. Once any/all merge, drop the corresponding commit; when all eleven land, swap the `GIT_REPOSITORY` back to `ibex-team/ibex-lib` and delete the fork.
+Once a patch merges upstream, drop it; when all land, swap `GIT_REPOSITORY` back to
+`ibex-team/ibex-lib` and delete the fork.
 
 ### Source-build invocation (from `CMakeLists.txt`)
 
@@ -120,5 +122,5 @@ The container builds CaDiCaL 3.0.0, GMP 6.3.0, Bison 3.8.2, and Flex 2.6.4 from 
 
 ## Migration History
 
-- `CODAC_MIGRATION.md` — the original migration off `ncsys-lab/ibex-lib` to Codac, the perf-regression analysis that motivated returning to a fork, and the final resolution.
-- `../ibex-fork/MIGRATION.md` — divergence catalog of the IBEX fork (11-patch series).
+- `docs/decisions.md` "ODE backend" — the Codac→CAPD-only migration rationale, the perf-regression analysis that motivated returning to a fork, and the resolution.
+- `../ibex-fork/MIGRATION.md` — divergence catalog of the IBEX fork.
