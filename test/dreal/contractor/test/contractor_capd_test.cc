@@ -358,5 +358,71 @@ namespace dreal
             EXPECT_NEAR(cs.box()[xt_].mid(), 2.0, 0.15);
             EXPECT_LT(cs.box()[xt_].diam(), 0.2);
         }
+
+        // --visualize regression for the non-conventional state-var naming the
+        // translator emits (`x_k<step>` rather than dReal's `<base>_<step>_{0,t}`).
+        // generate_trace's per-entry `key`/`step` come from the start variable
+        // name (m_vars_0). See simulink-to-dreal/docs/dreal-bugs.md BUG-004/007.
+        // A decay flow d/dt[x] = -0.5 x from x_k1 = 100 over t ∈ [0,1].
+        class ContractorCapdNonConvNameTest : public ::testing::Test
+        {
+        protected:
+            const Variable x_{"x", Variable::Type::CONTINUOUS};
+            const Variable x0_{"x_k1", Variable::Type::CONTINUOUS};  // segment start
+            const Variable xt_{"x_k2", Variable::Type::CONTINUOUS};  // segment end
+            const Variable t0_{"time_k1", Variable::Type::CONTINUOUS};
+            const vector<Variable> vars_{x_, x0_, xt_, t0_};
+            Box box_{vars_};
+            const std::shared_ptr<const OdeFlow> ode_ = make_shared<OdeFlow>(
+                "flow_1", std::vector<std::pair<Variable, Expression>>{
+                    {x_, -0.5 * x_}});
+            Formula MakeIc() const { return integral(0.0, t0_, {x0_}, {xt_}, ode_); }
+            nlohmann::json Trace() {
+                box_[x_]  = Box::Interval(0.0, 100.0);
+                box_[x0_] = Box::Interval(100.0);
+                box_[xt_] = Box::Interval(0.0, 100.0);
+                box_[t0_] = Box::Interval(0.0, 1.0);
+                Config config;
+                const auto ctc = mk_contractor_ode_lohner(
+                    box_, {MakeIc(), {}}, ode_direction::FWD, config, 0.0);
+                ContractorStatus cs{box_};
+                const NearestRoundingScope g;
+                return to_ode_lohner(ctc)->generate_trace(cs);
+            }
+        };
+
+        // BUG-004: a non-conventional state-var name (`x_k1`) used to make the
+        // --visualize trace generator throw out of extract_step and leave the
+        // JSON empty (cav26 + dReal v3.16.12). It must now emit a full trace,
+        // keyed verbatim by the variable name, with a non-empty trajectory.
+        TEST_F(ContractorCapdNonConvNameTest, NonConventionalName_EmitsFullTrace) {
+            const nlohmann::json trace = Trace();
+            ASSERT_TRUE(trace.is_array());
+            ASSERT_FALSE(trace.empty()) << "BUG-004: trace must not be empty";
+            EXPECT_EQ(trace[0]["key"].get<std::string>(), "x_k1");
+            ASSERT_TRUE(trace[0]["values"].is_array());
+            EXPECT_FALSE(trace[0]["values"].empty())
+                << "BUG-004: non-conventional name must still get a trajectory";
+        }
+
+        // BUG-007 (OPEN — aspirational): generate_trace derives each segment's
+        // `step` field by parsing an integer out of the start-var name, expecting
+        // the `<base>_<step>_{0,t}` shape. For the translator's `x_k<step>` names
+        // extract_step can't find the step and defaults to 0, so consumers that
+        // key trajectories on `step` collapse all BMC segments onto index 0. The
+        // desired behavior is that `x_k1`'s segment reports step 1. This is
+        // currently unfixed (mitigated consumer-side in the translator's parity
+        // runner), so the assertion is skipped — flip the SKIP to a hard check
+        // when extract_step learns the `_k<int>` suffix.
+        TEST_F(ContractorCapdNonConvNameTest, StepFieldReflectsSegmentIndex) {
+            GTEST_SKIP() << "BUG-007 open: extract_step does not parse the "
+                            "`x_k<step>` suffix; step defaults to 0. Mitigated "
+                            "consumer-side. See docs/dreal-bugs.md BUG-007.";
+            const nlohmann::json trace = Trace();
+            ASSERT_TRUE(trace.is_array());
+            ASSERT_FALSE(trace.empty());
+            EXPECT_EQ(trace[0]["step"].get<int>(), 1)
+                << "BUG-007: x_k1's segment should report step 1, not 0";
+        }
     } // namespace
 } // namespace dreal
