@@ -148,7 +148,8 @@ namespace dreal
         // buffers -> heap corruption / crash on automaton models.
         ImapStrings build_imap_strings(
             const OdeFlow& flow,
-            const std::vector<Variable>& ordered_vars)
+            const std::vector<Variable>& ordered_vars,
+            const NearestRounding& nr)
         {
             std::unordered_map<Variable::Id, Expression> rhs_map;
             for (const auto& [var, rhs] : flow.ode_list)
@@ -184,7 +185,7 @@ namespace dreal
                 first_var = false;
                 ++n_vars;
                 var_part << var.get_name();
-                const std::string rhs_str = to_capd_string(rhs_map.at(var.get_id()));
+                const std::string rhs_str = to_capd_string(rhs_map.at(var.get_id()), nr);
                 fwd_fn << rhs_str;
                 bwd_fn << "(0-(" << rhs_str << "))";
             }
@@ -312,7 +313,7 @@ namespace dreal
         // the cause, not a quietly weaker solve. (There is no Codac fallback.)
         ImapStrings strs;
         try {
-            strs = build_imap_strings(*flow, ordered_vars);
+            strs = build_imap_strings(*flow, ordered_vars, capd_clobber.token());
         } catch (const std::exception& e) {
             throw std::runtime_error(
                 std::string("CAPD ODE contractor: cannot translate an ODE flow "

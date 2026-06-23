@@ -578,7 +578,7 @@ vector<Variable> CreateVector(const string& prefix, const int size,
   vector<Variable> v;
   v.reserve(size);
   for (int i = 0; i < size; ++i) {
-    v.emplace_back(prefix + to_string(i), type);
+    v.emplace_back(prefix + to_string(i), type);  // lint: allow int
   }
   return v;
 }

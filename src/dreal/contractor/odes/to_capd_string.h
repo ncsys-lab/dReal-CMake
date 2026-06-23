@@ -37,12 +37,14 @@ namespace dreal
     // automata; ode_soundness_repros/ws_taupin.smt2).
     //
     // FE_TONEAREST: a double->decimal conversion is correctly rounded only in
-    // round-to-nearest; under FE_UPWARD the last digit can mis-round. Every call
-    // site reaches here under a NearestRoundingScope (make_capd_ode_cache builds
-    // the IMap strings), so this asserts the inherited mode rather than threading
-    // a NearestRounding token (cf. format_double in util/rounded_format.h). The
-    // assert compiles out under NDEBUG.
-    inline std::string to_capd_string(double value) {
+    // round-to-nearest; under FE_UPWARD the last digit can mis-round. The
+    // NearestRounding token is the compile-time proof the caller established that
+    // mode (cf. format_double in util/rounded_format.h): it cannot be minted
+    // without a NearestRoundingScope, so a call outside one fails to compile. The
+    // DREAL_ASSERT_ROUNDING is the matching Debug backstop (compiles out under
+    // NDEBUG). The sole solver-feed caller, make_capd_ode_cache, already holds a
+    // NearestRoundingScope and passes its token down.
+    inline std::string to_capd_string(double value, const NearestRounding& /*nr*/) {
         DREAL_ASSERT_ROUNDING(FE_TONEAREST);
         std::ostringstream ss;
         ss << std::setprecision(std::numeric_limits<double>::max_digits10)
@@ -65,123 +67,123 @@ namespace dreal
         return name;
     }
 
-    inline std::string to_capd_string(const Expression& e) {
+    inline std::string to_capd_string(const Expression& e, const NearestRounding& nr) {
         std::ostringstream ss;
         switch (e.get_kind()) {
         case ExpressionKind::Constant:
         case ExpressionKind::RealConstant:
-            return to_capd_string(get_constant_value(e));
+            return to_capd_string(get_constant_value(e), nr);
 
         case ExpressionKind::Var:
             return get_variable(e).get_name();
 
         case ExpressionKind::Add: {
-            ss << '(' << to_capd_string(get_constant_in_addition(e));
+            ss << '(' << to_capd_string(get_constant_in_addition(e), nr);
             for (const auto& [term, coeff] : get_expr_to_coeff_map_in_addition(e)) {
-                ss << '+' << to_capd_string(coeff) << '*' << to_capd_string(term);
+                ss << '+' << to_capd_string(coeff, nr) << '*' << to_capd_string(term, nr);
             }
             ss << ')';
             break;
         }
 
         case ExpressionKind::Mul: {
-            ss << '(' << to_capd_string(get_constant_in_multiplication(e));
+            ss << '(' << to_capd_string(get_constant_in_multiplication(e), nr);
             for (const auto& [base, exp] : get_base_to_exponent_map_in_multiplication(e)) {
-                ss << "*(" << to_capd_string(base) << '^' << to_capd_string(exp) << ')';
+                ss << "*(" << to_capd_string(base, nr) << '^' << to_capd_string(exp, nr) << ')';
             }
             ss << ')';
             break;
         }
 
         case ExpressionKind::Div:
-            ss << '(' << to_capd_string(get_first_argument(e))
-               << '/' << to_capd_string(get_second_argument(e)) << ')';
+            ss << '(' << to_capd_string(get_first_argument(e), nr)
+               << '/' << to_capd_string(get_second_argument(e), nr) << ')';
             break;
 
         case ExpressionKind::Log:
-            ss << "log(" << to_capd_string(get_argument(e)) << ")";
+            ss << "log(" << to_capd_string(get_argument(e), nr) << ")";
             break;
 
         case ExpressionKind::Abs:
             // CAPD does not expose abs in IMap; emulate as sqrt(sqr(x)).
-            ss << "sqrt(sqr(" << to_capd_string(get_argument(e)) << "))";
+            ss << "sqrt(sqr(" << to_capd_string(get_argument(e), nr) << "))";
             break;
 
         case ExpressionKind::Exp:
-            ss << "exp(" << to_capd_string(get_argument(e)) << ")";
+            ss << "exp(" << to_capd_string(get_argument(e), nr) << ")";
             break;
 
         case ExpressionKind::Sqrt:
-            ss << "sqrt(" << to_capd_string(get_argument(e)) << ")";
+            ss << "sqrt(" << to_capd_string(get_argument(e), nr) << ")";
             break;
 
         case ExpressionKind::Pow:
-            ss << '(' << to_capd_string(get_first_argument(e))
-               << '^' << to_capd_string(get_second_argument(e)) << ')';
+            ss << '(' << to_capd_string(get_first_argument(e), nr)
+               << '^' << to_capd_string(get_second_argument(e), nr) << ')';
             break;
 
         case ExpressionKind::Sin:
-            ss << "sin(" << to_capd_string(get_argument(e)) << ")";
+            ss << "sin(" << to_capd_string(get_argument(e), nr) << ")";
             break;
 
         case ExpressionKind::Cos:
-            ss << "cos(" << to_capd_string(get_argument(e)) << ")";
+            ss << "cos(" << to_capd_string(get_argument(e), nr) << ")";
             break;
 
         case ExpressionKind::Tan: {
             // CAPD IMap does not support tan directly; use sin/cos.
-            const auto x = to_capd_string(get_argument(e));
+            const auto x = to_capd_string(get_argument(e), nr);
             ss << "(sin(" << x << ")/cos(" << x << "))";
             break;
         }
 
         case ExpressionKind::Asin:
-            ss << "asin(" << to_capd_string(get_argument(e)) << ")";
+            ss << "asin(" << to_capd_string(get_argument(e), nr) << ")";
             break;
 
         case ExpressionKind::Acos:
-            ss << "acos(" << to_capd_string(get_argument(e)) << ")";
+            ss << "acos(" << to_capd_string(get_argument(e), nr) << ")";
             break;
 
         case ExpressionKind::Atan:
-            ss << "atan(" << to_capd_string(get_argument(e)) << ")";
+            ss << "atan(" << to_capd_string(get_argument(e), nr) << ")";
             break;
 
         case ExpressionKind::Atan2: {
-            const auto y = to_capd_string(get_first_argument(e));
-            const auto x = to_capd_string(get_second_argument(e));
+            const auto y = to_capd_string(get_first_argument(e), nr);
+            const auto x = to_capd_string(get_second_argument(e), nr);
             ss << "(2 * atan((sqrt(sqr(" << x << ") + sqr(" << y << ")) - "
                << x << ") / " << y << "))";
             break;
         }
 
         case ExpressionKind::Sinh: {
-            const auto x = to_capd_string(get_argument(e));
+            const auto x = to_capd_string(get_argument(e), nr);
             ss << "((exp(" << x << ") - exp(-" << x << ")) / 2)";
             break;
         }
 
         case ExpressionKind::Cosh: {
-            const auto x = to_capd_string(get_argument(e));
+            const auto x = to_capd_string(get_argument(e), nr);
             ss << "((exp(" << x << ") + exp(-" << x << ")) / 2)";
             break;
         }
 
         case ExpressionKind::Tanh: {
-            const auto x = to_capd_string(get_argument(e));
+            const auto x = to_capd_string(get_argument(e), nr);
             ss << "((exp(" << x << ") - exp(-" << x << "))"
                << " / (exp(" << x << ") + exp(-" << x << ")))";
             break;
         }
 
         case ExpressionKind::Min:
-            ss << "min(" << to_capd_string(get_first_argument(e))
-               << ',' << to_capd_string(get_second_argument(e)) << ")";
+            ss << "min(" << to_capd_string(get_first_argument(e), nr)
+               << ',' << to_capd_string(get_second_argument(e), nr) << ")";
             break;
 
         case ExpressionKind::Max:
-            ss << "max(" << to_capd_string(get_first_argument(e))
-               << ',' << to_capd_string(get_second_argument(e)) << ")";
+            ss << "max(" << to_capd_string(get_first_argument(e), nr)
+               << ',' << to_capd_string(get_second_argument(e), nr) << ")";
             break;
 
         case ExpressionKind::IfThenElse:

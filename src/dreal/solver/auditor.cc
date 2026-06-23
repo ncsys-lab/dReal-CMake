@@ -119,7 +119,7 @@ namespace dreal
 
         static int audit_no = 0;
         std::ofstream myfile;
-        myfile.open("/tmp/dreal_audit/lemma" + std::to_string(audit_no++) + ".smt2");
+        myfile.open("/tmp/dreal_audit/lemma" + std::to_string(audit_no++) + ".smt2");  // lint: allow int
 
         myfile << "\n" << lemma_comment << "\n\n";
         myfile << "(set-logic QF_NRA_ODE)\n";
@@ -183,7 +183,7 @@ namespace dreal
 
         static int audit_no = 0;
         std::ofstream myfile;
-        myfile.open("/tmp/dreal_audit/pm" + std::to_string(audit_no++) + ".json");
+        myfile.open("/tmp/dreal_audit/pm" + std::to_string(audit_no++) + ".json");  // lint: allow int
         myfile << dump_str << std::endl;
         myfile.flush();
         myfile.close();

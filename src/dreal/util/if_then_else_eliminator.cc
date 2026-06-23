@@ -226,7 +226,7 @@ Expression IfThenElseEliminator::VisitMax(const Expression& e,
 Expression IfThenElseEliminator::VisitIfThenElse(const Expression& e,
                                                  const Formula& guard) {
   static int counter{0};
-  const Variable new_var{"ITE" + to_string(counter++),
+  const Variable new_var{"ITE" + to_string(counter++),  // lint: allow int
                          Variable::Type::CONTINUOUS};
   ite_variables_.insert(new_var);
   const Formula c{Visit(get_conditional_formula(e), guard)};
