@@ -465,9 +465,14 @@ quantification over trajectory time). In dReal4, this constraint is **ignored**:
 nothing to the contractor or the satisfiability result. The solver may return delta-SAT on a
 formula that is actually unsatisfiable because of such a negated ODE constraint.
 
-This is a **soundness limitation for negated ODE formulas**. It is documented at `WARN` level in
-the contractor, and at `DEBUG` level in the linking function. Users must not rely on negated ODE
-constraints being enforced.
+This is a **completeness limitation (incompleteness) for negated ODE formulas** — COMPLETENESS
+(the solver returns `delta-sat` / asserts φ^δ is *T-satisfiable* on a φ that is *T-unsatisfiable*
+because of the dropped negated-ODE constraint — a missed refutation). It is **not** a soundness
+violation: no false-`unsat` is produced (dropping a constraint can only *widen* the feasible set,
+never prune a real solution), consistent with the "sound … but incomplete" framing used for the
+CAPD-divergence skip later in this doc. It is
+documented at `WARN` level in the contractor, and at `DEBUG` level in the linking function. Users
+must not rely on negated ODE constraints being enforced. (See `docs/soundness-vs-completeness.md`.)
 
 ### 6.4 `OdeFormulaEvaluator` also returns vacuously valid
 

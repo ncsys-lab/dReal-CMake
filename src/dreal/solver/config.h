@@ -211,7 +211,7 @@ class Config {
   // further ~5%). The optimal forward order is problem-dependent (tacas inverters
   // want ~8-12, stiff long-horizon github wants ~16-20), so it stays a flag.
   //
-  // SOUNDNESS NOTE: lowering order / hull-grid only WIDENS the enclosures (each
+  // SOUNDNESS/COMPLETENESS NOTE: lowering order / hull-grid only WIDENS the enclosures (each
   // sub-slice is still a sound outward over-approximation), so it can NEVER cause
   // a false-UNSAT. The accepted cost is *completeness*: on a sharp interior
   // invariant-violation whose width is below the hull-4 time-resolution, the
@@ -221,7 +221,7 @@ class Config {
   // than CAPD's precision allows (a fixed hull COUNT over a large adaptive step
   // → wide sub-intervals → polynomial dependency blow-up); the deferred
   // width-based sub-slicing fix would recover that refutation precision while
-  // keeping the speed. FULL writeup + the deferred fix: HULL_SOUNDNESS.md.
+  // keeping the speed. FULL writeup + the deferred fix: HULL_COMPLETENESS.md.
   // Tolerances at 1e-10 (step size is not tolerance-limited on the corpus).
   static constexpr int kDefaultOdeTaylorOrder{12};
   static constexpr int kDefaultOdeBackwardOrder{12};

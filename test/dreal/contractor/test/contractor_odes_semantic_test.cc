@@ -6,20 +6,27 @@
 // close that gap by exercising `mk_contractor_ode_lohner` on systems with
 // known closed-form solutions.
 //
-// Two gates per system:
-//   - SOUNDNESS, SAT direction (must hold): on a SAT-known (X_0, X_t, t)
-//     instance, the box stays non-empty after Prune(). A false UNSAT here is a
-//     soundness bug (over-pruning).
-//   - SOUNDNESS, UNSAT direction (must hold): on a UNSAT-known instance whose
-//     ODE enclosure is provably disjoint from the box gate, Prune() MUST empty
-//     the box. CAPD enclosures are outward over-approximations, so a disjoint
-//     enclosure proves true infeasibility — emptying is sound and required for
-//     the solver to return `unsat`. Silently leaving the box non-empty here is
-//     BUG-006 (false delta-sat): the always-VALID OdeFormulaEvaluator then
-//     rubber-stamps the un-refuted box. See DecayFlowTest.*Infeasible*.
+// Two gate TYPES per system. Label each by the property it protects, using
+// model-theory notation (see docs/soundness-vs-completeness.md for the T-relation
+// definitions and CLAUDE.md's terminology-discipline mandate):
+//   - [SOUNDNESS GATE], SAT direction: on a SAT-known (X_0, X_t, t) instance the
+//     box stays non-empty after Prune(). Emptying it would be a false `unsat`
+//     — SOUNDNESS (asserts the integral T-unsatisfiable when it is
+//     T-satisfiable, ∃M⊨T. M⊨φ): the contractor over-pruned a real solution.
+//   - [COMPLETENESS GATE], UNSAT direction: on a robustly-UNSAT instance (gap ≫
+//     δ) whose ODE enclosure is provably disjoint from the box gate, Prune()
+//     MUST empty the box. CAPD enclosures are outward over-approximations, so a
+//     disjoint enclosure proves true infeasibility and emptying is sound and
+//     required. Failing to empty is a missed refutation — COMPLETENESS (asserts
+//     φ^δ T-satisfiable when φ^δ is T-unsatisfiable → false `delta-sat`): the
+//     always-VALID OdeFormulaEvaluator then rubber-stamps the un-refuted box.
+//     This is BUG-006. See DecayFlowTest.*Infeasible*.
 //
-// (Looseness — failing to empty when the enclosure *overlaps* the gate within
-// the over-approximation — is acceptable delta-sat slack, not a bug.)
+// The asymmetry is the whole point: a too-loose enclosure can only ever weaken
+// the COMPLETENESS gate — never the SOUNDNESS gate — because widening an
+// over-approximation never removes a real solution. (Failing to empty when the
+// enclosure merely *overlaps* the gate within the over-approximation, gap ≤ δ,
+// is acceptable delta-sat slack, not a bug.)
 //
 // The contractor empties the box on a disjoint enclosure directly
 // (`contractor_ode_lohner::Prune`'s refute_or_narrow), for non-trivial flows
@@ -192,7 +199,7 @@ TEST_F(DecayFlowTest, BwdFeasible_BoxRemains) {
 // would false-unsat such free-time instances; the tube hull is what makes the
 // refutation sound. See run_capd_fwd's header.)
 //
-// This is a real soundness gate, not the "informational value gate" the file
+// This is a real completeness/refutation gate, not the "informational value gate" the file
 // header used to describe: before the fix the contractor silently dropped the
 // empty intersection (no set_empty), leaving the box non-empty for the
 // always-VALID OdeFormulaEvaluator to rubber-stamp as delta-sat — BUG-006.
@@ -206,7 +213,7 @@ TEST_F(DecayFlowTest, FwdInfeasible_BoxEmpties) {
   { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_TRUE(cs.box().empty())
       << "decay infeasible (FWD): trajectory tube [0.368,2] over t∈[0,1] is "
-         "disjoint from X_t=[2.5,3]; box must empty [SOUNDNESS GATE, BUG-006]";
+         "disjoint from X_t=[2.5,3]; box must empty [COMPLETENESS GATE, BUG-006]";
 }
 
 // Ground truth: UNSAT, same instance. The BWD backward image of X_t=[2.5,3]
@@ -223,7 +230,7 @@ TEST_F(DecayFlowTest, BwdInfeasible_BoxEmpties) {
   { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_TRUE(cs.box().empty())
       << "decay infeasible (BWD): backward tube [2.5,8.15] over τ∈[0,1] is "
-         "disjoint from X_0=[1,2]; box must empty [SOUNDNESS GATE, BUG-006]";
+         "disjoint from X_0=[1,2]; box must empty [COMPLETENESS GATE, BUG-006]";
 }
 
 // =============================================================================
@@ -568,7 +575,7 @@ class GravityInvariantTest : public ::testing::Test {
 // The invariant holds at BOTH endpoints (x(0)=0, x(2)=0 ≤ 0.3) and on the X_t
 // box (xt ∈ [-0.2,0.2] ≤ 0.3), so the rewrite's pre-integration-box-only check
 // passes and the box is wrongly left non-empty (false delta-sat). cav26 checked
-// the invariant on every tube slice and refuted. [F1 SOUNDNESS GATE]
+// the invariant on every tube slice and refuted. [F1 COMPLETENESS GATE]
 TEST_F(GravityInvariantTest, FwdInteriorInvariantViolation_BoxEmpties) {
   SetBounds();
   Config config;
@@ -577,7 +584,7 @@ TEST_F(GravityInvariantTest, FwdInteriorInvariantViolation_BoxEmpties) {
   // owner-accepted *completeness* tradeoff: a sharp interior violation below the
   // default time-resolution may return delta-sat instead of unsat. That is NEVER
   // a false-unsat (coarser = wider = sound), so it is not a soundness hole; see
-  // HULL_SOUNDNESS.md (and the deferred width-based fix that would let the
+  // HULL_COMPLETENESS.md (and the deferred width-based fix that would let the
   // default detect this too). This test therefore guards the per-slice
   // MECHANISM — that an interior-only violation IS refuted when given adequate
   // resolution — and intentionally does NOT assert the hull-4 default catches
@@ -644,7 +651,7 @@ class AntiCorrelatedTest : public ::testing::Test {
 // x≲0.33 ≪ 1.5). No single time satisfies both, so the integral is infeasible
 // (gap ≫ δ). The component-wise hull x∈[0.27,2], y∈[0.135,1] overlaps BOTH gate
 // intervals, so the rewrite's hull-then-intersect leaves the box non-empty
-// (false delta-sat). Per-slice filtering refutes. [F2 GATE]
+// (false delta-sat). Per-slice filtering refutes. [F2 COMPLETENESS GATE]
 TEST_F(AntiCorrelatedTest, FwdAntiCorrelated_BoxEmpties) {
   box_[x_] = Box::Interval(0.0, 10.0);
   box_[y_] = Box::Interval(0.0, 10.0);
@@ -661,7 +668,7 @@ TEST_F(AntiCorrelatedTest, FwdAntiCorrelated_BoxEmpties) {
   { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_TRUE(cs.box().empty())
       << "anti-correlated tube reaches x∈[1.5,2] and y∈[0.8,1.2] at disjoint "
-         "times; no single time hits the gate, box must empty [F2 GATE]";
+         "times; no single time hits the gate, box must empty [F2 COMPLETENESS GATE]";
 }
 
 // =============================================================================
@@ -692,7 +699,7 @@ TEST_F(DecayFlowTest, FwdFeasible_TimeNarrows) {
 // rather than a time variable. x(1)∈[e^-1,2e^-1]≈[0.368,0.736] is disjoint from
 // X_t=[2,3] → UNSAT. The rewrite bails out on non-variable time
 // (`if (!is_variable(icct)) return;`), enforcing nothing (latent false
-// delta-sat); cav26 integrated constant durations. [F4 GATE]
+// delta-sat); cav26 integrated constant durations. [F4 COMPLETENESS GATE]
 TEST_F(DecayFlowTest, FwdConstantTime_Infeasible_BoxEmpties) {
   box_[x_] = Box::Interval(-100.0, 100.0);
   box_[x0_] = Box::Interval(1.0, 2.0);
@@ -706,7 +713,7 @@ TEST_F(DecayFlowTest, FwdConstantTime_Infeasible_BoxEmpties) {
   { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_TRUE(cs.box().empty())
       << "constant duration t=1: x(1)≈[0.368,0.736] disjoint from X_t=[2,3]; "
-         "box must empty [F4 GATE]";
+         "box must empty [F4 COMPLETENESS GATE]";
 }
 
 // =============================================================================
@@ -800,7 +807,7 @@ TEST_F(PinnedRiseTest, FwdPinnedSubTrueGate_BoxEmpties) {
   EXPECT_TRUE(cs.box().empty())
       << "pinned rise: x(1)≈51.4775 > gate ub 51.0 by 0.477 ≫ delta; the "
          "endpoint clipped to t=1 is disjoint from X_t → box must empty "
-         "[BUG-008 SOUNDNESS GATE]";
+         "[BUG-008 COMPLETENESS GATE]";
 }
 
 }  // namespace

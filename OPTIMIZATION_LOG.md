@@ -110,17 +110,19 @@ the same jobs and emits a `compare_solvers.py` table (N columns). Key behavior:
   dies if `state.json` is absent (`set_local_baseline.py` reads it). Reconstructible:
   `baseline.csv` ← `/tmp/good_benchmarks.csv` (same schema, documented superset); seed an empty
   `{"anomalies":[],"exceptional":[]}` `state.json`.
-- **A benchmark "zero verdict flips" does NOT clear a soundness change** — the sweep's lower
-  order/hull-grid flipped no verdict on 141 benchmarks, yet a curated unit test
-  (`GravityInvariantTest`) caught that hull-grid 4 silently breaks interior-invariant
-  refutation. Curated soundness tests exercise sharp cases a benchmark corpus can't. And the
+- **A benchmark "zero verdict flips" does NOT clear a correctness-class (soundness *or*
+  completeness) change** — the sweep's lower order/hull-grid flipped no verdict on 141
+  benchmarks, yet a curated unit test (`GravityInvariantTest`) caught that hull-grid 4 silently
+  breaks interior-invariant refutation — a *completeness* gate (asserts φ^δ T-satisfiable on a
+  T-unsatisfiable φ — missed refutation), not soundness. Curated refutation/completeness tests
+  exercise sharp cases a benchmark corpus can't. And the
   reflex to "bump hull-grid back up until the test passes" is gaming the verifier — the test was
-  exposing a real looseness defect. **Root cause + the deferred fix: `HULL_SOUNDNESS.md`.**
+  exposing a real looseness defect. **Root cause + the deferred fix: `HULL_COMPLETENESS.md`.**
 
 ### Per-knob findings (measured on the current — still ~4× loose — tube)
 
 These drove the adopted default (order 12 / hull-grid 4 / backward 12); numbers reflect the
-SHIPPED tube, which `HULL_SOUNDNESS.md` shows is ~4× looser than CAPD's precision and will
+SHIPPED tube, which `HULL_COMPLETENESS.md` shows is ~4× looser than CAPD's precision and will
 tighten once the width-based sub-slicing fix lands (re-tune then). Soundness direction: lower
 order/hull only *widens* enclosures (no false-`unsat`); the cost is missed refutation
 (completeness), which the F1 test catches for the sharp interior case below the hull-4 resolution.
@@ -129,7 +131,7 @@ order/hull only *widens* enclosures (no false-`unsat`); the cost is missed refut
   want low (~8–12, up to ~2.5× faster); stiff long-horizon github wants high (~16–20). Order 16
   was the best global compromise; order 10 *regressed* github.
 - **hull-grid is NOT a free speed knob** — it is the time-resolution of interior-invariant
-  detection (see `HULL_SOUNDNESS.md`). Lowering it looked like a universal win on benchmarks but
+  detection (see `HULL_COMPLETENESS.md`). Lowering it looked like a universal win on benchmarks but
   trades away refutation completeness.
 - **backward-order / tolerance / c0-set**: minor (±5%). `c0-set=horect2` slightly slower
   (matches the old §Rejected). Tolerance is a *minor* lever — the earlier smoke-test "looser tol
@@ -145,11 +147,11 @@ order/hull only *widens* enclosures (no false-`unsat`); the cost is missed refut
 - Phase 4: default **ADOPTED** at forward & backward order 12 + hull-grid 4. The F1
   "soundness" test failure was diagnosed (not gamed) as a *completeness* gate — missed
   refutation / false-`delta-sat`, never false-`unsat` — an owner-accepted tradeoff
-  (`HULL_SOUNDNESS.md`). 123-confirm: ~2× faster (PAR2 0.49), +4 solved (121/123), zero flips;
+  (`HULL_COMPLETENESS.md`). 123-confirm: ~2× faster (PAR2 0.49), +4 solved (121/123), zero flips;
   bwd-12 adds ~5% over bwd-20. F1 test pinned to hull-16 (guards the mechanism at adequate
   resolution). Suite green (641/641 modulo the Timer flaky); Debug rounding gate ✓.
 - **Open follow-up:** the per-slice tube is ~4× looser than CAPD's precision
-  (`HULL_SOUNDNESS.md`) — the width-based sub-slicing fix would recover refutation precision
+  (`HULL_COMPLETENESS.md`) — the width-based sub-slicing fix would recover refutation precision
   *while keeping the speed*, after which hull-grid stops being completeness-relevant and the
   default could detect the F1 case too. Re-run OFAT + 123 on the corrected tube afterward.
 
