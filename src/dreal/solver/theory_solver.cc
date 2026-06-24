@@ -234,7 +234,9 @@ optional<Contractor> TheorySolver::BuildContractor(
       }
     }
 
-    {
+    // --ode-backward=false skips the backward (X_0-narrowing) contractor
+    // entirely; ode_bwd_ctcs stays empty so the downstream insertion is a no-op.
+    if (config_.ode_backward()) {
       auto &cache = bwd_ode_contractor_cache_;
       auto dir = ode_direction::BWD;
       auto &ctcs = ode_bwd_ctcs;

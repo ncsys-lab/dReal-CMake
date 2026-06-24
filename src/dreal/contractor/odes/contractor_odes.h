@@ -81,6 +81,9 @@ namespace dreal
         std::vector<Variable> m_pars_t;
         bool m_need_to_check_inv{false};
         std::vector<Contractor> m_inv_ctcs;
+        // CAPD integration knobs for THIS contractor instance (resolved from
+        // Config in the constructor; the Taylor order is direction-specific).
+        CapdSolverParams m_capd_params;
         // ODE state variables in flow.ode_list order (positional match with
         // m_vars_0/m_vars_t). Precomputed in the constructor so Prune() doesn't
         // rebuild it on every call.

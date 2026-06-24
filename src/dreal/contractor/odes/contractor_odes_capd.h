@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "dreal/contractor/odes/ode_types.h"
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/symbolic/odes/symbolic_odes_cell.h"
 #include "dreal/util/rounding.h"
@@ -121,6 +122,7 @@ namespace dreal
         const std::vector<std::pair<double, double>>& par_bounds,
         double win_lb,
         double t_ub,
+        const CapdSolverParams& params,
         const NearestRounding& nr);
 
     // Run CAPD backward integration.
@@ -141,6 +143,7 @@ namespace dreal
         const std::vector<std::pair<double, double>>& par_bounds,
         double win_lb,
         double t_ub,
+        const CapdSolverParams& params,
         const NearestRounding& nr);
 
     // -------------------------------------------------------------------------
@@ -178,6 +181,7 @@ namespace dreal
         const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
         bool forward,
+        const CapdSolverParams& params,
         const NearestRounding& nr,
         int n_steps = 50);
 

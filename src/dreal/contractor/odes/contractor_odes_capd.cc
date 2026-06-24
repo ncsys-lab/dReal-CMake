@@ -31,43 +31,26 @@
 namespace dreal
 {
     // -------------------------------------------------------------------------
-    // CAPD solver numeric configuration — single source of truth.
+    // CAPD solver numeric configuration.
     //
-    // These are the performance-critical knobs for the rigorous Taylor
-    // integrator, shared by run_capd_fwd / run_capd_bwd / run_capd_trace.
-    //
-    // Order is 20 (cav26's value), NOT the 10 the Codac→CAPD rewrite used.
-    // The two go with the integration *style*: the rewrite paired order-10 with
-    // a single coarse hull per integration (computeTaylorCoefficients dominates,
-    // so a low order with many cheap steps won). The restored per-slice tube
-    // filter sub-grids `kHullGrid=16` enclosures PER adaptive step, so cost is
-    // ~16 × (#steps); a low order takes many small steps and that 16× explodes
-    // (the k256 thermostat went 187 s → timeout at order-10, back to 196 s at
-    // order-20). Order-20 takes fewer, larger steps → far fewer slices, and the
-    // tighter per-step enclosure also localizes interior invariant violations
-    // better. Lowering order/loosening tolerance still only widens the enclosure
-    // (sound — never a false-UNSAT). See OPTIMIZATION_LOG.md for the sweep.
-    //
-    // constexpr at namespace scope has internal linkage, so these are private
-    // to this TU.
-    constexpr int    kCapdTaylorOrder  = 20;
-    constexpr double kCapdAbsTolerance = 1e-10;
-    constexpr double kCapdRelTolerance = 1e-10;
+    // The performance-critical knobs (Taylor order, abs/rel tolerance, per-step
+    // hull grid, C0 set representation, max-step cap) are now runtime-tunable
+    // via CapdSolverParams (resolved from Config; see --ode-* flags and the
+    // kDefaultOde* constants in solver/config.h for the order-20 rationale).
+    // They were previously compile-time constants here; the rationale moved to
+    // config.h alongside the defaults. Order/tolerance only ever *widen* the
+    // enclosure when loosened — sound, never a false-UNSAT.
+    // -------------------------------------------------------------------------
 
-    // C0 set representation for the rigorous enclosure, shared by the fwd/bwd/
-    // trace integrators. capd::C0Rect2Set is a doubleton (x + C*r0 + Q*q) with
-    // QR reorganization — CAPD's general-purpose default. Tighter alternatives
-    // (C0TripletonSet, C0HORect2Set = Hermite-Obreshkov corrector) trade higher
-    // per-step cost for less wrapping; whether that nets out is benchmark-
-    // dependent, hence the single alias here for A/B testing.
-    using CapdC0Set = capd::C0Rect2Set;
-
-    // Apply the shared tolerances to a freshly-constructed CAPD solver. The
-    // order is a constructor argument (kCapdTaylorOrder) at each call site.
+    // Apply the runtime tolerances (and optional max-step cap) to a freshly-
+    // constructed CAPD solver. The Taylor order is a constructor argument
+    // (params.taylor_order) at each call site.
     template <typename Solver>
-    inline void configure_capd_solver(Solver& solver) {
-        solver.setAbsoluteTolerance(kCapdAbsTolerance);
-        solver.setRelativeTolerance(kCapdRelTolerance);
+    inline void configure_capd_solver(Solver& solver, const CapdSolverParams& params) {
+        solver.setAbsoluteTolerance(params.abs_tol);
+        solver.setRelativeTolerance(params.rel_tol);
+        // max_step <= 0 means "fully adaptive" — leave CAPD's step control alone.
+        if (params.max_step > 0.0) solver.setMaxStep(params.max_step);
     }
 
     // -------------------------------------------------------------------------
@@ -393,20 +376,22 @@ namespace dreal
         // body's catch block documents this in full. (No partial-slice hazard:
         // the caller checks found==false and discards out_slices, so a tube
         // truncated by an exception is never used for refutation.)
-        bool integrate_tube_slices(
+        template <typename SetT>
+        bool integrate_tube_slices_impl(
             capd::IMap& map,
             const std::vector<std::pair<double, double>>& u0,
             double win_lb, double t_ub, int n,
+            const CapdSolverParams& params,
             std::vector<CapdTubeSlice>& out_slices)
         {
-            constexpr int kHullGrid = 16;  // sub-intervals per step for tightness
+            const int kHullGrid = params.hull_grid;  // sub-intervals per step
             try {
-                capd::IOdeSolver solver(map, kCapdTaylorOrder);
-                configure_capd_solver(solver);
+                capd::IOdeSolver solver(map, params.taylor_order);
+                configure_capd_solver(solver, params);
                 capd::ITimeMap time_map(solver);
                 time_map.stopAfterStep(true);
 
-                CapdC0Set set(to_ivector(u0));
+                SetT set(to_ivector(u0));
                 capd::interval prev_time(0.0);
 
                 do {
@@ -477,6 +462,32 @@ namespace dreal
             }
         }
 
+        // Dispatch the templated integrator over the runtime-selected C0 set
+        // type (--ode-c0-set). C++17 has no templated lambdas, so this is one
+        // small explicit switch over the enum; the loop body lives once in
+        // integrate_tube_slices_impl<SetT>. (run_capd_trace has the twin switch
+        // for the visualization path.)
+        bool integrate_tube_slices(
+            capd::IMap& map,
+            const std::vector<std::pair<double, double>>& u0,
+            double win_lb, double t_ub, int n,
+            const CapdSolverParams& params,
+            std::vector<CapdTubeSlice>& out_slices)
+        {
+            switch (params.c0_set) {
+                case OdeC0SetType::Tripleton:
+                    return integrate_tube_slices_impl<capd::C0TripletonSet>(
+                        map, u0, win_lb, t_ub, n, params, out_slices);
+                case OdeC0SetType::HORect2:
+                    return integrate_tube_slices_impl<capd::C0HORect2Set>(
+                        map, u0, win_lb, t_ub, n, params, out_slices);
+                case OdeC0SetType::Rect2:
+                    break;
+            }
+            return integrate_tube_slices_impl<capd::C0Rect2Set>(
+                map, u0, win_lb, t_ub, n, params, out_slices);
+        }
+
     } // namespace
 
     // -------------------------------------------------------------------------
@@ -494,6 +505,7 @@ namespace dreal
         const std::vector<std::pair<double, double>>& par_bounds,
         double win_lb,
         double t_ub,
+        const CapdSolverParams& params,
         const NearestRounding& /*nr*/)
     {
         DREAL_ASSERT_ROUNDING(FE_TONEAREST);
@@ -505,7 +517,7 @@ namespace dreal
         const int n = cache->n_state_vars;
         if (n == 0 || t_ub <= 0.0) return result;
         capd::IMap& map_fwd = with_params(cache->fn_fwd, cache->par_names, par_bounds);
-        result.found = integrate_tube_slices(map_fwd, u0_bounds, win_lb, t_ub, n, result.slices);
+        result.found = integrate_tube_slices(map_fwd, u0_bounds, win_lb, t_ub, n, params, result.slices);
         return result;
     }
 
@@ -523,6 +535,7 @@ namespace dreal
         const std::vector<std::pair<double, double>>& par_bounds,
         double win_lb,
         double t_ub,
+        const CapdSolverParams& params,
         const NearestRounding& /*nr*/)
     {
         DREAL_ASSERT_ROUNDING(FE_TONEAREST);
@@ -534,7 +547,7 @@ namespace dreal
         const int n = cache->n_state_vars;
         if (n == 0 || t_ub <= 0.0) return result;
         capd::IMap& map_bwd = with_params(cache->fn_bwd, cache->par_names, par_bounds);
-        result.found = integrate_tube_slices(map_bwd, Xt_bounds, win_lb, t_ub, n, result.slices);
+        result.found = integrate_tube_slices(map_bwd, Xt_bounds, win_lb, t_ub, n, params, result.slices);
         return result;
     }
 
@@ -551,12 +564,60 @@ namespace dreal
     // having advanced `set` from the result of call i-1.
     // -------------------------------------------------------------------------
 
+    namespace {
+        template <typename SetT>
+        void run_capd_trace_impl(
+            const std::shared_ptr<CapdOdeCache>& cache,
+            const std::vector<std::pair<double, double>>& u0,
+            const std::vector<std::pair<double, double>>& par_bounds,
+            double t_ub, bool forward, int n, int n_steps,
+            const CapdSolverParams& params,
+            CapdTraceResult& result)
+        {
+            try {
+                capd::IMap& chosen_map = with_params(
+                    forward ? cache->fn_fwd : cache->fn_bwd,
+                    cache->par_names, par_bounds);
+                capd::IOdeSolver solver(chosen_map, params.taylor_order);
+                configure_capd_solver(solver, params);
+                capd::ITimeMap time_map(solver);
+
+                SetT set(to_ivector(u0));
+
+                const double dt = t_ub / static_cast<double>(n_steps);
+                double t_prev = 0.0;
+                result.points.reserve(static_cast<size_t>(n_steps));
+
+                for (int i = 1; i <= n_steps; ++i) {
+                    const double t_i = (i == n_steps) ? t_ub
+                                                      : static_cast<double>(i) * dt;
+                    const capd::IVector encl = time_map(t_i, set);
+
+                    CapdTracePoint pt;
+                    pt.t_lb = t_prev;
+                    pt.t_ub = t_i;
+                    pt.var_enclosures.reserve(static_cast<size_t>(n));
+                    for (int j = 0; j < n; ++j) {
+                        pt.var_enclosures.emplace_back(encl[j].leftBound(),
+                                                       encl[j].rightBound());
+                    }
+                    result.points.push_back(std::move(pt));
+                    t_prev = t_i;
+                }
+                result.succeeded = true;
+            } catch (const std::exception&) {
+                // Partial trace remains in result.points; succeeded stays false.
+            }
+        }
+    } // namespace
+
     CapdTraceResult run_capd_trace(
         const std::shared_ptr<CapdOdeCache>& cache,
         const std::vector<std::pair<double, double>>& u0,
         const std::vector<std::pair<double, double>>& par_bounds,
         double t_ub,
         bool forward,
+        const CapdSolverParams& params,
         const NearestRounding& /*nr*/,
         int n_steps)
     {
@@ -570,41 +631,21 @@ namespace dreal
         if (n == 0 || t_ub <= 0.0 || n_steps <= 0) return result;
         if (u0.size() != static_cast<size_t>(n)) return result;
 
-        try {
-            capd::IMap& chosen_map = with_params(
-                forward ? cache->fn_fwd : cache->fn_bwd,
-                cache->par_names, par_bounds);
-            capd::IOdeSolver solver(chosen_map, kCapdTaylorOrder);
-            configure_capd_solver(solver);
-            capd::ITimeMap time_map(solver);
-
-            CapdC0Set set(to_ivector(u0));
-
-            const double dt = t_ub / static_cast<double>(n_steps);
-            double t_prev = 0.0;
-            result.points.reserve(static_cast<size_t>(n_steps));
-
-            for (int i = 1; i <= n_steps; ++i) {
-                const double t_i = (i == n_steps) ? t_ub
-                                                  : static_cast<double>(i) * dt;
-                const capd::IVector encl = time_map(t_i, set);
-
-                CapdTracePoint pt;
-                pt.t_lb = t_prev;
-                pt.t_ub = t_i;
-                pt.var_enclosures.reserve(static_cast<size_t>(n));
-                for (int j = 0; j < n; ++j) {
-                    pt.var_enclosures.emplace_back(encl[j].leftBound(),
-                                                   encl[j].rightBound());
-                }
-                result.points.push_back(std::move(pt));
-                t_prev = t_i;
-            }
-            result.succeeded = true;
-        } catch (const std::exception&) {
-            // Partial trace remains in result.points; succeeded stays false.
+        // Twin of the integrate_tube_slices dispatch — pick the C0 set type.
+        switch (params.c0_set) {
+            case OdeC0SetType::Tripleton:
+                run_capd_trace_impl<capd::C0TripletonSet>(
+                    cache, u0, par_bounds, t_ub, forward, n, n_steps, params, result);
+                return result;
+            case OdeC0SetType::HORect2:
+                run_capd_trace_impl<capd::C0HORect2Set>(
+                    cache, u0, par_bounds, t_ub, forward, n, n_steps, params, result);
+                return result;
+            case OdeC0SetType::Rect2:
+                break;
         }
-
+        run_capd_trace_impl<capd::C0Rect2Set>(
+            cache, u0, par_bounds, t_ub, forward, n, n_steps, params, result);
         return result;
     }
 

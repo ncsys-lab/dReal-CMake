@@ -11,6 +11,148 @@ Soundness guardrails (FE_UPWARD/FE_TONEAREST guards, no silent fallbacks) are no
 > this code; for its assumption re-check and its (different) hotspot, see the
 > **odeexpr** section at the bottom of this file.
 
+## 2026-06 re-tuning campaign — runtime knobs + pooled sweep (IN PROGRESS)
+
+The ODE contractor's performance regime **changed** under the soundness fixes on
+`rounding-mode-fixes` (per-slice tube filter restored `5d619fe3f`; full-precision
+vector-field feed `a925eba2c`; terminal-gate window clip `a60b0ff8e`). Those fixes were
+measured against the *old* coarse-endpoint contractor, so the **§Adopted / §Rejected
+numbers below are superseded** for the current architecture and are being re-measured by
+this campaign. (They remain as the historical record of what was tried and why.)
+
+### What changed in the code
+
+The CAPD knobs are no longer compile-time `constexpr` in `contractor_odes_capd.cc`; they
+are **runtime CLI flags** threaded through a `CapdSolverParams` struct (`ode_types.h`),
+resolved per contractor instance from `Config` (`contractor_odes.cc` ctor, direction-aware
+for the Taylor order):
+
+| Flag | Default (= old constexpr) | Knob |
+|---|---|---|
+| `--ode-taylor-order` | 20 | forward CAPD `IOdeSolver` Taylor order |
+| `--ode-backward-order` | 20 | backward (`-f(x)`) Taylor order (a lohner instance is single-direction) |
+| `--ode-abs-tol` / `--ode-rel-tol` | 1e-10 | CAPD step-control tolerances |
+| `--ode-hull-grid` | 16 | per-step tube sub-slices in the filter |
+| `--ode-c0-set` | `rect2` | enclosure set: `rect2`/`tripleton`/`horect2` (runtime type-dispatch) |
+| `--ode-backward` | `true` | enable the backward (X₀-narrowing) contractor (emit-guard in `theory_solver.cc`) |
+| `--ode-max-step` | 0 (adaptive) | optional `setMaxStep` cap |
+
+Defaults equal the prior constexprs, so default behavior is unchanged — **proven** by a
+123-job A/B (`/tmp/dreal4_head` HEAD vs worktree@default): identical solve-set (117/123),
+zero SAT/UNSAT disagreements, CPU within noise (aggregate 0.99×). The order-20 rationale
+moved onto the `kDefaultOde*` constants in `solver/config.h`.
+
+### Experimental design for a meta-parameter sweep
+
+Screen wide and cheap, then confirm narrow and clean:
+
+1. **OFAT on the probe set** (`benchmark/probe_odes.tsv`, 18 ODE-heavy: tacas inverters +
+   github prostate/thermostat/quad/cardiac/water + saradc box/nonlinear; mix of fast k2 and
+   stress k256+). Vary **one knob at a time** around the default; `base` is one of the
+   configs. Screens main-effect *direction* and flags any verdict change.
+2. **Targeted 2-factor sweeps** only for the architecturally-coupled pairs — **order ×
+   hull-grid** (per-slice cost ≈ hull_grid × #steps, and #steps falls with order) and
+   **order × c0-set**. Probe set only.
+3. **Confirm** the best 1–3 configs on the **full 123 ODE-family** via the sequential
+   `do_ab.sh` (cleaner timing than the pool) before any recommendation.
+
+**Metric & guardrails.** CPU time (user+sys) **ratio vs `base`** is the screen — within one
+pooled sweep, `base` and every variant are shuffled together so they share the same average
+contention, making the *ratio* fair even though absolute CPU shifts ~10–17% vs an isolated
+run (memory-bandwidth contention). A **SAT↔UNSAT change vs base is the soundness signal**: a
+coarser enclosure (lower order / fewer slices / looser tol / backward-off) can only
+*fail-to-refute* → a `base`-UNSAT turning delta-sat means base was the tighter/sounder answer;
+investigate against the cav26 oracle, never silently accept. The probe screens **large**
+effects reliably; sub-contention-noise effects need the confirmation run.
+
+### Pooled sweep harness (`benchmark/do_sweep.sh`)
+
+`do_sweep.sh NAME1="flags1" NAME2="flags2" …` sweeps **one** binary over many flag configs on
+the same jobs and emits a `compare_solvers.py` table (N columns). Key behavior:
+
+- **Pooled, not per-config batches.** All (config × benchmark) pairs run in **one shuffled
+  12-way pool**, not 20 separate 18-job batches. *Why:* an 18-job probe drains to its 2–3
+  long-poles (e.g. a k256 thermostat) while the other ~9 cores idle — across 20 configs that
+  idle tail wastes most of the wall time. Pooling overlaps a slow config's long-pole with
+  other configs' fast jobs, so the cores stay full (≈2.2 hr → ≈40 min for the 20×18 OFAT).
+  It does **not** oversubscribe: ≤`MAXJOBS` solvers run at once, each `nice -n 1` on its own
+  core, so per-process CPU-time stays accurate — same per-core fairness as `run_batch`'s 12-way,
+  just better packed. The shuffle spreads long-poles so the only thin tail is the last ~12 jobs.
+- **Env:** `JOBS` (default `probe_odes.tsv`; point at `select.py --family … --all` for the
+  full-corpus confirm), `DREAL_BINARY`, `MAXJOBS` (default **12** — the project standard),
+  `TIMEOUT` (default 600; the OFAT probe uses a tighter cap, e.g. 400, to bound stress-TIM cost
+  while the 123-job confirm keeps 600). Per-config flags ride a bash array-free TSV column with
+  an empty-flags `NONE` sentinel (bash 3.2 on macOS has no assoc arrays, and an empty TSV field
+  is collapsed by tab-IFS `read`).
+- **Enablers** (in `run_batch.sh`): `DREAL_ARGS` injects per-invocation solver flags; `TIMEOUT`
+  overrides the 600 s cap. Both default to the prior behavior.
+- **Usage:**
+  ```bash
+  # OFAT probe (one knob), tighter cap:
+  JOBS=benchmark/probe_odes.tsv TIMEOUT=400 bash benchmark/do_sweep.sh \
+      "base=" "ord12=--ode-taylor-order 12" "bwoff=--ode-backward false"
+  # Full-corpus confirm of a winner (sequential do_ab is cleaner for final numbers):
+  bash benchmark/do_ab.sh /path/to/binA gcc_build/dreal4
+  ```
+
+### Lessons learned
+
+- **Pooling > per-config batching** for a sweep with skewed per-job runtimes (above).
+- **Count solvers with `pgrep -x dreal4`, not `pgrep -f gcc_build/dreal4`** — the `-f` form also
+  matches the `gtime`/`nice`/`timeout` wrapper procs (≈3 per solve), so 12 real solves read as
+  ~39 and look like a broken throttle. The `while (( $(jobs -r | wc -l) >= MAX ))` throttle is
+  correct (same pattern as `folderops/unroll_folder.sh`); cap is **12**.
+- **A timing-sensitive run needs a quiet machine** — a background CLion `-j14` auto-build (it
+  rebuilds on file save) silently inflates wall time and risks false 600 s TIMs; quit it before
+  the A/B / sweep. Builds and ctest (correctness, not timing) can overlap; baselines/A-Bs cannot.
+- **A cleanup wiped local-only benchmark artifacts** (`baseline.csv`, `baseline_local.csv`,
+  `baseline_odeexpr.csv`, `state.json`, `probe_odes.tsv` — all untracked) and `do_baseline.sh`
+  dies if `state.json` is absent (`set_local_baseline.py` reads it). Reconstructible:
+  `baseline.csv` ← `/tmp/good_benchmarks.csv` (same schema, documented superset); seed an empty
+  `{"anomalies":[],"exceptional":[]}` `state.json`.
+- **A benchmark "zero verdict flips" does NOT clear a soundness change** — the sweep's lower
+  order/hull-grid flipped no verdict on 141 benchmarks, yet a curated unit test
+  (`GravityInvariantTest`) caught that hull-grid 4 silently breaks interior-invariant
+  refutation. Curated soundness tests exercise sharp cases a benchmark corpus can't. And the
+  reflex to "bump hull-grid back up until the test passes" is gaming the verifier — the test was
+  exposing a real looseness defect. **Root cause + the deferred fix: `HULL_SOUNDNESS.md`.**
+
+### Per-knob findings (measured on the current — still ~4× loose — tube)
+
+These drove the adopted default (order 12 / hull-grid 4 / backward 12); numbers reflect the
+SHIPPED tube, which `HULL_SOUNDNESS.md` shows is ~4× looser than CAPD's precision and will
+tighten once the width-based sub-slicing fix lands (re-tune then). Soundness direction: lower
+order/hull only *widens* enclosures (no false-`unsat`); the cost is missed refutation
+(completeness), which the F1 test catches for the sharp interior case below the hull-4 resolution.
+
+- **Taylor order is problem-dependent** (the strongest reason it stays a flag): tacas inverters
+  want low (~8–12, up to ~2.5× faster); stiff long-horizon github wants high (~16–20). Order 16
+  was the best global compromise; order 10 *regressed* github.
+- **hull-grid is NOT a free speed knob** — it is the time-resolution of interior-invariant
+  detection (see `HULL_SOUNDNESS.md`). Lowering it looked like a universal win on benchmarks but
+  trades away refutation completeness.
+- **backward-order / tolerance / c0-set**: minor (±5%). `c0-set=horect2` slightly slower
+  (matches the old §Rejected). Tolerance is a *minor* lever — the earlier smoke-test "looser tol
+  is 2.4× slower" was contention noise; the clean OFAT vindicates the old "tolerance ≈ no effect".
+- **max-step cap**: harmful (slower + lost the stress benchmark). Keep adaptive (0).
+- **backward off**: ~2× faster but loses X₀-narrowing (completeness risk) — a per-workload flag,
+  never a default.
+
+### Campaign status (2026-06-23)
+
+- Phase 0 re-baseline ✓; Phase 1 runtime-flag plumbing ✓ + gates; Phase 2 behavior-neutral A/B ✓.
+- Phase 3 sweep ✓ (OFAT 20 configs + order×hull-grid interactions + 123-confirm).
+- Phase 4: default **ADOPTED** at forward & backward order 12 + hull-grid 4. The F1
+  "soundness" test failure was diagnosed (not gamed) as a *completeness* gate — missed
+  refutation / false-`delta-sat`, never false-`unsat` — an owner-accepted tradeoff
+  (`HULL_SOUNDNESS.md`). 123-confirm: ~2× faster (PAR2 0.49), +4 solved (121/123), zero flips;
+  bwd-12 adds ~5% over bwd-20. F1 test pinned to hull-16 (guards the mechanism at adequate
+  resolution). Suite green (641/641 modulo the Timer flaky); Debug rounding gate ✓.
+- **Open follow-up:** the per-slice tube is ~4× looser than CAPD's precision
+  (`HULL_SOUNDNESS.md`) — the width-based sub-slicing fix would recover refutation precision
+  *while keeping the speed*, after which hull-grid stops being completeness-relevant and the
+  default could detect the F1 case too. Re-run OFAT + 123 on the corrected tube afterward.
+
 ## Measurement setup
 
 - **Baseline:** `benchmark/baseline_local.csv` (~30 stratified, refreshed on this branch).
@@ -48,6 +190,11 @@ Takeaway: CAPD forward Taylor integration dominates nonlinear-ODE runtime. Set t
 ---
 
 ## Adopted
+
+> **Note (2026-06):** the numbers in §Adopted and §Rejected were measured against the
+> *pre-per-slice* coarse-endpoint contractor and are **superseded** — they are being
+> re-measured by the "2026-06 re-tuning campaign" section above. Kept as the historical
+> record of what was tried and the reasoning.
 
 ### 1. CAPD Taylor order = 20 (order-10 was adopted, then reversed)
 

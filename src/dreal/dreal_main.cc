@@ -246,6 +246,44 @@ void MainProgram::AddOptions() {
            0 /* Delimiter if expecting multiple args. */,
            fmt::format("Set pattern matching timeout in seconds. (default = {})", kDefaultDrpmMaxTime).c_str(),
            "--drpm-max-time", positive_double_option_validator);
+
+  // ---- CAPD ODE-contractor tuning knobs --------------------------------------
+  auto* const nonneg_double_option_validator =
+      new ez::ezOptionValidator("d" /* double */, "ge", "0");
+  auto* const c0_set_option_validator =
+      new ez::ezOptionValidator("t", "in", "rect2,tripleton,horect2", false);
+  auto* const bool_option_validator =
+      new ez::ezOptionValidator("t", "in", "true,false", false);
+
+  opt_.add(fmt::format("{}", Config::kDefaultOdeTaylorOrder).c_str(), false, 1, 0,
+           fmt::format("CAPD forward-integration Taylor order. (default = {})",
+                       Config::kDefaultOdeTaylorOrder).c_str(),
+           "--ode-taylor-order", positive_int_option_validator);
+  opt_.add(fmt::format("{}", Config::kDefaultOdeBackwardOrder).c_str(), false, 1, 0,
+           fmt::format("CAPD backward-integration Taylor order. (default = {})",
+                       Config::kDefaultOdeBackwardOrder).c_str(),
+           "--ode-backward-order", positive_int_option_validator);
+  opt_.add(fmt::format("{}", Config::kDefaultOdeAbsTol).c_str(), false, 1, 0,
+           fmt::format("CAPD absolute integration tolerance. (default = {})",
+                       Config::kDefaultOdeAbsTol).c_str(),
+           "--ode-abs-tol", positive_double_option_validator);
+  opt_.add(fmt::format("{}", Config::kDefaultOdeRelTol).c_str(), false, 1, 0,
+           fmt::format("CAPD relative integration tolerance. (default = {})",
+                       Config::kDefaultOdeRelTol).c_str(),
+           "--ode-rel-tol", positive_double_option_validator);
+  opt_.add(fmt::format("{}", Config::kDefaultOdeHullGrid).c_str(), false, 1, 0,
+           fmt::format("CAPD per-step tube sub-slice count. (default = {})",
+                       Config::kDefaultOdeHullGrid).c_str(),
+           "--ode-hull-grid", positive_int_option_validator);
+  opt_.add("rect2", false, 1, 0,
+           "CAPD C0 enclosure set: rect2, tripleton, or horect2. (default = rect2)",
+           "--ode-c0-set", c0_set_option_validator);
+  opt_.add("true", false, 1, 0,
+           "Enable the backward ODE contractor (X_0 narrowing). (default = true)",
+           "--ode-backward", bool_option_validator);
+  opt_.add(fmt::format("{}", Config::kDefaultOdeMaxStep).c_str(), false, 1, 0,
+           "CAPD max integration step cap; 0 = fully adaptive. (default = 0)",
+           "--ode-max-step", nonneg_double_option_validator);
 }
 
 bool MainProgram::ValidateOptions() {
@@ -457,6 +495,49 @@ void MainProgram::ExtractOptions() {
     config_.mutable_drpm_max_time().set_from_command_line(drpm);
     DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --drpm-max-time = {}",
                     config_.drpm_max_time());
+  }
+  if (opt_.isSet("--ode-taylor-order")) {
+    int v{0};
+    opt_.get("--ode-taylor-order")->getInt(v);
+    config_.mutable_ode_taylor_order().set_from_command_line(v);
+  }
+  if (opt_.isSet("--ode-backward-order")) {
+    int v{0};
+    opt_.get("--ode-backward-order")->getInt(v);
+    config_.mutable_ode_backward_order().set_from_command_line(v);
+  }
+  if (opt_.isSet("--ode-abs-tol")) {
+    double v{0};
+    opt_.get("--ode-abs-tol")->getDouble(v);
+    config_.mutable_ode_abs_tol().set_from_command_line(v);
+  }
+  if (opt_.isSet("--ode-rel-tol")) {
+    double v{0};
+    opt_.get("--ode-rel-tol")->getDouble(v);
+    config_.mutable_ode_rel_tol().set_from_command_line(v);
+  }
+  if (opt_.isSet("--ode-hull-grid")) {
+    int v{0};
+    opt_.get("--ode-hull-grid")->getInt(v);
+    config_.mutable_ode_hull_grid().set_from_command_line(v);
+  }
+  if (opt_.isSet("--ode-c0-set")) {
+    string v;
+    opt_.get("--ode-c0-set")->getString(v);
+    const OdeC0SetType set_type = (v == "tripleton") ? OdeC0SetType::Tripleton
+                                : (v == "horect2")   ? OdeC0SetType::HORect2
+                                                     : OdeC0SetType::Rect2;
+    config_.mutable_ode_c0_set().set_from_command_line(set_type);
+  }
+  if (opt_.isSet("--ode-backward")) {
+    string v;
+    opt_.get("--ode-backward")->getString(v);
+    config_.mutable_ode_backward().set_from_command_line(v == "true");
+  }
+  if (opt_.isSet("--ode-max-step")) {
+    double v{0};
+    opt_.get("--ode-max-step")->getDouble(v);
+    config_.mutable_ode_max_step().set_from_command_line(v);
   }
 }
 

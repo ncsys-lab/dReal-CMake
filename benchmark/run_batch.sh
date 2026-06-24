@@ -10,6 +10,15 @@
 # Defaults to the HEAD arm64 build; override with DREAL_BINARY to benchmark a
 # different solver build (e.g. /usr/local/bin/dreal4_cav26) over the same jobs.
 BINARY="${DREAL_BINARY:-$(dirname "$0")/../gcc_build/dreal4}"
+# Extra solver flags injected into every invocation (word-split intentionally),
+# so one binary can be swept over flag values, e.g.
+#   DREAL_ARGS="--ode-taylor-order 12 --ode-c0-set tripleton" run_batch.sh ...
+DREAL_ARGS="${DREAL_ARGS:-}"
+# Per-job wall-clock timeout (seconds). Default 600 matches the corpus TIM
+# cutoff; a sweep's cheap OFAT probe phase may set a tighter cap (a config that
+# pushes a fast benchmark far past its default time is already "worse"). The
+# final full-corpus confirmation keeps 600.
+TIMEOUT="${TIMEOUT:-600}"
 OUT="$1"
 mkdir -p "$OUT"
 [[ -n "${2:-}" ]] && exec < "$2"
@@ -30,7 +39,7 @@ while IFS=$'\t' read -r csv_name filepath; do
     done
 
     (
-        gtime -v -o "$OUT/${label}.gtime" nice -n 1 timeout 600 "$BINARY" "$filepath" \
+        gtime -v -o "$OUT/${label}.gtime" nice -n 1 timeout "$TIMEOUT" "$BINARY" $DREAL_ARGS "$filepath" \
             > "$OUT/${label}.stdout" \
             2> "$OUT/${label}.solver_log"
         echo $? > "$OUT/${label}.exit"

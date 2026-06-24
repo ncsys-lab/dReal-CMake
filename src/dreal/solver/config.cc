@@ -134,6 +134,30 @@ std::chrono::duration<double, std::chrono::seconds::period> Config::drpm_max_tim
 
 OptionValue<double>& Config::mutable_drpm_max_time() { return drpm_max_time_; }
 
+int Config::ode_taylor_order() const { return ode_taylor_order_.get(); }
+OptionValue<int>& Config::mutable_ode_taylor_order() { return ode_taylor_order_; }
+
+int Config::ode_backward_order() const { return ode_backward_order_.get(); }
+OptionValue<int>& Config::mutable_ode_backward_order() { return ode_backward_order_; }
+
+double Config::ode_abs_tol() const { return ode_abs_tol_.get(); }
+OptionValue<double>& Config::mutable_ode_abs_tol() { return ode_abs_tol_; }
+
+double Config::ode_rel_tol() const { return ode_rel_tol_.get(); }
+OptionValue<double>& Config::mutable_ode_rel_tol() { return ode_rel_tol_; }
+
+int Config::ode_hull_grid() const { return ode_hull_grid_.get(); }
+OptionValue<int>& Config::mutable_ode_hull_grid() { return ode_hull_grid_; }
+
+OdeC0SetType Config::ode_c0_set() const { return ode_c0_set_.get(); }
+OptionValue<OdeC0SetType>& Config::mutable_ode_c0_set() { return ode_c0_set_; }
+
+bool Config::ode_backward() const { return ode_backward_.get(); }
+OptionValue<bool>& Config::mutable_ode_backward() { return ode_backward_; }
+
+double Config::ode_max_step() const { return ode_max_step_.get(); }
+OptionValue<double>& Config::mutable_ode_max_step() { return ode_max_step_; }
+
 std::ostream& operator<<(std::ostream& os,
                          const Config::SatDefaultPhase& sat_default_phase) {
   switch (sat_default_phase) {

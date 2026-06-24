@@ -176,7 +176,20 @@ namespace dreal
             // still guard.
             m_capd_cache = make_capd_ode_cache(icc->get_flow(), m_ode_state_vars);
         }
-        (void)config;
+
+        // Resolve the runtime CAPD knobs for this instance. A lohner contractor
+        // is single-direction, so the Taylor order comes from the matching flag
+        // (forward vs backward); the rest are shared.
+        m_capd_params = CapdSolverParams{
+            /*taylor_order=*/ (m_dir == ode_direction::FWD)
+                                  ? config.ode_taylor_order()
+                                  : config.ode_backward_order(),
+            /*abs_tol=*/ config.ode_abs_tol(),
+            /*rel_tol=*/ config.ode_rel_tol(),
+            /*hull_grid=*/ config.ode_hull_grid(),
+            /*c0_set=*/ config.ode_c0_set(),
+            /*max_step=*/ config.ode_max_step(),
+        };
     }
 
     // ---------------------------------------------------------------------------
@@ -341,8 +354,8 @@ namespace dreal
 
         const CapdTubeResult res =
             (m_dir == ode_direction::FWD)
-            ? run_capd_fwd(m_capd_cache, u0_bounds, par_bounds, win_lb, win_ub, g.token())
-            : run_capd_bwd(m_capd_cache, u0_bounds, par_bounds, win_lb, win_ub, g.token());
+            ? run_capd_fwd(m_capd_cache, u0_bounds, par_bounds, win_lb, win_ub, m_capd_params, g.token())
+            : run_capd_bwd(m_capd_cache, u0_bounds, par_bounds, win_lb, win_ub, m_capd_params, g.token());
 
         // found == false means CAPD diverged (step-control failure): no sound
         // enclosure, so skip narrowing for this call. This is NOT infeasibility
@@ -541,7 +554,7 @@ namespace dreal
 
         const bool forward = (m_dir == ode_direction::FWD);
         const CapdTraceResult trace = run_capd_trace(
-            m_capd_cache, u0_bounds, par_bounds, t_ub, forward, g.token());
+            m_capd_cache, u0_bounds, par_bounds, t_ub, forward, m_capd_params, g.token());
 
         if (trace.points.empty()) return json::array();
 
