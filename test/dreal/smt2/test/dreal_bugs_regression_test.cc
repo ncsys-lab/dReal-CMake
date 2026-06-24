@@ -11,11 +11,14 @@
 //   BUG-006  unsat (integral …) formula                      -> unsat (not false delta-sat)
 //   BUG-008  endpoint asserted below its true value          -> unsat (not false delta-sat)
 //
-// BUG-002 is intentionally excluded (negated (integral …) is silently dropped
-// by design in every dReal version — a documented §6 semantics choice, not a
-// fixable defect). The --visualize bugs (BUG-004 empty JSON, BUG-007 step
-// field) are exercised at the generate_trace level in contractor_capd_test.cc,
-// since the --visualize file-write path is not reachable through parse_string.
+// BUG-002 is NOT here: the silent drop of a negated (integral …)/(forall_t …)
+// is a design gap, not a settled behavior to regression-guard. Its DESIRED
+// future semantics (genuine ∃ for negated forall_t; two rival readings for
+// negated integral) are specified as aspirational GTEST_SKIP tests in the
+// sibling file dreal_future.cc. The --visualize bugs (BUG-004 empty JSON,
+// BUG-007 step field) are exercised at the generate_trace level in
+// contractor_capd_test.cc, since the --visualize file-write path is not
+// reachable through parse_string.
 
 #include "dreal/smt2/driver.h"
 
@@ -31,6 +34,18 @@
 namespace dreal {
 namespace {
 
+// RAII redirect of std::cout, restored on BOTH the normal and exception paths.
+// A plain "restore after parse_string" is skipped during stack unwinding if
+// parse_string throws, leaving std::cout pointing at a destroyed local buffer —
+// the next writer to std::cout then segfaults. None of the tests in this file
+// throw today, but the guard keeps a future throwing test from reintroducing the
+// crash (it bit dreal_future.cc's aspirational throw tests).
+struct CoutRedirect {
+  explicit CoutRedirect(std::streambuf* buf) : old_{std::cout.rdbuf(buf)} {}
+  ~CoutRedirect() { std::cout.rdbuf(old_); }
+  std::streambuf* old_;
+};
+
 // Parse an SMT2 string (its (check-sat) prints the verdict to std::cout, and
 // the model too when produce_models is set) and return the captured output.
 // Default Config precision is 0.001 — the delta the bug doc's reproducers use.
@@ -39,9 +54,8 @@ std::string RunSmt2String(const std::string& smt2, bool produce_models = false) 
   if (produce_models) config.mutable_produce_models().set_from_command_line(true);
   Smt2Driver driver{Context{config}};
   std::ostringstream captured;
-  std::streambuf* const old{std::cout.rdbuf(captured.rdbuf())};
+  const CoutRedirect redirect{captured.rdbuf()};
   driver.parse_string(smt2);
-  std::cout.rdbuf(old);
   return captured.str();
 }
 

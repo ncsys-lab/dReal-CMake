@@ -154,3 +154,29 @@ sound.
 
 **Code:** `run_capd_bwd` (`src/dreal/contractor/odes/contractor_odes_capd.cc`); FWD/BWD
 direction handling in `qf_nra_ode_semantics.md` §4.5.
+
+---
+
+## Negated / unlinked ODE constraints are dropped, and rejection must be parse-layer
+
+**Decision:** A negated `integral`/`forall_t` literal, and a positive `forall_t` that fails to
+link to a companion integral, are silently dropped in `link_integral_invariants` — *not* turned
+into a loud error. The silent drop of negated ODE atoms is the documented §6 behavior and the
+root of **BUG-002** (a user-asserted negation is silently removed).
+
+**Why:** `link_integral_invariants` runs inside the DPLL(T) loop on the SAT solver's *transient*
+literal subset. There, a negated ODE literal is a normal product of search, and a positive
+`forall_t` legitimately appears without its companion integral (another flow/step active). A
+throw on either crashes valid multi-step BMC benchmarks (verified: github `airplane`/`gen`).
+Distinguishing genuinely-malformed/unsupported *user input* from a valid transient state needs
+the global problem scope — only the parse / `Context::Assert` layer has it — so any rejection
+belongs there, and is unimplemented. These drops are COMPLETENESS hazards (missed refutation /
+false `delta-sat`), never soundness (a removed constraint only enlarges the box).
+
+**Alternatives tried/rejected:** throwing in `link_integral_invariants` on (a) negated ODE atoms
+and (b) unlinked positive `forall_t` — both reverted after crashing legitimate benchmarks.
+
+**Desired future semantics + roadmap:** genuine `∃t ¬φ` (negated `forall_t`); disequality vs.
+definitional binding (negated `integral`); parse-layer rejection of unlinkable assertions — all
+specified as aspirational `GTEST_SKIP` tests in `test/dreal/smt2/test/dreal_future.cc`. Full
+mechanism: `docs/ode-integration.md` §"Constraint forms accepted, and the silent drops (BUG-002)".

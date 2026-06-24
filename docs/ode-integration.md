@@ -17,6 +17,18 @@ ODE-related AST extensions (in `src/dreal/symbolic/symbolic.h` and the Drake-der
 
 These are parsed from both SMT2 (`define-ode`, `integral`, `forall_t`) and dReal3-compatible `.dr` syntax (`d/dt[x] = ...`).
 
+### Constraint forms accepted, and the silent drops (BUG-002)
+
+`link_integral_invariants` (`contractor_odes.h`) decides which ODE atoms become contractors:
+
+- A **positive `integral`** becomes an ODE contractor.
+- A **positive `forall_t`** is *linked* to an integral by **(a)** matching flow name and **(b)** `vars(invariant) ⊆ integral.vars_t`. The invariant must therefore reference the integral's **endpoint** variables (`x_t`), **not** the bare flow-template variable (`x`) — `{x} ⊄ {x_t}`, so a `forall_t` phrased over `x` fails (b), links to nothing, and is **silently dropped** (the per-slice tube checks the endpoint var against every slice; see *Mechanism* below).
+- A **negated** `integral`/`forall_t` (under `not`) is **not enforced** — the documented §6 QF_NRA_ODE semantics. When a *user* asserts such a negation as a hard constraint, this is the root of **BUG-002**: the constraint is silently removed. Both drops are **COMPLETENESS** hazards (a dropped constraint only enlarges the box → missed refutation / false `delta-sat`, **never** a false `unsat` — soundness is untouched).
+
+**Why these drops are not simply turned into errors.** `link_integral_invariants` runs *inside the DPLL(T) loop*, on the SAT solver's current literal subset — not on the user's source formula. There, a **negated** ODE literal is a normal product of search (the SAT solver assigns an ODE atom false), and a **positive** `forall_t` routinely appears **without** its companion integral (a different flow/step is active in that node). Throwing here therefore crashes legitimate multi-step BMC benchmarks (empirically: the github `airplane`/`gen` families). Telling genuinely-malformed/unsupported user input apart from a valid transient search state needs the **global** problem scope, available only at the **parse / `Context::Assert`** layer — so any such rejection belongs there, and is **unimplemented**.
+
+The **desired future semantics** — genuine `∃t ¬φ` for a negated `forall_t`; the two rival readings (disequality vs. definitional binding) for a negated `integral`; and parse-layer rejection of unlinkable/negated user assertions — are specified as aspirational `GTEST_SKIP` tests in `test/dreal/smt2/test/dreal_future.cc`. Positive-form behavior is regression-guarded in `dreal_bugs_regression_test.cc`.
+
 ---
 
 ## The CAPD Integrator
