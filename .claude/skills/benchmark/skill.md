@@ -24,7 +24,9 @@ Return a formatted summary as your only output:
 - One sentence: what needs investigation before continuing, if anything
 - Last line: `anomaly_report: <OUT_DIR>/anomaly_report.txt`
 
-Be terse. Only return the final summary — no narration.
+Then, as the FINAL part of your output, ALWAYS render the per-family PAR2 table from `family_comparison` in `aggregate.json` (the run vs the frozen baseline, `baseline_sha` in the same file). One markdown table, one row per family plus `weighted_overall`, columns: Family | Weight | n | Baseline PAR2 (s) | This run PAR2 (s) | Ratio. Sort families by descending weight (odeexpr, saradc, tacas, github) with `weighted_overall` last. Flag ratio >1.5 as a regression and <0.6 as exceptional. If `family_comparison` is absent (older run), say so in one line instead of inventing numbers.
+
+Be terse. Only return the final summary + the PAR2 table — no narration.
 
 ---
 

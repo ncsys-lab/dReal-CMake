@@ -29,6 +29,6 @@ mkdir -p "$OUT_DIR"
 python3 "$SCRIPT_DIR/select.py" > "$JOBS_FILE"
 bash "$SCRIPT_DIR/run_batch.sh" "$OUT_DIR" "$JOBS_FILE"
 python3 "$SCRIPT_DIR/parse_results.py" "$OUT_DIR" >&2
-python3 "$SCRIPT_DIR/aggregate.py" "$OUT_DIR" > "$OUT_DIR/aggregate.json"
+python3 "$SCRIPT_DIR/aggregate.py" "$OUT_DIR" --frozen-baseline "$SCRIPT_DIR/baseline.csv" > "$OUT_DIR/aggregate.json"
 
 echo "$OUT_DIR"
