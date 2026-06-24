@@ -6,14 +6,20 @@ file's old name (`HULL_SOUNDNESS.md`) mislabeled it, which read as a correctness
 emergency and cancelled experiments — the cautionary case behind
 `docs/soundness-vs-completeness.md` (the dichotomy + notation discipline).
 
-**Status:** open finding (width-based fix deferred). The default is now the
-owner-accepted hull-4 (the speed/completeness tradeoff — see "Current state /
-decision" below; OPTIMIZATION_LOG.md "2026-06 re-tuning campaign"), with the F1
-regression test pinned to hull-16 so it still guards the per-slice refutation
-mechanism at adequate resolution. This documents *why* hull-grid is a
-*completeness* (refutation-power) knob rather than a free speed knob, the root
-cause, and the proposed fix, so the next session does not re-make the mistake of
-"just pick a hull-grid that passes the test."
+**Status: RESOLVED (2026-06) by a centered-in-time range, NOT the width-based
+fix this file originally sketched.** The actual root cause is narrower than the
+"sub-interval width" framing below: CAPD's `curve(sub)` was already centered on
+the initial-condition spread but evaluated the Taylor polynomial in *time* by
+naive interval Horner over the whole sub-interval — the time-dependency problem.
+Replacing that single evaluation with a mean-value-in-time enclosure
+`x(mid) + x'(sub)·(sub−mid)`, intersected with the naive result (so it is never
+looser), tightens the whole tube uniformly with **no knob change and no
+subdivision**. The F1 interior-violation case now refutes at the **default**
+hull-grid; `--ode-hull-grid` is no longer completeness-load-bearing. See
+"Resolution" below for the implementation and measured trade-off. The
+width-based subdivision (Stage 2) and refine-on-demand (Stage 3) were **not
+needed** and were not built. The investigation history below is retained as the
+record of *why* hull-grid was a completeness knob and how the fix was scoped.
 
 ## TL;DR
 
@@ -146,7 +152,68 @@ margin 0.2 ≫ δ should never be missed — so the F1 regression is a first-cla
 SOUNDNESS" was the mislabel that read as a correctness emergency and cancelled
 experiments; see `docs/soundness-vs-completeness.md`.
 
-## Proposed fix — SPECULATIVE (design sketch, NOT validated)
+## Resolution (2026-06) — centered-in-time mean-value range
+
+The fix that shipped is **not** the width-based subdivision sketched below. While
+scoping that fix, reading CAPD's `Curve::operator()` (`diffAlgebra/Curve.hpp:59`)
+showed the dependency blow-up is purely in the **time** argument: the doubleton
+form already cancels the initial-condition spread (`xx ∩ (phi + jacPhi·deltaX)`),
+but the polynomial in time is summed by naive interval Horner
+(`xx[d] = xx[d]*h + coeff`) over the *whole* wide sub-interval `h`. CAPD also
+exposes `timeDerivative(h)` (Curve.hpp:178), so a mean-value-in-time bound is
+computable from the existing API:
+
+```
+mid       = scalar midpoint of sub
+enclosure = curve(point(mid)) + timeDerivative(sub) · (sub − mid)   // mean-value
+result    = enclosure ∩ curve(sub)                                  // never looser
+```
+
+`curve(point(mid))` is a thin-time evaluation (no time-widening); the correction
+term is derivative-bounded and `O(r²)` in the sub radius. Both forms are sound
+outward enclosures, so their intersection still encloses the true trajectory —
+and intersecting with the naive result guarantees the tube is **never looser**
+than before, hence **no soundness risk and no completeness loss on any flow**
+(narrow-sub stiff flows where naive was already tight just keep the naive bound).
+Implemented as `centered_curve_range()` in `contractor_odes_capd.cc`, applied to
+both the tube `state` and the window-clipped `gate_state`.
+
+**Why this beats the width-based sketch:** it tightens the *same* computation
+instead of adding sub-slices, so it has no `h_max` scaling question, no knob type
+change, and no extra cost on the small-step flows that width-based would have
+left untouched while still paying its branch. It is the subtract-before-add
+option the file's "Open questions" gestured at ("does `curve` have a tighter
+range mode").
+
+### Measured outcome
+
+- **Completeness:** `GravityInvariantTest.FwdInteriorInvariantViolation_DefaultHull_BoxEmpties`
+  (new test, default hull-grid, no pin) failed pre-fix (missed refutation) and
+  passes post-fix. The pinned-16 mechanism test and the no-invariant SAT control
+  still pass; full unit suite 643/643.
+- **No correctness flips** in any benchmark sample (provably impossible — the
+  tube only tightens).
+- **Performance is mixed and net-positive**, matching the "depends on the corpus
+  step-size distribution" prediction:
+  - github (UNSAT-via-ODE-refutation, same-instance vs frozen baseline): ~0.19×
+    PAR2 — tighter tube refutes faster. tacas: ~0.60×.
+  - saradc (same-instance A/B, old vs new binary): **+~14% CPU**, identical
+    `unsat` verdicts on the two instances that decide; the one apparent
+    "timeout regression" (`k90_4b_box`) times out on the **old** binary too
+    (pre-existing hard instance — the family-aggregate 4.2× was a sampling
+    artifact: `--family saradc` drew harder k84/k90 instances than the baseline's
+    k20–k70 pool).
+  - odeexpr is NRA (no ODE), code path untouched → neutral.
+- **Owner's-call lever (not taken):** the ~14% saradc cost is the extra
+  curve/timeDerivative evaluations on flows where the mean-value form doesn't pay
+  off (already-tight narrow sub-intervals). It could be clawed back by computing
+  the mean-value form only when the sub-interval is wide, at the cost of one
+  branch — deliberately *not* added (minimize-logic; the cost is modest and the
+  clean uniform path is preferred unless the owner says otherwise).
+
+---
+
+## Proposed fix — SPECULATIVE (design sketch, NOT validated) — SUPERSEDED, see "Resolution" above
 
 > ⚠️ **Treat this entire section as a hypothesis, not a spec.** It is reasoned
 > from a *single* gravity slice-dump (one trivial flow) plus the standard

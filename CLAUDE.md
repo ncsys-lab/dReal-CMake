@@ -111,9 +111,11 @@ only these failing":
 
 Key flags: `--precision <delta>`, `--produce-models`, `--logic <QF_NRA|QF_NRA_ODE>`, `--verbose`.
 
-**CAPD ODE tuning:** `--ode-taylor-order` (default 12), `--ode-hull-grid` (4 — time-resolution of
-interior-invariant refutation, **not a free speed knob**: lower widens enclosures (never a
-false-`unsat`) but reduces completeness; raise to 16+ for sharp-invariant problems),
+**CAPD ODE tuning:** `--ode-taylor-order` (default 12), `--ode-hull-grid` (4 — per-step sub-slice
+count; lower widens enclosures (never a false-`unsat`). Since the 2026-06 centered-in-time tube
+fix (`HULL_COMPLETENESS.md`) the per-slice range is mean-value-in-time, so the default tube sits
+near CAPD precision and hull-grid is no longer a completeness knob; raise to 16+ only for
+pathologically sharp invariants),
 `--ode-backward` (true), `--ode-abs-tol`/`--ode-rel-tol` (1e-10), `--ode-max-step` (0=adaptive).
 Full flag list + performance rationale: `docs/ode-integration.md` §Performance. 2026-06 retuning
 campaign: `OPTIMIZATION_LOG.md`.
@@ -212,6 +214,15 @@ tradeoff: `docs/decisions.md` "Denormal / underflow soundness".
 **ODE performance baseline:** CAPD order-20 was at or below Codac CtcLohner on all tested ODE
 benchmarks. The `--capd-t-gate`/`--capd-ndim-gate` flags have been removed (Codac hybrid retired).
 Details: `docs/decisions.md` "ODE backend".
+
+**Negated/unlinked ODE constraints (BUG-002):** a negated `integral`/`forall_t`, and a `forall_t`
+not linked to an integral (invariant must reference the endpoint var `x_t`, not the flow var `x`),
+are silently dropped in `link_integral_invariants` — a COMPLETENESS hazard (missed refutation,
+never false-`unsat`). This can't be made a throw there (it runs inside DPLL(T) on transient search
+literals; throwing crashes valid BMC benchmarks); rejection must be parse-layer (unimplemented).
+Desired future semantics is specified as aspirational `GTEST_SKIP` tests in
+`test/dreal/smt2/test/dreal_future.cc`. Details: `docs/decisions.md` "Negated / unlinked ODE
+constraints", `docs/ode-integration.md`.
 
 **Benchmarking instrumentation:** `std::cerr` prints and JSON dumps exist for benchmarking runs.
 `--verbose` (DEBUG) is useful for development; TRACE is deep debugging only.

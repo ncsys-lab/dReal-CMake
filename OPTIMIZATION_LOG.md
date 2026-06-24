@@ -150,10 +150,14 @@ order/hull only *widens* enclosures (no false-`unsat`); the cost is missed refut
   (`HULL_COMPLETENESS.md`). 123-confirm: ~2× faster (PAR2 0.49), +4 solved (121/123), zero flips;
   bwd-12 adds ~5% over bwd-20. F1 test pinned to hull-16 (guards the mechanism at adequate
   resolution). Suite green (641/641 modulo the Timer flaky); Debug rounding gate ✓.
-- **Open follow-up:** the per-slice tube is ~4× looser than CAPD's precision
-  (`HULL_COMPLETENESS.md`) — the width-based sub-slicing fix would recover refutation precision
-  *while keeping the speed*, after which hull-grid stops being completeness-relevant and the
-  default could detect the F1 case too. Re-run OFAT + 123 on the corrected tube afterward.
+- **Follow-up RESOLVED (2026-06):** the ~4× looseness was fixed — but by a **centered-in-time
+  (mean-value) range**, not the width-based sub-slicing originally proposed (the real cause was
+  naive Horner in the *time* argument, not sub-interval count; see `HULL_COMPLETENESS.md`
+  "Resolution"). hull-grid is no longer completeness-relevant and the F1 case now refutes at the
+  hull-4 default. Same-instance trade-off: github/tacas faster (~0.19×/0.60× PAR2), saradc ~+14%
+  CPU, no correctness flips. The per-knob numbers above were measured on the OLD loose tube; a
+  full OFAT/123 re-tune on the tightened tube is the remaining optional step before re-picking
+  any default.
 
 ## Measurement setup
 
