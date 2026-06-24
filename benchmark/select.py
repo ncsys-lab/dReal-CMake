@@ -16,9 +16,29 @@ import csv
 import json
 import os
 import random
+import re
 import sys
 
 from odeexpr import family_of, load_odeexpr_names, resolve_odeexpr, weight_of
+
+_LARGE_K_RE = re.compile(r'_k(\d+)_')
+_BITWIDTH_RE = re.compile(r'_(\d+)b_')
+
+
+def _is_oom_risk(name: str) -> bool:
+    """Return True if the benchmark is known to exhaust memory.
+
+    github/tacas: _k<N>_ with N >= 1024.
+    saradc: _<N>b_ with N >= 9 (bitwidth encodes problem size independently of k).
+    """
+    for m in _LARGE_K_RE.finditer(name):
+        if int(m.group(1)) >= 1024:
+            return True
+    for m in _BITWIDTH_RE.finditer(name):
+        if int(m.group(1)) >= 9:
+            return True
+    return False
+
 
 BENCHMARK_DIR = "/Users/kunalsheth/Documents/new_dreal/nraode_to_nra"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -60,8 +80,9 @@ def load_benchmarks(baseline_csv: str) -> list[str]:
         rows = list(reader)
     # Row 0: group headers, Row 1: sub-headers, Row 2: index label, Row 3+: data
     for row in rows[3:]:
-        if row and row[0].strip():
-            names.append(row[0].strip())
+        name = row[0].strip() if row else ""
+        if name and not _is_oom_risk(name):
+            names.append(name)
     return names
 
 

@@ -52,7 +52,10 @@ Run proactively at natural breakpoints even if the user doesn't ask.
 - `select.py` — picks 8 **family-weighted** random benchmarks + all current anomalies; outputs
   TSV (csv_name TAB filepath). `--family a,b,c` restricts corpus to those families
   (`odeexpr,saradc,github,tacas`); `--all` emits every benchmark of the filtered corpus
-  deterministically (no random, no anomalies) — for an A/B over a fixed set
+  deterministically (no random, no anomalies) — for an A/B over a fixed set.
+  **OOM exclusion** (`_is_oom_risk`): github/tacas `_k<N>_` with N ≥ 1024, saradc `_<N>b_` with
+  N ≥ 9 — these crash the OS; the filter applies inside `load_benchmarks` so it covers both
+  `select.py` and `select_baseline.py`
 - `do_ab.sh BIN_A BIN_B [jobs_file]` — A/B two solver builds over the **same** jobs (default =
   full ODE family). Runs **sequentially** (never concurrently — overlapping batches starve jobs
   and turn real solves into false wall-clock TIMs) via `run_batch.sh` (`DREAL_BINARY`), parses
