@@ -579,16 +579,14 @@ class GravityInvariantTest : public ::testing::Test {
 TEST_F(GravityInvariantTest, FwdInteriorInvariantViolation_BoxEmpties) {
   SetBounds();
   Config config;
-  // Pin hull-grid to the validated resolution. The shipped DEFAULT hull-grid (4)
-  // deliberately trades interior-refutation RESOLUTION for ~2x speed — an
-  // owner-accepted *completeness* tradeoff: a sharp interior violation below the
-  // default time-resolution may return delta-sat instead of unsat. That is NEVER
-  // a false-unsat (coarser = wider = sound), so it is not a soundness hole; see
-  // HULL_COMPLETENESS.md (and the deferred width-based fix that would let the
-  // default detect this too). This test therefore guards the per-slice
-  // MECHANISM — that an interior-only violation IS refuted when given adequate
-  // resolution — and intentionally does NOT assert the hull-4 default catches
-  // this sub-resolution case.
+  // Pin hull-grid to 16 (high resolution) so this test guards the per-slice
+  // MECHANISM independently of the default-tube precision: an interior-only
+  // violation IS refuted when given ample time-resolution. The companion test
+  // FwdInteriorInvariantViolation_DefaultHull_BoxEmpties asserts the SHIPPED
+  // default also refutes it — true since the 2026-06 centered-in-time tube fix
+  // (HULL_COMPLETENESS.md "Resolution") tightened the default tube to CAPD
+  // precision. A coarser hull-grid only ever widens (sound; never a false-unsat),
+  // so this pin can never mask a soundness hole.
   config.mutable_ode_hull_grid().set_from_command_line(16);
   ContractorStatus cs{box_};
   const auto ic = MakeIc();
@@ -600,6 +598,27 @@ TEST_F(GravityInvariantTest, FwdInteriorInvariantViolation_BoxEmpties) {
       << "gravity, ∀t. x≤0.3 violated only at the interior peak x(1)=0.5 while "
          "holding at both endpoints; box must empty [F1 interior-refutation "
          "mechanism, at pinned resolution]";
+}
+
+// Same interior violation, but at the SHIPPED DEFAULT hull-grid (no pin). This is
+// the completeness gate for the centered-in-time tube fix (HULL_COMPLETENESS.md):
+// with the naive curve(sub) range the default tube is ~4x too loose and MISSES the
+// peak (delta-sat); the mean-value range tightens it enough that the default
+// detects the violation. A margin of 0.2 (peak 0.5 vs bound 0.3) >> the 1e-3
+// precision must never be missed regardless of the speed knob.
+TEST_F(GravityInvariantTest, FwdInteriorInvariantViolation_DefaultHull_BoxEmpties) {
+  SetBounds();
+  Config config;  // shipped default hull-grid — no pin
+  ContractorStatus cs{box_};
+  const auto ic = MakeIc();
+  const Formula inv = forallT(ode_, 0.0, t0_, xt_ <= 0.3);
+  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {inv}}, ode_direction::FWD,
+                                            config, 0.0);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_TRUE(cs.box().empty())
+      << "gravity, ∀t. x≤0.3 violated at interior peak x(1)=0.5 (margin 0.2 ≫ "
+         "precision); box must empty at the DEFAULT hull-grid [F1 completeness "
+         "gate — centered-in-time tube]";
 }
 
 // Control: same instance WITHOUT the invariant is genuinely SAT — the fix must

@@ -213,15 +213,16 @@ class Config {
   //
   // SOUNDNESS/COMPLETENESS NOTE: lowering order / hull-grid only WIDENS the enclosures (each
   // sub-slice is still a sound outward over-approximation), so it can NEVER cause
-  // a false-UNSAT. The accepted cost is *completeness*: on a sharp interior
-  // invariant-violation whose width is below the hull-4 time-resolution, the
-  // per-slice filter may fail to refute and return delta-sat instead of unsat
-  // (the GravityInvariantTest F1 case). This is an owner-accepted delta-complete
-  // tradeoff, NOT a soundness hole. SEPARATELY, the per-slice tube is ~4x looser
-  // than CAPD's precision allows (a fixed hull COUNT over a large adaptive step
-  // → wide sub-intervals → polynomial dependency blow-up); the deferred
-  // width-based sub-slicing fix would recover that refutation precision while
-  // keeping the speed. FULL writeup + the deferred fix: HULL_COMPLETENESS.md.
+  // a false-UNSAT; the only cost of a coarser knob is *completeness* (a missed
+  // refutation / delta-sat), never a soundness hole. As of the 2026-06
+  // centered-in-time tube fix (HULL_COMPLETENESS.md "Resolution"), hull-grid is
+  // NO LONGER completeness-load-bearing: the per-slice enclosure is evaluated by
+  // a mean-value-in-time range (curve(mid) + curve'(sub)·(sub-mid), intersected
+  // with the naive curve(sub)), which holds the tube near CAPD's actual precision
+  // regardless of the adaptive step size — so the sharp interior
+  // invariant-violation (GravityInvariantTest F1) is now refuted at THIS default
+  // hull-4, not only at hull-16. Higher hull-grid still helps pathologically
+  // sharp cases but no longer trades away the F1-class refutation.
   // Tolerances at 1e-10 (step size is not tolerance-limited on the corpus).
   static constexpr int kDefaultOdeTaylorOrder{12};
   static constexpr int kDefaultOdeBackwardOrder{12};

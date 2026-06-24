@@ -346,6 +346,50 @@ namespace dreal
             return out;
         }
 
+        // Centered-in-time (mean-value) range of the step's Taylor curve over a
+        // time sub-interval, intersected with CAPD's direct curve(sub) so the
+        // result is NEVER looser than the naive evaluation.
+        //
+        // curve(sub) evaluates the degree-`order` solution polynomial in time by
+        // interval Horner over the WHOLE sub: every power of the time variable is
+        // treated independently, so a wide sub (large adaptive step and/or low
+        // hull-grid) loses time-correlation and the enclosure blows up
+        // super-linearly — the interval dependency problem. This is the
+        // HULL_COMPLETENESS.md looseness: the tube ends up ~4x wider than CAPD's
+        // actual precision, silently weakening interior invariant refutation.
+        //
+        // The mean-value form  x(sub) ⊆ x(mid) + x'(sub)·(sub - mid)  evaluates
+        // the curve at the THIN midpoint time (no time-widening) plus a small
+        // derivative-bounded correction, cutting the slop to O(r²) in the sub
+        // radius r. timeDerivative(sub) and curve() are the same doubleton
+        // machinery CAPD already exposes (diffAlgebra/Curve.hpp) and both account
+        // for the initial-condition spread, so the mean-value bound is a sound
+        // outward enclosure of the true trajectory; intersecting two sound
+        // enclosures still encloses it. Tightens the WHOLE tube uniformly (the
+        // terminal-window clip below uses it too), so hull-grid stops being a
+        // refutation-power knob.
+        template <typename CurveT>
+        capd::IVector centered_curve_range(const CurveT& curve,
+                                           const capd::interval& sub) {
+            const capd::IVector naive = curve(sub);
+            const double mid = (sub.leftBound() + sub.rightBound()) / 2.0;
+            const capd::IVector x_mid = curve(capd::interval(mid));
+            const capd::IVector deriv = curve.timeDerivative(sub);
+            const capd::interval dt = sub - capd::interval(mid);
+            const int dim = naive.dimension();
+            capd::IVector out(dim);
+            for (int i = 0; i < dim; ++i) {
+                const capd::interval mv = x_mid[i] + deriv[i] * dt;
+                // Both mv and naive enclose x_i(sub), so the true range lies in
+                // their intersection. Bound comparisons only (no arithmetic) —
+                // exact and sound regardless of the ambient FPU rounding mode.
+                out[i] = capd::interval(
+                    std::max(mv.leftBound(), naive[i].leftBound()),
+                    std::min(mv.rightBound(), naive[i].rightBound()));
+            }
+            return out;
+        }
+
         // Integrate `map` from u0 over forward-time [0, t_ub] and append, to
         // out_slices, the time-ordered trajectory sub-slices — cav26's
         // compute_enclosures tube, returned as the full per-slice list rather
@@ -414,7 +458,7 @@ namespace dreal
                             d_lo + k * dd,
                             (k == kHullGrid - 1) ? d_hi : d_lo + (k + 1) * dd);
                         const capd::interval slice_time = prev_time + sub;
-                        const capd::IVector v = curve(sub);
+                        const capd::IVector v = centered_curve_range(curve, sub);
                         CapdTubeSlice s;
                         s.t_lb = slice_time.leftBound();
                         s.t_ub = slice_time.rightBound();
@@ -432,7 +476,8 @@ namespace dreal
                         const double gd_hi =
                             std::min(sub.rightBound(), win_dom.rightBound());
                         if (gd_lo <= gd_hi) {
-                            const capd::IVector gv = curve(capd::interval(gd_lo, gd_hi));
+                            const capd::IVector gv =
+                                centered_curve_range(curve, capd::interval(gd_lo, gd_hi));
                             s.gate_state.reserve(static_cast<size_t>(n));
                             for (int i = 0; i < n; ++i)
                                 s.gate_state.emplace_back(gv[i].leftBound(),
