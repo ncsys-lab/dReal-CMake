@@ -73,15 +73,14 @@ Regression coverage: `contractor_odes_semantic_test.cc` (`GravityInvariantTest`,
 `std::numeric_limits<double>::max_digits10` (**17**) significant digits, so CAPD's interval
 parse of the decimal literal brackets the exact double.
 
-**Why:** The vector field CAPD integrates must be a faithful image of the symbolic RHS. The
-prior `std::to_string` emitted only **6** fractional digits (`sprintf %f`), so `1/3 →
-"0.333333"` made CAPD integrate `3·(1/3)` as `0.999999` — a field unfaithful by `1e-6`. A clock
-whose terminal gate sits at the integration-window end (`tau=1` at `t=t_ub`) then has no
-surviving terminal slice → false `unsat`. The bug was longstanding and **shared** by
-`main`/cav26 source; their looser filters masked the `1e-6` deficit while the tighter per-slice
-tube exposed it — i.e. **the feed lied, the filter is sound**. Confirmed by the cav26-oracle
-A/B (123 ODE jobs): the fixed build has **zero** false-`unsat`s, solves 118/123 vs cav26's 109,
-and fixes 2 of cav26's own residual false-`unsat`s (cav26 carries the same truncation).
+**Why:** The vector field CAPD integrates must be a faithful image of the symbolic RHS; the
+prior `std::to_string`'s 6-digit truncation made it unfaithful by `1e-6` and produced a genuine
+false `unsat` (**SOUNDNESS** — false unsat). Mechanism + the worked `1/3 → 0.999999` clock-gate
+example: `docs/ode-integration.md` §Soundness. The bug was longstanding and shared by
+`main`/cav26; their looser filters masked it while the tighter per-slice tube exposed it — *the
+feed lied, the filter is sound*. cav26-oracle A/B evidence (123 ODE jobs): the fixed build has
+**zero** false-`unsat`s, solves 118/123 vs cav26's 109, and fixes 2 of cav26's own residual
+false-`unsat`s.
 
 **Alternatives tried and rejected:** `std::to_string` (the truncating default — the bug);
 scientific-notation output (CAPD's parser is unreliable on `1e-3` forms, so |v|<1e-4 or huge
@@ -165,13 +164,14 @@ into a loud error. The silent drop of negated ODE atoms is the documented §6 be
 root of **BUG-002** (a user-asserted negation is silently removed).
 
 **Why:** `link_integral_invariants` runs inside the DPLL(T) loop on the SAT solver's *transient*
-literal subset. There, a negated ODE literal is a normal product of search, and a positive
-`forall_t` legitimately appears without its companion integral (another flow/step active). A
-throw on either crashes valid multi-step BMC benchmarks (verified: github `airplane`/`gen`).
-Distinguishing genuinely-malformed/unsupported *user input* from a valid transient state needs
-the global problem scope — only the parse / `Context::Assert` layer has it — so any rejection
-belongs there, and is unimplemented. These drops are COMPLETENESS hazards (missed refutation /
-false `delta-sat`), never soundness (a removed constraint only enlarges the box).
+literal subset, where a negated ODE literal or an unlinked positive `forall_t` is a normal
+product of search — so a throw there crashes valid multi-step BMC benchmarks (github
+`airplane`/`gen`). Distinguishing malformed *user input* from a valid transient state needs the
+global problem scope, which only the parse / `Context::Assert` layer has — so any rejection
+belongs there, and is unimplemented. These drops are **COMPLETENESS** hazards (missed refutation
+/ false `delta-sat`), never soundness (a removed constraint only enlarges the box). Full
+transient-literal mechanism: `docs/ode-integration.md` §"Constraint forms accepted, and the
+silent drops (BUG-002)".
 
 **Alternatives tried/rejected:** throwing in `link_integral_invariants` on (a) negated ODE atoms
 and (b) unlinked positive `forall_t` — both reverted after crashing legitimate benchmarks.

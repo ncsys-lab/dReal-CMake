@@ -49,51 +49,18 @@ Canonical reference: `docs/soundness-vs-completeness.md`. Model-theory depth: th
 
 ## Build
 
-**Prerequisites** (macOS — ARM or x86 Homebrew; Rosetta no longer required):
-- bison, flex, gmp, cadical (install via `/opt/homebrew/bin/brew` on Apple Silicon)
-- CMake source-builds IBEX from the fork and CAPD from source automatically
+End-user build guide for cloning the repo (prerequisites, native macOS/Linux, Docker):
+`README.md`. Build-system configuration for modifying the build (`--version` wiring, CMake
+git-version target, IBEX/CAPD source-build): `docs/build.md`.
 
-**Full build** (first time — creates `gcc_build/`):
-```bash
-./FULL_BUILD.sh
-```
+`./FULL_BUILD.sh` (first build — creates `gcc_build/`) and `./BUILD.sh` (incremental) build
+target `dreal4` with `-j8`; binary at `gcc_build/dreal4`. Override IBEX source via
+`-DIBEX_GIT_REPOSITORY=file:///path/to/ibex-fork` for local-dev against an unpushed checkout
+(`CMakeLists.txt` pins the fork sha `d9930909`).
 
-**Incremental build** (subsequent builds):
-```bash
-./BUILD.sh
-```
-
-Both scripts build target `dreal4` with `-j8`. The binary is at `gcc_build/dreal4`. Override IBEX
-source via `-DIBEX_GIT_REPOSITORY=file:///path/to/ibex-fork` for local-dev against an unpushed
-checkout; `CMakeLists.txt` pins the fork sha (`d9930909`).
-
-`--version` prints three lines — feature flags, commit identity, and build platform:
-```
-dReal 5.0.0.1.<feature-flags>
-Commit <hash> [<dirty>], Release Build.
-Built for Darwin 25.5.0 arm64, on Jun 25 2026 12:51:30.
-```
-**How the values are wired in:**
-- `<hash>` / `<dirty>` — captured at **every build** by `cmake/GenerateGitVersion.cmake`,
-  which runs `git rev-parse --short HEAD` and `git status --porcelain --untracked-files=no`.
-  This is a CMake `add_custom_target` (a build-time hook, **not** a git hook — it fires on
-  `cmake --build`, not on `git commit`/`push`). The script writes `gcc_build/git_version.h`
-  only when content changes, so `dreal_main.cc` is not recompiled unnecessarily.
-- OS / arch — `CMAKE_SYSTEM_NAME`, `CMAKE_SYSTEM_VERSION`, `CMAKE_SYSTEM_PROCESSOR` injected
-  as `target_compile_definitions` at CMake configure time.
-- Timestamp — `__DATE__`/`__TIME__` compiler built-ins, stamped when `dreal_main.cc` is
-  compiled (which happens whenever the hash/dirty status changes).
-- Docker: `.git/HEAD`, `.git/refs/`, and a stub `objects/` dir are `COPY`'d into the image
-  so `git rev-parse` works and the real hash appears. Dirty is always 0 in Docker (no index
-  or object store to compare against).
-
-**Docker** (Linux hermetic verification via `Dockerfile.dreal_ubuntu`):
-```bash
-docker build -f Dockerfile.dreal_ubuntu -t dreal-linux-verify .
-cat query.smt2 | docker run --rm -i dreal-linux-verify ./dreal4 --in --model
-```
-Ubuntu 24.04 + clang-18. Docker on macOS may have `-j` filesystem bugs — reduce parallelism on
-bad file descriptor errors.
+**Docker** (Linux hermetic verification): after `docker build -f Dockerfile.dreal_ubuntu -t
+dreal-linux-verify .`, run `cat query.smt2 | docker run --rm -i dreal-linux-verify ./dreal4 --in
+--model`. Bad-fd `-j` caveat: `README.md`.
 
 ---
 

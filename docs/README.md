@@ -4,6 +4,7 @@ Deeper reference documentation beyond the project-level `CLAUDE.md`.
 
 | Document | Contents |
 |---|---|
+| [build.md](build.md) | Build-system internals — `--version` output and how its git hash/dirty flag, OS/arch, and timestamp are wired in (CMake git-version target, compile definitions, Docker `.git` copy) |
 | [architecture.md](architecture.md) | Full solving pipeline — preprocessing, SAT/theory layers, ICP loop, branching, Box, ContractorStatus, UNSAT explanations |
 | [contractors.md](contractors.md) | All contractor kinds, how HC4 forward-backward works, fixpoint/worklist variants, join, how TheorySolver composes them |
 | [ode-integration.md](ode-integration.md) | CAPD order-20 Taylor integration (forward/backward/trace), hybrid system encoding, input format examples |
