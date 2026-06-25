@@ -56,9 +56,13 @@ class Contractor {
     IBEX_POLYTOPE,
     FIXPOINT,
     WORKLIST_FIXPOINT,
-    FORALL,
+    FORALL,  // ∃∀ NRA quantifier (ContractorForall, CE-guided). PITFALL forall-vs-forall_t:
+             // NOT `forall_t` — that ODE trajectory invariant is checked inside ODE_LOHNER
+             // below. See docs/forall-semantics.md §7.
     JOIN,
-    ODE_LOHNER  // Replaces CAPD_FULL; uses IBEX interval arithmetic for ODE bounds.
+    ODE_LOHNER  // Replaces CAPD_FULL; uses IBEX interval arithmetic for ODE bounds. Also
+                // where the `forall_t` (FormulaKind::ForallT) per-slice invariant is enforced
+                // — distinct from the ∃∀ FORALL kind above (PITFALL forall-vs-forall_t).
   };
 
   explicit Contractor(const Config& config);

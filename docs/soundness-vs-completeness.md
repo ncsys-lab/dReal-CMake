@@ -41,8 +41,13 @@ T-valid and T-invalid. The SMT question dReal answers is T-satisfiability of φ.
 ## What dReal's two answers actually guarantee
 
 dReal does not decide T-satisfiability exactly (it is undecidable for this T).
-It implements the **δ-decision** framework (Gao, Avigad, Clarke, *δ-Complete
-Decision Procedures*, LICS 2012). Fix the precision δ > 0 (`--precision`). Write
+It implements the **δ-decision** framework — the δ-SMT decision procedure of Gao,
+Avigad & Clarke (*δ-Complete Decision Procedures for Satisfiability over the Reals*,
+**IJCAR 2012**; summary `papers/gao-avigad-clarke-2012-delta-complete.md`), resting on
+their decidability/complexity theory (*Delta-Decidability over the Reals*, **LICS
+2012**; `papers/gao-avigad-clarke-2012-delta-decidability.md`). These are two distinct
+2012 papers — do not collapse them to one cite. Fix the precision δ > 0
+(`--precision`). Write
 φ^δ for the **δ-weakening** of φ (every numeric bound relaxed by δ); note
 φ ⇒ φ^δ is T-valid, so φ T-satisfiable ⇒ φ^δ T-satisfiable, but not conversely.
 
@@ -149,6 +154,26 @@ knob), is the owner's call, not a reason to halt.
 
 ---
 
+## A second worked example: the ∃∀ double-sided error control
+
+The `forall` (∃∀) contractor has a failure mode that is, again, *completeness* not
+soundness — worth stating because it can look alarming. Its counterexample search is
+itself a δ-decision, so without strengthening it can return a **spurious counterexample**:
+a `y` that only δ-violates the clause instead of strictly violating it. A spurious CE
+prunes nothing, the pruning fixpoint stalls, and the outer search can report `delta-sat`
+on a tiny box that holds no δ-solution.
+
+Classify it: the pruning step always contracts with `φ(x, y)` for a *real* `y` in the
+domain, which `∀y.φ(x,y)` genuinely requires — so it can never delete a true solution (no
+false `unsat` is reachable). The damage is a missed refutation.
+
+> **COMPLETENESS (returns `delta-sat` / asserts φ⁻ᵟ T-satisfiable on a T-unsatisfiable
+> φ⁻ᵟ — missed refutation).** The `inner_delta < epsilon < delta` "double-sided error
+> control" (Kong, Solar-Lezama & Gao, CAV 2018, §3.2; `docs/forall-semantics.md` §4.6) is
+> the *completeness* safeguard that rules it out — not a soundness mechanism.
+
+---
+
 ## See also
 
 - `smt-model-theory` skill — the model-theory reference for the publication work;
@@ -159,5 +184,10 @@ knob), is the owner's call, not a reason to halt.
   from per-slice correlation (completeness) for the ODE contractor.
 - `docs/decisions.md` "Denormal / underflow soundness" — a worked
   "delta-completeness imprecision, not a crisp soundness bug" call.
-- Gao, Avigad, Clarke 2012, *δ-Complete Decision Procedures* — the δ-sat / δ-valid
-  / δ-completeness framework.
+- `papers/gao-avigad-clarke-2012-delta-complete.md` — Gao, Avigad, Clarke, *δ-Complete
+  Decision Procedures for Satisfiability over the Reals* (**IJCAR 2012**): the δ-SMT /
+  δ-weakening / δ-completeness framework, and the well-defined-pruning conditions (W1–W3)
+  that make "looser enclosure ⇒ completeness loss, never soundness loss" a theorem.
+- `papers/gao-avigad-clarke-2012-delta-decidability.md` — Gao, Avigad, Clarke,
+  *Delta-Decidability over the Reals* (**LICS 2012**): the underlying decidability +
+  NP/PSPACE complexity theory (distinct paper from the IJCAR one above).

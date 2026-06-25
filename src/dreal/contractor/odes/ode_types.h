@@ -17,6 +17,9 @@ namespace dreal
 {
     // An ode_constraint pairs an Integral formula (the ODE definition) with a
     // list of ForallT formulas (the invariants that must hold along the trajectory).
+    // PITFALL forall-vs-forall_t: these ForallT (`forall_t`) invariants are ODE machinery,
+    // unrelated to the ∃∀ NRA `forall` (Formula::Forall / ContractorForall / Kind::FORALL).
+    // See docs/forall-semantics.md §7.
     using ode_constraint = std::pair<Formula, std::vector<Formula>>;
 
     enum class ode_direction { FWD, BWD };

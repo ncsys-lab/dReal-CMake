@@ -6,6 +6,14 @@ dReal4 is a delta-complete decision procedure for nonlinear arithmetic over the 
 
 The solver implements a variant of DPLL(T) where the SAT layer handles propositional structure and the theory layer handles nonlinear arithmetic via interval constraint propagation.
 
+> **Origin & paper map.** This `DPLL(ICP)` architecture is the one introduced in the original
+> dReal tool paper (Gao, Kong, Clarke, CADE-24 2013 —
+> `papers/gao-kong-clarke-2013-dreal.md`), built on the δ-complete decision procedures of
+> `papers/gao-avigad-clarke-2012-delta-complete.md`. **The framework is unchanged; the
+> components are not:** the 2013 paper's **opensmt** (DPLL(T)) and **realpaver** (ICP) have
+> been replaced by **CaDiCaL**, the **IBEX** fork, and **CAPD** (ODE). Read the 2013 summary's
+> Notes before taking any component claim in that paper as current.
+
 ---
 
 ## Layers

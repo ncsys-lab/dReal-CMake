@@ -50,7 +50,38 @@ The contraction is split into a **numeric tube builder** (`contractor_odes_capd.
    - **Terminal window**: a slice whose time overlaps the dwell window `[win_lb, win_ub]` is terminal-eligible. Intersect its state with the `X_t` gate (`m_vars_t` box) component-wise; keep the non-empty intersections.
    - **Narrow / refute**: hull the kept intersections → narrowed `X_t`, hull their times → narrowed time variable. **No surviving slice → `set_empty()`** — a sound refutation, because CAPD's enclosures are outward over-approximations, so an empty survivor set proves true infeasibility.
 
-`run_capd_fwd` narrows `X_t` and the time variable; `run_capd_bwd` runs the symmetric filter in a swapped frame (`m_vars_0 = original X_t`) to narrow `X_0`. The theory solver queues **both** a FWD and a BWD contractor per ODE constraint (mirroring cav26's two-contractor design), so each endpoint is narrowed by its own pass — the FWD pass is also the one that enforces the `ForallT` invariant.
+`run_capd_fwd` narrows `X_t` and the time variable; `run_capd_bwd` runs the symmetric filter in a swapped frame (`m_vars_0 = original X_t`) to narrow `X_0`. The theory solver queues **both** a FWD and a BWD contractor per ODE constraint (mirroring cav26's two-contractor design), so each endpoint is narrowed by its own pass — the FWD pass is also the one that enforces the `ForallT` invariant (full mechanism next).
+
+### The `ForallT` invariant mechanism (CAPD tube × IBEX HC4)
+
+> **⚠ PITFALL `forall-vs-forall_t`:** this is the ODE trajectory invariant (`forall_t` /
+> `FormulaKind::ForallT`), *not* the ∃∀ NRA `forall` / `ContractorForall`. Canonical
+> side-by-side: `docs/forall-semantics.md` §7.
+
+Enforcing a `forall_t` invariant is a **two-engine** mechanism, and the reason this contractor "spans CAPD and IBEX": **CAPD** produces the rigorous per-slice trajectory tube (numeric-only, §Mechanism step 2), and **IBEX HC4** contractors — compiled from the invariant *body* — test the invariant on each CAPD slice. The two never share data structures; they meet only at the box.
+
+**1. Construction: invariant body → IBEX contractors** (`contractor_ode_lohner` ctor, `contractor_odes.cc:145–162`). Each linked `ForallT` in `m_ctr.second` is compiled **once** (at contractor-build time, not per `Prune`) into an IBEX forward-backward (HC4) contractor over the box:
+- a **conjunction** body — e.g. `(forall_t 1 [0 T] (and (<= x 5) (>= v -10)))` — becomes one `make_contractor_ibex_fwdbwd` *per conjunct*, wrapped in a `make_contractor_seq`, as one entry of `m_inv_ctcs`;
+- any other (single-atom) body becomes a single `make_contractor_ibex_fwdbwd`.
+
+`m_inv_ctcs[i]` corresponds **positionally** to `m_ctr.second[i]` (asserted at `:387`). The IBEX constraints are phrased over the invariant's variables, which — by the linking rule (BUG-002, see "Constraint forms accepted" above) — are the integral's **endpoint** variables `m_vars_t` (`x_t`). `m_need_to_check_inv` is set iff at least one invariant linked.
+
+**2. Per-slice application: CAPD slice → IBEX prune** (`Prune`, `contractor_odes.cc:405–428`). Inside the per-slice filter, with `check_inv = m_need_to_check_inv && m_dir == FWD`, walk the CAPD slices in forward-time order. For each slice:
+1. write the slice's **full-interior** enclosure `slice.state` into the `m_vars_t` components of a box copy `cs_inv` (the invariant must see the whole interior the terminal is reached through — `slice.state`, *not* the window-clipped `gate_state`);
+2. run each `m_inv_ctcs[i].Prune(cs_inv)` — the IBEX HC4 contractor narrows `cs_inv` to the part of the slice enclosure consistent with that invariant atom;
+3. if any contractor **empties** `cs_inv`, the slice enclosure is **wholly outside** the invariant region → the trajectory provably leaves it at an interior time → `break` (every later terminal is then unreachable).
+
+Because the check runs on **every interior slice**, an invariant violated only at an interior peak (and satisfied again by the endpoint) is caught — exactly what a single-endpoint check misses.
+
+**3. Why FWD-only** (`contractor_odes.cc:389–404`). The invariant constrains the *forward* trajectory `x(t)`. In the FWD contractor the slices **are** that trajectory and `m_vars_t = original X_t = the invariant's variables`, so writing a slice into `m_vars_t` and pruning tests the invariant at that trajectory time. The BWD slices are the backward image over `m_vars_t = original X_0` (not the invariant's variables), so a BWD invariant check would merely re-test the static `X_t` box — a no-op. The theory solver always queues a FWD contractor beside every BWD one, so FWD covers the invariant and dropping the BWD check is sound (an over-permissive BWD only under-narrows → completeness, never soundness).
+
+**The reused box copy** (`:401–407`). For FWD the invariant touches only the `m_vars_t` components, overwritten each slice, so **one** hoisted `cs_inv` is behavior-identical to a fresh per-slice copy — without the `O(box)` allocation on every sub-slice that made invariant-heavy flows (the `k256` thermostat) time out.
+
+**The negated-invariant skip** (`:423`). A negated invariant (`is_negation(m_ctr.second[i])` → `continue`) is **not** enforced per slice — the BUG-002 completeness drop (`(not (forall_t …))` → missed refutation, never false-`unsat`; see `docs/qf_nra_ode_semantics.md` §6).
+
+**Rounding.** The per-slice invariant prune runs under an `UpwardRoundingScope` (`inv_scope`, `:386`) — gaol/IBEX directed rounding requires `FE_UPWARD` — nested inside the CAPD `NearestRoundingScope`; the interval `&`/hull ops are mode-independent and ride along safely (`docs/rounding.md`).
+
+**Soundness / completeness.** Emptying a slice is a **sound refutation**: CAPD's per-slice enclosures are outward over-approximations, so "disjoint from the invariant region" really does mean the true trajectory leaves it. A looser enclosure (lower Taylor order / `hull-grid`) only *widens* a slice → it may *miss* a violation → **COMPLETENESS** (missed refutation), never a false-`unsat`. The negated/unlinked-`forall_t` drops are likewise completeness, not soundness.
 
 ### Short-circuits and divergence
 

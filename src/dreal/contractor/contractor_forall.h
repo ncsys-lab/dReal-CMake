@@ -44,8 +44,14 @@ Box RefineCounterexample(const Formula& query,
                          const Variables& quantified_variables, Box b,
                          double precision);
 
-/// Contractor for forall constraints. See the following problem
-/// definition and our approach.
+/// Contractor for the ∃∀ NRA `forall` quantifier (`Formula::Forall`, `Kind::FORALL`).
+///
+/// PITFALL forall-vs-forall_t: this is NOT the ODE-time `forall_t`
+/// (`FormulaKind::ForallT`), whose per-slice trajectory-invariant check lives in the ODE
+/// contractor (`contractor_odes*.cc`, `Kind::ODE_LOHNER`). Independent machinery — see
+/// docs/forall-semantics.md §7.
+///
+/// See the following problem definition and our approach.
 ///
 /// <pre>
 /// Problem: Given a box B ∈ IRⁿ and a formula F =
@@ -186,6 +192,9 @@ class ContractorForall : public ContractorCell {
   /// Default destructor.
   ~ContractorForall() override = default;
 
+  // Ref: docs/papers/kong-solar-lezama-gao-2018-exists-forall.md — this CE-guided
+  // prune loop is Algorithm 2 (∀-clause pruning) of Kong, Solar-Lezama & Gao, CAV 2018;
+  // the inner_delta < epsilon < delta levels are its double-sided error control (§3.2).
   void Prune(ContractorStatus* cs, const UpwardRounding& ur) const override {
     Box& current_box = cs->mutable_box();
     Config& config_for_counterexample{

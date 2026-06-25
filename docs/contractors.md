@@ -27,7 +27,7 @@ Defined in `Contractor::Kind`:
 | `IBEX_POLYTOPE` | `contractor_ibex_polytope.cc` | Linear relaxation (polytope) contractor |
 | `FIXPOINT` | `contractor_fixpoint.cc` | Run a contractor to fixpoint |
 | `WORKLIST_FIXPOINT` | `contractor_worklist_fixpoint.cc` | Fixpoint with dependency tracking |
-| `FORALL` | `contractor_forall.h` | ForallT (universal quantification over time) |
+| `FORALL` | `contractor_forall.h` | ∃∀ `QF_NRA`: CE-guided pruning for `forall` clauses (CAV 2018) — *not* the ODE-time `forall_t` |
 | `JOIN` | `contractor_join.cc` | Disjunctive composition (convex hull of results) |
 | `ODE_LOHNER` | `odes/contractor_odes.cc` | CAPD order-20 Taylor integration for ODEs (per-slice tube + filter) |
 
@@ -115,13 +115,18 @@ returns the interval hull (smallest enclosing box) of both results. This is soun
 
 **File:** `src/dreal/contractor/contractor_forall.h`
 
-Handles `ForallT` formulas: `∀t ∈ [t₀, t₁]: φ(x, t)`. These appear in ODE mode when checking that a property holds for all time points along a trajectory. The forall contractor samples or integrates over the time domain to prune the state space.
+Handles the **∃∀ `QF_NRA` quantifier** — `∃x. ∀y∈D. φ(x, y)` — *not* the ODE-time `forall_t` (that invariant check lives in the ODE contractor below; `docs/forall-semantics.md` §7 contrasts the two, and the `forall`/`forall_t` naming collision is a frequent confusion). `ContractorForall::Prune` runs the counterexample-guided loop of Kong, Solar-Lezama & Gao (CAV 2018, `papers/kong-solar-lezama-gao-2018-exists-forall.md`): find a `y` that violates `φ` for the current `x`-box, then contract the box with the real instantiation `φ(x, y_mid)`. It is a **well-defined pruning operator** (W1–W3 of `papers/gao-avigad-clarke-2012-delta-complete.md`), so it inherits δ-completeness from the same theorem as the algebraic contractors. Full mechanism — the two δ-regimes, the spurious-counterexample hazard, and the soundness/completeness analysis — is in `docs/forall-semantics.md` §4.
 
 ---
 
 ## ODE Contractor (`contractor_ode_lohner`)
 
 **File:** `src/dreal/contractor/odes/contractor_odes.cc` (CAPD backend in `contractor_odes_capd.cc`)
+
+> **⚠ PITFALL `forall-vs-forall_t`:** this contractor is also where the **`forall_t`** ODE
+> trajectory invariant (`FormulaKind::ForallT`) is enforced (per-slice). That is unrelated to
+> the ∃∀ NRA **`forall`** / `ContractorForall` (the "Forall Contractor" above). Canonical
+> side-by-side: `docs/forall-semantics.md` §7.
 
 See `docs/ode-integration.md` for a full description.
 

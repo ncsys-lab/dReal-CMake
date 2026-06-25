@@ -27,6 +27,10 @@
 
 namespace dreal {
 
+// Ref: docs/papers/gao-avigad-clarke-2012-delta-complete.md (DPLL(ICP) δ-completeness,
+// Thm. 4.2 / Cor. 4.1) and docs/papers/gao-kong-clarke-2013-dreal.md (the dReal tool's
+// branch-and-prune theory solver). The branch-and-prune loop below is δ-complete iff the
+// pruning operators are well-defined (W1–W3).
 /// Abstract Class for ICP (Interval Constraint Propagation) algorithm.
 class Icp {
  public:

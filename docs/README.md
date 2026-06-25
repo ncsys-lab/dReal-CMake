@@ -15,3 +15,4 @@ Deeper reference documentation beyond the project-level `CLAUDE.md`.
 | [rounding.md](rounding.md) | FPU rounding regimes (`FE_UPWARD`/`FE_TONEAREST`), `RoundingModeGuard` mechanism, phase-hoisting, sanctioned clobberers, typed directed-rounding doubles, source-hygiene lint rules |
 | [benchmarking.md](benchmarking.md) | Benchmark infrastructure (run_batch.sh, select.py, do_ab.sh, do_sweep.sh), families/weighting, thresholds, cross-solver comparison, manual invocation |
 | [soundness-vs-completeness.md](soundness-vs-completeness.md) | T-relation definitions, dReal's `unsat`/`δ-sat` guarantees, worked F1 example |
+| [papers/](papers/README.md) | Foundational Gao et al. literature — companion summaries (theory→procedure→tool→∃∀ extension) cross-referenced into the docs above, with paper↔code misalignments flagged |

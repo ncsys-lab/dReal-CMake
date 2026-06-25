@@ -306,9 +306,19 @@ considered the "initial" state_ for the outer ICP loop.
 
 ## 5. `forall_t`: Invariant Constraints
 
+> **⚠ PITFALL — `forall_t` ≠ `forall` (`forall-vs-forall_t`).** This section is the ODE
+> trajectory invariant (`FormulaKind::ForallT`, checked per-slice inside the ODE contractor
+> `contractor_ode_lohner` / `Kind::ODE_LOHNER`). The similarly-named **`forall`** is the
+> unrelated ∃∀ NRA quantifier (`Formula::Forall` → `ContractorForall`); see §7 below and the
+> canonical side-by-side in `docs/forall-semantics.md` §7. Never conflate them.
+
 ```smt2
 (forall_t 1 [0 time_0] (< s1_0_t (+ s2_0_t (* v2_0_t 2.0))))
 ```
+
+This section covers `forall_t` **syntax, linking, and AST**. For how a linked invariant is
+*enforced* — the CAPD per-slice trajectory tube fed through IBEX HC4 invariant contractors —
+see `docs/ode-integration.md` § "The `ForallT` invariant mechanism (CAPD tube × IBEX HC4)".
 
 ### 5.1 Grammar
 
@@ -514,7 +524,8 @@ Grammar:
       else $$ = forall(quantified_variables, imply(domain, body)); }
 ```
 
-This is completely separate from `forall_t`. Key differences:
+This is completely separate from `forall_t` (`forall-vs-forall_t`; canonical side-by-side:
+`docs/forall-semantics.md` §7). Key differences:
 - `forall` uses `variable_sort_list`, which creates variables with domain bounds; `forall_t` uses
   a numeric flow ID.
 - `forall` produces a `Formula::Forall` AST node; `forall_t` produces `FormulaKind::ForallT`.

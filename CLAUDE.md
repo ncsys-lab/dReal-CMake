@@ -237,6 +237,14 @@ tradeoff: `docs/decisions.md` "Denormal / underflow soundness".
 benchmarks. The `--capd-t-gate`/`--capd-ndim-gate` flags have been removed (Codac hybrid retired).
 Details: `docs/decisions.md` "ODE backend".
 
+**`forall` vs `forall_t` are independent machinery (`forall-vs-forall_t`).** `forall` = the
+∃∀ NRA quantifier (`Formula::Forall` → `ContractorForall`, `Kind::FORALL`, CE-guided;
+`docs/forall-semantics.md`). `forall_t` = the ODE trajectory invariant (`FormulaKind::ForallT`,
+checked per-slice in `contractor_ode_lohner` / `Kind::ODE_LOHNER`;
+`docs/qf_nra_ode_semantics.md` §5). Same prefix, unrelated code paths — never swap them. The
+docs were confused here once (a mislabeled contractor); grep `forall-vs-forall_t` for the
+anchored warnings, and `docs/forall-semantics.md` §7 for the canonical side-by-side.
+
 **Negated/unlinked ODE constraints (BUG-002):** a negated `integral`/`forall_t`, and a `forall_t`
 not linked to an integral (invariant must reference the endpoint var `x_t`, not the flow var `x`),
 are silently dropped in `link_integral_invariants` — a COMPLETENESS hazard (missed refutation,
