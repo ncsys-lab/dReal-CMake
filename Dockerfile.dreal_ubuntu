@@ -81,6 +81,15 @@ RUN rm /usr/local/lib/libgmpxx.so*
 RUN  mkdir /dreal/
 COPY src/ /dreal/src
 COPY test/ /dreal/test
+COPY cmake/ /dreal/cmake
+# Minimal .git metadata so --version reports the real commit hash.
+# HEAD + refs/ is sufficient for `git rev-parse --short HEAD`; the object
+# store is not needed.  Dirty detection (git status) is always 0 in Docker
+# because .git/index and objects/ are not present.
+COPY .git/HEAD /dreal/.git/HEAD
+COPY .git/refs/ /dreal/.git/refs/
+# git repo validation requires objects/ to exist even when empty.
+RUN mkdir -p /dreal/.git/objects/pack /dreal/.git/objects/info
 COPY CMakeLists.txt /dreal/CMakeLists.txt
 COPY FULL_BUILD.sh /dreal/FULL_BUILD.sh
 RUN /dreal/FULL_BUILD.sh

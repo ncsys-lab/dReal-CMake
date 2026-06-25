@@ -12,6 +12,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/rounding.md` — FPU rounding regimes, phase-hoisting, typed doubles, source-hygiene lint rules
 - `docs/benchmarking.md` — benchmark infrastructure, families, A/B, sweep, cross-solver comparison
 - `docs/soundness-vs-completeness.md` — T-relation definitions, dReal guarantees, worked F1 example
+- `docs/forall-semantics.md` — ∃∀ fragment: syntax, CE-guided contractor, nested-forall crash, QE limits, nested-quantifier project guide
+- `docs/papers/` — foundational Gao et al. literature: companion summaries (δ-decidability/δ-complete/dReal-tool/∃∀) cross-referenced into the docs above, with paper↔code drift flagged (e.g. opensmt+realpaver → CaDiCaL+IBEX+CAPD)
 
 ---
 
@@ -64,6 +66,26 @@ Canonical reference: `docs/soundness-vs-completeness.md`. Model-theory depth: th
 Both scripts build target `dreal4` with `-j8`. The binary is at `gcc_build/dreal4`. Override IBEX
 source via `-DIBEX_GIT_REPOSITORY=file:///path/to/ibex-fork` for local-dev against an unpushed
 checkout; `CMakeLists.txt` pins the fork sha (`d9930909`).
+
+`--version` prints three lines — feature flags, commit identity, and build platform:
+```
+dReal 5.0.0.1.<feature-flags>
+Commit <hash> [<dirty>], Release Build.
+Built for Darwin 25.5.0 arm64, on Jun 25 2026 12:51:30.
+```
+**How the values are wired in:**
+- `<hash>` / `<dirty>` — captured at **every build** by `cmake/GenerateGitVersion.cmake`,
+  which runs `git rev-parse --short HEAD` and `git status --porcelain --untracked-files=no`.
+  This is a CMake `add_custom_target` (a build-time hook, **not** a git hook — it fires on
+  `cmake --build`, not on `git commit`/`push`). The script writes `gcc_build/git_version.h`
+  only when content changes, so `dreal_main.cc` is not recompiled unnecessarily.
+- OS / arch — `CMAKE_SYSTEM_NAME`, `CMAKE_SYSTEM_VERSION`, `CMAKE_SYSTEM_PROCESSOR` injected
+  as `target_compile_definitions` at CMake configure time.
+- Timestamp — `__DATE__`/`__TIME__` compiler built-ins, stamped when `dreal_main.cc` is
+  compiled (which happens whenever the hash/dirty status changes).
+- Docker: `.git/HEAD`, `.git/refs/`, and a stub `objects/` dir are `COPY`'d into the image
+  so `git rev-parse` works and the real hash appears. Dirty is always 0 in Docker (no index
+  or object store to compare against).
 
 **Docker** (Linux hermetic verification via `Dockerfile.dreal_ubuntu`):
 ```bash

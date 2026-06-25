@@ -29,6 +29,12 @@
 #include "dreal/util/filesystem.h"
 #include "dreal/util/logging.h"
 #include "util/rounding.h"
+// gcc_build/git_version.h is generated at every build by the CMake custom
+// target git_version_h (cmake/GenerateGitVersion.cmake).  It defines:
+//   DREAL_GIT_HASH  — short SHA from `git rev-parse --short HEAD`
+//   DREAL_GIT_DIRTY — 1 if tracked files are modified, 0 otherwise
+//                     (untracked files are ignored; always 0 in Docker)
+#include "git_version.h"
 
 namespace dreal {
 
@@ -39,13 +45,37 @@ using std::string;
 using std::vector;
 
 namespace {
+// Value wiring for --version fields:
+//
+//   DREAL_GIT_HASH / DREAL_GIT_DIRTY
+//     git → cmake/GenerateGitVersion.cmake (runs each build via add_custom_target)
+//         → gcc_build/git_version.h (only rewritten when content changes)
+//         → #include "git_version.h" above → here.
+//
+//   DREAL_BUILD_OS / DREAL_BUILD_OS_VERSION / DREAL_BUILD_ARCH
+//     CMake configure-time variables CMAKE_SYSTEM_NAME / _VERSION / _PROCESSOR
+//         → target_compile_definitions(dreal4 ...) in CMakeLists.txt
+//         → -D flags passed to the compiler → here.
+//
+//   __DATE__ / __TIME__
+//     Compiler built-ins stamped when this translation unit is compiled.
+//     Because dreal_main.cc #includes git_version.h, it recompiles whenever
+//     the hash or dirty status changes, keeping the timestamp in sync.
 string get_version_string() {
 #ifndef NDEBUG
   const string build_type{"Debug"};
 #else
   const string build_type{"Release"};
 #endif
-  return fmt::format("v{} ({} Build)", Context::version(), build_type);
+  const string git_suffix = DREAL_GIT_DIRTY
+      ? fmt::format("Commit {} <dirty>", DREAL_GIT_HASH)
+      : fmt::format("Commit {}", DREAL_GIT_HASH);
+  return fmt::format("{}\n"
+                     "{}, {} Build.\n"
+                     "Built for {} {} {}, on {} {}.",
+                     Context::version(),
+                     git_suffix, build_type,
+                     DREAL_BUILD_OS, DREAL_BUILD_OS_VERSION, DREAL_BUILD_ARCH, __DATE__, __TIME__);
 }
 }  // namespace
 

@@ -2,6 +2,23 @@ cmake_minimum_required(VERSION 3.16)
 project(dreal4_cmake)
 include(CMakePrintHelpers)
 
+find_package(Git QUIET)
+if(NOT GIT_FOUND)
+  set(GIT_EXECUTABLE git)
+endif()
+set(GIT_VERSION_HEADER "${CMAKE_BINARY_DIR}/git_version.h")
+# Always-run target: git queries are fast; copy_if_different in the script
+# means git_version.h timestamp (and thus dreal_main.cc recompilation) only
+# updates when the hash or dirty status actually changes.
+add_custom_target(git_version_h
+    COMMAND "${CMAKE_COMMAND}"
+        "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
+        "-DOUTPUT_FILE=${GIT_VERSION_HEADER}"
+        -P "${PROJECT_SOURCE_DIR}/cmake/GenerateGitVersion.cmake"
+    COMMENT "Capturing git version info"
+    VERBATIM
+)
+
 set(CMAKE_VERBOSE_MAKEFILE ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -324,6 +341,13 @@ target_link_libraries(dreal4_cmake PUBLIC "${GMP_C_LIB}" "${GMP_CXX_LIB}")
 # executable
 add_executable(dreal4 "${PROJECT_SOURCE_DIR}/src/dreal/dreal_main.cc")
 target_link_libraries(dreal4 PRIVATE dreal4_cmake)
+add_dependencies(dreal4 git_version_h)
+target_include_directories(dreal4 PRIVATE "${CMAKE_BINARY_DIR}")
+target_compile_definitions(dreal4 PRIVATE
+    DREAL_BUILD_OS="${CMAKE_SYSTEM_NAME}"
+    DREAL_BUILD_OS_VERSION="${CMAKE_SYSTEM_VERSION}"
+    DREAL_BUILD_ARCH="${CMAKE_SYSTEM_PROCESSOR}"
+)
 
 
 # tests
