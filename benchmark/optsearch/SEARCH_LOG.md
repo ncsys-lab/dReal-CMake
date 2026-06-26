@@ -76,7 +76,40 @@ Pooled sweep, 7 configs × 50 = 350 runs, 600 s cap:
 
 ### Round 2 — drill s3b + split-ratio (next)
 Hypothesis: a different ACID `s3b` keeps the tanh win without TIMing cs5c → ACID net-positive.
-Configs: base, acid s3b∈{2,5,10,20,50}, split-ratio∈{0.55,0.6,0.65}. Track the tanh_decrease /
-kuramoto / cs5c benchmarks specifically (the bimodal pair) as the s3b tradeoff curve.
+Configs: base, acid s3b∈{2,5,10,20,50}, split-ratio∈{0.55,0.6,0.65}.
+
+### Round 2 results (DONE 2026-06-26) — zero verdict flips across all 9 configs
+
+| config | flags | solved | PAR2 | ratio |
+|---|---|---|---|---|
+| split55 | --split-ratio 0.55 | 38/50 | 15228 | **0.972** |
+| base | (default) | 38/50 | 15663 | 1.000 |
+| acid_s3b10 | --acid --s3b 10 | 37/50 | 16105 | 1.028 |
+| acid_s3b5 | --acid --s3b 5 | 37/50 | 16189 | 1.034 |
+| split65 | --split-ratio 0.65 | 37/50 | 16285 | 1.040 |
+| acid_s3b50 | --acid --s3b 50 | 36/50 | 17231 | 1.100 |
+| acid_s3b20 | --acid --s3b 20 | 36/50 | 17396 | 1.111 |
+| split60 | --split-ratio 0.6 | 36/50 | 17401 | 1.111 |
+| acid_s3b2 | --acid --s3b 2 | 36/50 | 17472 | 1.115 |
+
+**Takeaways:**
+1. **`split-ratio 0.55` is the robust aggregate winner** — 0.972× in *both* rounds (PAR2 15228
+   vs 15229; base 15663 vs 15660), same 38/50 solve count. The pooled-ratio metric is highly
+   reproducible. Optimum is ~0.55: 0.6/0.65 degrade (push a benchmark to TIM). ~3% real win.
+2. **No `s3b` rescues ACID.** s3b=10 stays the best ACID (1.028×); 2/5/20/50 all worse (and
+   −1 to −2 solved). The cs5c_sigmoid TIM persists across s3b → ACID is net-negative on the
+   *aggregate* at any shave depth. It remains a strong **per-workload** lever (tanh_decrease),
+   just not a family default. s3b drill closed.
+3. **Aggregate ceiling ≈ 3%** with the contraction/branching levers — consistent with the prior
+   conclusion that odeexpr is bounded by the irreducible gaol-transcendental floor (30–45%).
+   The remaining headroom is *node-count reduction that doesn't add per-node transcendental
+   evals* — i.e. smarter **variable choice** (smear), the next strategy.
+
+### Round 3 — smear branching (constraint-aware variable selection)
+The proven win is from the split *point* (0.55); the untested lever is the split *variable*.
+Implementing `--branch smearsumrel` (Jacobian-weighted `Σ_i|J[i][j]|·diam/NC_i`, `Bisectors.md`)
+as a config-gated brancher that assembles an ibex::System for the Jacobian. Soundness: variable
+choice can't change verdicts, only node count — guard with a verdict-parity check. Then benchmark
+smear, smear×split-0.55, vs base.
 
 _Results to be appended._
