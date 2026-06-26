@@ -1,0 +1,8 @@
+timestamp,round,config,flags,solved,total,par2,par2_ratio_vs_base,n_flips,flips,oom
+2026-06-26T07:50:18Z,R1_ofat,3bcid,--3bcid,37,50,16241.33,1.037,0,,
+2026-06-26T07:50:18Z,R1_ofat,acid,--acid,37,50,16102.85,1.028,0,,
+2026-06-26T07:50:18Z,R1_ofat,base,,38,50,15660.19,1.000,0,,
+2026-06-26T07:50:18Z,R1_ofat,split40,--split-ratio 0.4,37,50,16886.05,1.078,0,,
+2026-06-26T07:50:18Z,R1_ofat,split45,--split-ratio 0.45,37,50,16744.19,1.069,0,,
+2026-06-26T07:50:18Z,R1_ofat,split55,--split-ratio 0.55,38,50,15229.30,0.972,0,,
+2026-06-26T07:50:18Z,R1_ofat,wlfp,--worklist-fixpoint,34,50,19242.23,1.229,0,,

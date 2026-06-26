@@ -43,7 +43,40 @@ proven byte-identical to default on a sample (brancher wiring correct).
 
 Pooled sweep, 7 configs × 50 = 350 runs, 600 s cap:
 `base`, `acid`, `3bcid`, `split45` (0.45), `split40` (0.4), `split55` (0.55), `wlfp`
-(`--worklist-fixpoint`). `base=` doubles as the behavior-neutral reference (cross-check its
-verdicts vs cav26's 43 overlapping rows: expect exact match → default path unchanged).
+(`--worklist-fixpoint`). `base=` doubles as the behavior-neutral reference.
 
-_Results + decision to be appended on completion._
+### Round 1 results (DONE 2026-06-26) — zero verdict flips across all 7 configs
+
+| config | flags | solved | PAR2 | ratio | 
+|---|---|---|---|---|
+| split55 | --split-ratio 0.55 | 38/50 | 15229 | **0.972** |
+| base | (default) | 38/50 | 15660 | 1.000 |
+| acid | --acid | 37/50 | 16103 | 1.028 |
+| 3bcid | --3bcid | 37/50 | 16241 | 1.037 |
+| split45 | --split-ratio 0.45 | 37/50 | 16744 | 1.069 |
+| split40 | --split-ratio 0.4 | 37/50 | 16886 | 1.078 |
+| wlfp | --worklist-fixpoint | 34/50 | 19242 | 1.229 |
+
+**Behavior-neutral CONFIRMED:** base vs `baseline_odeexpr_cav26.csv` (43 overlap) — 30 both-solved,
+**0 SAT↔UNSAT flips**, base newly solves 1 cav26-TIM (faster binary). Default path unchanged.
+
+**Takeaways:**
+1. No config clears the ≥10% adoption bar in aggregate. split55 marginally best (~3%, same
+   solve count — near noise). Off-center signal weakly favors >0.5 (0.45/0.4 both *worse*).
+2. **ACID is strongly bimodal — the key finding, hidden by the 1.028× aggregate.** Per-benchmark:
+   - Big WINS where shaving breaks sharp nonlinear constraints: `tanh_decrease__J1.0`
+     174s→**11s (−94%)**, `tanh_decrease__J0.6` 429s→244s (−43%).
+   - Big LOSSES on coupled many-var systems: `kuramoto__N5` 89s→237s (+165%), `__N4` +258%,
+     `cs4_equivalence__decrease` +216%; and `cs5c_sigmoid__decrease` base-solved → **ACID TIM**.
+   - PAR2 decomposition: the single cs5c TIM (~+1100 PAR2) dominates ACID's net loss; the tanh
+     wins (~−350) are real. So ACID is a **per-workload** lever, and an s3b that avoids the cs5c
+     TIM could flip ACID net-positive while keeping the tanh win.
+3. `--worklist-fixpoint` net-negative on odeexpr (1.229×, −4 solved) — the stale prior holds on
+   today's patched binary too. **Re-tested (per "don't disqualify from the log") and rejected.**
+
+### Round 2 — drill s3b + split-ratio (next)
+Hypothesis: a different ACID `s3b` keeps the tanh win without TIMing cs5c → ACID net-positive.
+Configs: base, acid s3b∈{2,5,10,20,50}, split-ratio∈{0.55,0.6,0.65}. Track the tanh_decrease /
+kuramoto / cs5c benchmarks specifically (the bimodal pair) as the s3b tradeoff curve.
+
+_Results to be appended._
