@@ -38,3 +38,7 @@ Be terse. Only return the final summary — no narration.
 ## Notes
 - After running, future `/benchmark` runs compare against local performance, not historical DRPM_0L numbers.
 - To revert to frozen CSV: set `"baseline_source": "benchmark/baseline.csv"` and `"baseline_column": "DRPM_0L"` in `state.json`.
+- **A baseline is a timing run — it needs a quiet machine.** Do NOT compile (incl. a CLion
+  auto-build) while it runs, or the frozen numbers will be inflated and skew every later
+  comparison. Same ≤12-`dreal4`-process cap and SIGKILL⇒blacklist rules as `/benchmark` —
+  see its "Operational rules (lessons learned)" section for the full list.
