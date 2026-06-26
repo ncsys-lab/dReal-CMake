@@ -300,9 +300,15 @@ class Config {
   static constexpr double kDefaultOdeMaxStep{0.0};  // 0 => fully adaptive
 
   // Branching split point: fraction of the chosen dimension's width at which
-  // the bisection cut falls (0.5 = midpoint). An off-center value breaks the
-  // origin-symmetry common to these problems. Completeness lever only.
-  static constexpr double kDefaultSplitRatio{0.5};
+  // the bisection cut falls (0.5 = midpoint). Default 0.56 (just right of
+  // center): the off-center cut breaks the origin-symmetry common to these
+  // problems and, paired with the default alternating exploration order, is a
+  // large win on symmetric SAT Lyapunov instances (e.g. tanh_decrease__J1.0
+  // 175s -> 0s) while staying neutral elsewhere. Completeness lever only —
+  // cannot change a verdict, only search speed. See benchmark/optsearch/
+  // SEARCH_LOG.md and the ExploreOrder doc above for the coupled-with-alternation
+  // finding.
+  static constexpr double kDefaultSplitRatio{0.56};
 
   // ACID / 3BCID shaving contractor knobs (mirror ibex CtcAcid/Ctc3BCid
   // defaults). s3b is the dominant tuning parameter (ibex: best 5-200, 10

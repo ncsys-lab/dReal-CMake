@@ -18,6 +18,7 @@
 #include <dreal/util/rounding.h>
 #include <dreal/util/rounded_interval.h>
 
+#include "dreal/solver/config.h"  // Config::kDefaultSplitRatio
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
 
@@ -75,6 +76,9 @@ int BranchLargestFirstWithRatio(const Box& box, const DynamicBitset& active_set,
 int BranchLargestFirst(const Box& box, const DynamicBitset& active_set,
                        Box* const left, Box* const right,
                        const UpwardRounding& ur) {
-  return BranchLargestFirstWithRatio(box, active_set, left, right, ur, 0.5);
+  // The default brancher cuts at the default split ratio (kDefaultSplitRatio,
+  // 0.56) — see config.h. --split-ratio overrides this via an installed lambda.
+  return BranchLargestFirstWithRatio(box, active_set, left, right, ur,
+                                     Config::kDefaultSplitRatio);
 }
 }  // namespace dreal
