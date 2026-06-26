@@ -201,6 +201,32 @@ TEST_F(BoxTest, BisectReal) {
   EXPECT_EQ(box2[b1_], box[b1_]);
 }
 
+TEST_F(BoxTest, BisectRealWithRatio) {
+  Box box;
+  box.Add(x_, -10, 10);
+  box.Add(i_, -5, 5);
+  box.Add(b1_, 0, 1);
+
+  // Split x = [-10, 10] off-center at ratio 0.25 -> cut at lb + 0.25*diam =
+  // -10 + 0.25*20 = -5. The default (ratio 0.5) cuts at 0; this proves the
+  // ratio is threaded into the continuous bisection (the --split-ratio knob).
+  const pair<Box, Box> p{box.bisect(box.index(x_), 0.25)};
+  const Box& box1{p.first};
+  const Box& box2{p.second};
+
+  EXPECT_EQ(box1[x_].lb(), box[x_].lb());
+  EXPECT_EQ(box1[x_].ub(), -5.0);
+  EXPECT_EQ(box1[i_], box[i_]);
+  EXPECT_EQ(box1[b1_], box[b1_]);
+
+  EXPECT_EQ(box2[x_].lb(), box1[x_].ub());
+  EXPECT_EQ(box2[x_].ub(), box[x_].ub());
+
+  // The no-arg / default path still cuts at the midpoint (0.0).
+  const pair<Box, Box> half{box.bisect(box.index(x_))};
+  EXPECT_EQ(half.first[x_].ub(), 0.0);
+}
+
 TEST_F(BoxTest, BisectInteger) {
   Box box;
   box.Add(x_, -10, 10);

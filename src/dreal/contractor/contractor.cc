@@ -22,6 +22,7 @@
 #include "dreal/contractor/contractor_cell.h"
 #include "dreal/contractor/contractor_fixpoint.h"
 #include "dreal/contractor/contractor_forall.h"
+#include "dreal/contractor/contractor_ibex_acid.h"
 #include "dreal/contractor/contractor_ibex_fwdbwd.h"
 #include "dreal/contractor/contractor_ibex_fwdbwd_mt.h"
 #include "dreal/contractor/contractor_ibex_polytope.h"
@@ -31,6 +32,7 @@
 #include "dreal/contractor/contractor_join.h"
 #include "dreal/contractor/contractor_seq.h"
 #include "dreal/contractor/contractor_worklist_fixpoint.h"
+#include "dreal/util/exception.h"
 #include "dreal/util/stat.h"
 #include "odes/contractor_odes.h"
 
@@ -171,6 +173,25 @@ Contractor make_contractor_ibex_polytope(vector<Formula> formulas,
   }
   const auto ctc =
       make_shared<ContractorIbexPolytope>(std::move(formulas), box, config);
+  if (ctc->is_dummy()) {
+    return make_contractor_id(config);
+  } else {
+    return Contractor{ctc};
+  }
+}
+
+Contractor make_contractor_ibex_acid(vector<Formula> formulas, const Box& box,
+                                     const Config& config) {
+  // No multi-threaded ACID cell exists; odeexpr (the target workload) runs
+  // single-threaded IcpSeq. Fail loud rather than silently racing a shared
+  // stateful ibex contractor across parallel ICP workers.
+  if (config.number_of_jobs() > 1) {
+    throw DREAL_RUNTIME_ERROR(
+        "The ACID/3BCID contractor (--acid/--3bcid) is not implemented for "
+        "parallel ICP (--jobs > 1).");
+  }
+  const auto ctc =
+      make_shared<ContractorIbexAcid>(std::move(formulas), box, config);
   if (ctc->is_dummy()) {
     return make_contractor_id(config);
   } else {

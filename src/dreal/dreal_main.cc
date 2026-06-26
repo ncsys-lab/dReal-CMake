@@ -23,6 +23,7 @@
 
 #include "dreal/dr/run.h"
 #include "dreal/smt2/run.h"
+#include "dreal/solver/brancher.h"
 #include "dreal/solver/config.h"
 #include "dreal/solver/context.h"
 #include "dreal/util/exception.h"
@@ -314,6 +315,27 @@ void MainProgram::AddOptions() {
   opt_.add(fmt::format("{}", Config::kDefaultOdeMaxStep).c_str(), false, 1, 0,
            "CAPD max integration step cap; 0 = fully adaptive. (default = 0)",
            "--ode-max-step", nonneg_double_option_validator);
+
+  // Branching split point + ACID/3BCID shaving contractor (odeexpr perf knobs).
+  opt_.add(fmt::format("{}", Config::kDefaultSplitRatio).c_str(), false, 1, 0,
+           fmt::format("Branching split point as a fraction of the chosen "
+                       "dimension's width (0<r<1; 0.5 = midpoint). (default = {})",
+                       Config::kDefaultSplitRatio).c_str(),
+           "--split-ratio", positive_double_option_validator);
+  opt_.add("false", false, 0, 0,
+           "Use the ACID (adaptive 3BCID) shaving contractor on the HC4 path.\n",
+           "--acid");
+  opt_.add("false", false, 0, 0,
+           "Use the 3BCID (fixed-param) shaving contractor on the HC4 path.\n",
+           "--3bcid");
+  opt_.add(fmt::format("{}", Config::kDefaultAcidS3b).c_str(), false, 1, 0,
+           fmt::format("ACID/3BCID s3b shave depth (ibex: best 5-200). (default = {})",
+                       Config::kDefaultAcidS3b).c_str(),
+           "--s3b", positive_int_option_validator);
+  opt_.add(fmt::format("{}", Config::kDefaultAcidCtRatio).c_str(), false, 1, 0,
+           fmt::format("ACID ct_ratio adaptive-stop threshold. (default = {})",
+                       Config::kDefaultAcidCtRatio).c_str(),
+           "--acid-ct-ratio", positive_double_option_validator);
 }
 
 bool MainProgram::ValidateOptions() {
@@ -568,6 +590,40 @@ void MainProgram::ExtractOptions() {
     double v{0};
     opt_.get("--ode-max-step")->getDouble(v);
     config_.mutable_ode_max_step().set_from_command_line(v);
+  }
+  if (opt_.isSet("--split-ratio")) {
+    double v{0};
+    opt_.get("--split-ratio")->getDouble(v);
+    if (!(v > 0.0 && v < 1.0)) {
+      throw DREAL_RUNTIME_ERROR("--split-ratio must be in (0, 1) but got {}.", v);
+    }
+    config_.mutable_split_ratio().set_from_command_line(v);
+    // Install a LargestFirst brancher that cuts at this ratio. Variable choice
+    // is unchanged (still widest dimension); only the split point moves.
+    config_.mutable_brancher().set_from_command_line(
+        [v](const Box& box, const DynamicBitset& active_set, Box* const left,
+            Box* const right, const UpwardRounding& ur) {
+          return BranchLargestFirstWithRatio(box, active_set, left, right, ur, v);
+        });
+  }
+  if (opt_.isSet("--acid")) {
+    config_.mutable_use_acid().set_from_command_line(true);
+  }
+  if (opt_.isSet("--3bcid")) {
+    config_.mutable_use_3bcid().set_from_command_line(true);
+  }
+  if (config_.use_acid() && config_.use_3bcid()) {
+    throw DREAL_RUNTIME_ERROR("--acid and --3bcid are mutually exclusive.");
+  }
+  if (opt_.isSet("--s3b")) {
+    int v{0};
+    opt_.get("--s3b")->getInt(v);
+    config_.mutable_acid_s3b().set_from_command_line(v);
+  }
+  if (opt_.isSet("--acid-ct-ratio")) {
+    double v{0};
+    opt_.get("--acid-ct-ratio")->getDouble(v);
+    config_.mutable_acid_ct_ratio().set_from_command_line(v);
   }
 }
 

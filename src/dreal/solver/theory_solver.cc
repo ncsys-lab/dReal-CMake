@@ -211,6 +211,13 @@ optional<Contractor> TheorySolver::BuildContractor(
     nl_ctcs.push_back(make_contractor_ibex_polytope(assertions, box, config_));
   }
 
+  if (config_.use_acid() || config_.use_3bcid()) {
+    // Add ACID/3BCID shaving contractor over the assertion system. A
+    // COMPLETENESS lever (stronger contraction = fewer search nodes); it is
+    // IBEX's own default (HC4 then ACID) which dReal otherwise omits.
+    nl_ctcs.push_back(make_contractor_ibex_acid(assertions, box, config_));
+  }
+
 
   // ODEs
   vector<Contractor> ode_fwd_ctcs;

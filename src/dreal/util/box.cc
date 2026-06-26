@@ -167,7 +167,7 @@ pair<double, int> Box::MaxDiam() const {
   return make_pair(max_diam, idx);
 }
 
-pair<Box, Box> Box::bisect(const int i) const {
+pair<Box, Box> Box::bisect(const int i, const double ratio) const {
   const Variable& var{(*idx_to_var_)[i]};
   if (!values_[i].is_bisectable()) {
     throw DREAL_RUNTIME_ERROR(
@@ -177,7 +177,7 @@ pair<Box, Box> Box::bisect(const int i) const {
   }
   switch (var.get_type()) {
     case Variable::Type::CONTINUOUS:
-      return bisect_continuous(i);
+      return bisect_continuous(i, ratio);
     case Variable::Type::INTEGER:
     case Variable::Type::BINARY:
       return bisect_int(i);
@@ -217,13 +217,12 @@ pair<Box, Box> Box::bisect_int(const int i) const {
   return make_pair(b1, b2);
 }
 
-pair<Box, Box> Box::bisect_continuous(const int i) const {
+pair<Box, Box> Box::bisect_continuous(const int i, const double ratio) const {
   DREAL_ASSERT(idx_to_var_->at(i).get_type() == Variable::Type::CONTINUOUS);
   Box b1{*this};
   Box b2{*this};
   const Interval intv_i{values_[i]};
-  constexpr double kHalf{0.5};
-  const pair<Interval, Interval> bisected_intervals{intv_i.bisect(kHalf)};
+  const pair<Interval, Interval> bisected_intervals{intv_i.bisect(ratio)};
   b1[i] = bisected_intervals.first;
   b2[i] = bisected_intervals.second;
   return make_pair(b1, b2);

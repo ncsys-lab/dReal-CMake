@@ -47,4 +47,13 @@ std::pair<double, int> FindMaxDiam(const Box& box,
 int BranchLargestFirst(const Box& box, const DynamicBitset& active_set,
                        Box* left, Box* right, const UpwardRounding& ur);
 
+/// Same as above, but cuts the chosen dimension at @p ratio of its width
+/// (lb + ratio*diam) instead of the midpoint. The 5-arg form delegates here
+/// with ratio 0.5; the `--split-ratio` knob installs a brancher lambda that
+/// forwards an off-center ratio (variable choice is identical — only the split
+/// point moves, a completeness/search-order lever, never a soundness one).
+int BranchLargestFirstWithRatio(const Box& box, const DynamicBitset& active_set,
+                                Box* left, Box* right, const UpwardRounding& ur,
+                                double ratio);
+
 }  // namespace dreal

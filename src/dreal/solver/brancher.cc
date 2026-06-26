@@ -45,16 +45,16 @@ pair<double, int> FindMaxDiam(const Box& box, const DynamicBitset& active_set,
   return make_pair(max_diam, max_diam_idx);
 }
 
-int BranchLargestFirst(const Box& box, const DynamicBitset& active_set,
-                       Box* const left, Box* const right,
-                       const UpwardRounding& ur) {
+int BranchLargestFirstWithRatio(const Box& box, const DynamicBitset& active_set,
+                                Box* const left, Box* const right,
+                                const UpwardRounding& ur, const double ratio) {
   DREAL_ASSERT_ROUNDING(FE_UPWARD); // using ibex operations. only non-ibex operations are comparison and assign
   DREAL_ASSERT(!active_set.none());
 
   const pair<double, int> max_diam_and_idx{FindMaxDiam(box, active_set, ur)};
   const int branching_dim{max_diam_and_idx.second};
   if (branching_dim >= 0) {
-    pair<Box, Box> bisected_boxes{box.bisect(branching_dim)};
+    pair<Box, Box> bisected_boxes{box.bisect(branching_dim, ratio)};
     *left = std::move(bisected_boxes.first);
     *right = std::move(bisected_boxes.second);
     DREAL_LOG_DEBUG(
@@ -66,5 +66,11 @@ int BranchLargestFirst(const Box& box, const DynamicBitset& active_set,
     return branching_dim;
   }
   return -1;
+}
+
+int BranchLargestFirst(const Box& box, const DynamicBitset& active_set,
+                       Box* const left, Box* const right,
+                       const UpwardRounding& ur) {
+  return BranchLargestFirstWithRatio(box, active_set, left, right, ur, 0.5);
 }
 }  // namespace dreal

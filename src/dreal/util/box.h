@@ -104,9 +104,13 @@ class Box {
   /// Returns the max diameter of the box and the associated index .
   std::pair<double, int> MaxDiam() const;
 
-  /// Bisects the box at @p i -th dimension.
+  /// Bisects the box at @p i -th dimension. For a continuous variable the cut
+  /// falls at @p ratio of the interval width (lb + ratio*diam); @p ratio is
+  /// ignored for integer/binary variables. @p ratio defaults to the midpoint
+  /// (0.5); the `--split-ratio` knob feeds an off-center value to break the
+  /// origin-symmetry common in these problems.
   /// @throws std::runtime if @p i -th dimension is not bisectable.
-  std::pair<Box, Box> bisect(int i) const;
+  std::pair<Box, Box> bisect(int i, double ratio = 0.5) const;
 
   /// Bisects the box at @p the dimension represented by @p var.
   /// @throws std::runtime if @p i -th dimension is not bisectable.
@@ -123,10 +127,10 @@ class Box {
   /// @pre i-th variable is of integer type.
   std::pair<Box, Box> bisect_int(int i) const;
 
-  /// Bisects the box at @p i -th dimension.
+  /// Bisects the box at @p i -th dimension, cutting at @p ratio of the width.
   /// @pre i-th variable is bisectable.
   /// @pre i-th variable is of continuous type.
-  std::pair<Box, Box> bisect_continuous(int i) const;
+  std::pair<Box, Box> bisect_continuous(int i, double ratio) const;
 
   std::shared_ptr<std::vector<Variable>> variables_;
 

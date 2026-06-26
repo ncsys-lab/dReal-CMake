@@ -88,6 +88,21 @@ OptionValue<bool>& Config::mutable_smtlib2_compliant() {
   return smtlib2_compliant_;
 }
 
+double Config::split_ratio() const { return split_ratio_.get(); }
+OptionValue<double>& Config::mutable_split_ratio() { return split_ratio_; }
+
+bool Config::use_acid() const { return use_acid_.get(); }
+OptionValue<bool>& Config::mutable_use_acid() { return use_acid_; }
+
+bool Config::use_3bcid() const { return use_3bcid_.get(); }
+OptionValue<bool>& Config::mutable_use_3bcid() { return use_3bcid_; }
+
+int Config::acid_s3b() const { return acid_s3b_.get(); }
+OptionValue<int>& Config::mutable_acid_s3b() { return acid_s3b_; }
+
+double Config::acid_ct_ratio() const { return acid_ct_ratio_.get(); }
+OptionValue<double>& Config::mutable_acid_ct_ratio() { return acid_ct_ratio_; }
+
 const Config::Brancher& Config::brancher() const { return brancher_.get(); }
 
 OptionValue<Config::Brancher>& Config::mutable_brancher() { return brancher_; }

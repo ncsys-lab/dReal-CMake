@@ -32,6 +32,7 @@ class ContractorInteger;
 class ContractorSeq;
 class ContractorIbexFwdbwd;
 class ContractorIbexPolytope;
+class ContractorIbexAcid;
 class ContractorFixpoint;
 class ContractorWorklistFixpoint;
 class ContractorJoin;
@@ -54,6 +55,7 @@ class Contractor {
     SEQ,
     IBEX_FWDBWD,
     IBEX_POLYTOPE,
+    IBEX_ACID,  // ACID / 3BCID shaving over the HC4 path (ContractorIbexAcid).
     FIXPOINT,
     WORKLIST_FIXPOINT,
     FORALL,  // ∃∀ NRA quantifier (ContractorForall, CE-guided). PITFALL forall-vs-forall_t:
@@ -118,6 +120,9 @@ class Contractor {
   friend Contractor make_contractor_ibex_polytope(std::vector<Formula> formulas,
                                                   const Box& box,
                                                   const Config& config);
+  friend Contractor make_contractor_ibex_acid(std::vector<Formula> formulas,
+                                              const Box& box,
+                                              const Config& config);
   friend Contractor make_contractor_fixpoint(
       TerminationCondition term_cond,
       const std::vector<Contractor>& contractors, const Config& config);
@@ -197,6 +202,14 @@ Contractor make_contractor_ibex_fwdbwd(Formula f, const Box& box,
 /// @see ContractorIbexPolytopeMt.
 Contractor make_contractor_ibex_polytope(std::vector<Formula> formulas,
                                          const Box& box, const Config& config);
+
+/// Returns a contractor wrapping IBEX's ACID (config.use_acid()) or 3BCID
+/// (config.use_3bcid()) shaving contractor over the HC4 path. Single-threaded
+/// only (odeexpr runs IcpSeq); throws if number_of_jobs > 1.
+///
+/// @see ContractorIbexAcid.
+Contractor make_contractor_ibex_acid(std::vector<Formula> formulas,
+                                     const Box& box, const Config& config);
 
 /// Returns a fixed-point contractor. The returned contractor applies
 /// the contractors in @p vec sequentially until @p term_cond is met.

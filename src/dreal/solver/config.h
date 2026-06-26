@@ -105,6 +105,31 @@ class Config {
   /// Returns a mutable OptionValue for `brancher`.
   OptionValue<Brancher>& mutable_brancher();
 
+  /// Returns the branching split ratio (cut point as a fraction of width).
+  double split_ratio() const;
+  /// Returns a mutable OptionValue for `split_ratio`.
+  OptionValue<double>& mutable_split_ratio();
+
+  /// Returns whether the ACID shaving contractor is enabled.
+  bool use_acid() const;
+  /// Returns a mutable OptionValue for `use_acid`.
+  OptionValue<bool>& mutable_use_acid();
+
+  /// Returns whether the 3BCID shaving contractor is enabled.
+  bool use_3bcid() const;
+  /// Returns a mutable OptionValue for `use_3bcid`.
+  OptionValue<bool>& mutable_use_3bcid();
+
+  /// Returns the ACID/3BCID `s3b` shave-depth parameter.
+  int acid_s3b() const;
+  /// Returns a mutable OptionValue for `acid_s3b`.
+  OptionValue<int>& mutable_acid_s3b();
+
+  /// Returns the ACID `ct_ratio` adaptive-stop parameter.
+  double acid_ct_ratio() const;
+  /// Returns a mutable OptionValue for `acid_ct_ratio`.
+  OptionValue<double>& mutable_acid_ct_ratio();
+
   /// @name NLopt Options
   ///
   /// Specifies stopping criteria of NLopt. See
@@ -231,6 +256,17 @@ class Config {
   static constexpr int kDefaultOdeHullGrid{4};
   static constexpr double kDefaultOdeMaxStep{0.0};  // 0 => fully adaptive
 
+  // Branching split point: fraction of the chosen dimension's width at which
+  // the bisection cut falls (0.5 = midpoint). An off-center value breaks the
+  // origin-symmetry common to these problems. Completeness lever only.
+  static constexpr double kDefaultSplitRatio{0.5};
+
+  // ACID / 3BCID shaving contractor knobs (mirror ibex CtcAcid/Ctc3BCid
+  // defaults). s3b is the dominant tuning parameter (ibex: best 5-200, 10
+  // default); ct_ratio is ACID's adaptive-stop threshold.
+  static constexpr int kDefaultAcidS3b{10};
+  static constexpr double kDefaultAcidCtRatio{0.002};
+
  private:
   // NOTE: Make sure to match the default values specified here with the ones
   // specified in dreal/dreal_main.cc.
@@ -305,6 +341,15 @@ class Config {
   OptionValue<OdeC0SetType> ode_c0_set_{OdeC0SetType::Rect2};
   OptionValue<bool> ode_backward_{true};
   OptionValue<double> ode_max_step_{kDefaultOdeMaxStep};
+
+  // ACID / 3BCID shaving contractor (default off; see contractor_ibex_acid.cc).
+  OptionValue<bool> use_acid_{false};
+  OptionValue<bool> use_3bcid_{false};
+  OptionValue<int> acid_s3b_{kDefaultAcidS3b};
+  OptionValue<double> acid_ct_ratio_{kDefaultAcidCtRatio};
+
+  // Branching split point (see kDefaultSplitRatio). Threaded into the brancher.
+  OptionValue<double> split_ratio_{kDefaultSplitRatio};
 
   // Brancher to use. By default it uses `BranchLargestFirst`.
   OptionValue<Brancher> brancher_{BranchLargestFirst};
