@@ -181,4 +181,57 @@ remaining one is constraint *order* in the fixpoint (front-load cheap/high-shrin
 to cut fixpoint iterations → fewer evals). Sound (a fixpoint is order-independent in result, only
 in cost). Low confidence per `OPTIMIZATION_LOG.md` D, but it's the principled next try.
 
-_Results to be appended._
+### Round 5 results (DONE 2026-06-26) — constraint ordering is a null result, zero flips
+
+| config | flags | solved | PAR2 | ratio |
+|---|---|---|---|---|
+| split56 | --split-ratio 0.56 | 38/50 | 15185 | **0.969** |
+| corder_asc_s56 | --constraint-order asc --split-ratio 0.56 | 38/50 | 15191 | 0.970 |
+| corder_asc | --constraint-order asc | 38/50 | 15666 | 1.000 |
+| base | (default) | 38/50 | 15668 | 1.000 |
+| corder_desc | --constraint-order desc | 37/50 | 16304 | 1.041 |
+
+**Takeaways:** constraint ordering has **no effect** — `asc` is identical to base (1.000×), `desc`
+slightly worse (1.041×), and `asc+split0.56` equals split0.56 alone. dReal's worklist already
+skips unaffected constraints via input/output bitsets, so it has already captured any ordering
+benefit. Even the one "reorder, no extra evals" lever besides the split point yields nothing here.
+
+---
+
+# FINAL RECOMMENDATION (search concluded after 5 rounds)
+
+**Best per-workload flag recipe for the odeexpr (QF_NRA) family:**
+
+1. **Family default: `--split-ratio 0.56`** — ~3.1% PAR2 improvement, 38/50, zero verdict flips,
+   reproduced identically across 4 rounds (PAR2 ~15185 vs base ~15667). Free at runtime (changes
+   only the split point, adds no evaluations). The plateau 0.55–0.58 is all ~0.97×; 0.56 nominal best.
+2. **For sharp single-variable nonlinear Lyapunov problems (`tanh_decrease`-shaped): add `--acid`**
+   — up to **16× faster** (`tanh_decrease__J1.0` 174s→11s; `__J0.6` −43%). Do **not** use it on
+   coupled multi-variable systems (`kuramoto`: +165–258%) or as a family default (it TIMs
+   `cs5c_sigmoid`, net −1 solved, no `s3b` rescues it).
+
+**Why nothing beats ~3%:** odeexpr is bounded by the gaol correctly-rounded transcendental
+evaluations (30–45% irreducible floor). Levers cleanly split by whether they add per-node evals:
+
+| Lever | Adds evals/node? | Result |
+|---|---|---|
+| `--split-ratio 0.56` | no (reorder only) | **WIN ~3%** |
+| `--constraint-order` | no (reorder only) | null (asc=base; skip-logic already optimal) |
+| `--acid` / `--3bcid` | yes (shaving) | family-negative; **per-workload win** (tanh_decrease) |
+| `--smear` | yes (Jacobian) | negative (−5 solved) |
+| `--worklist-fixpoint` | reorder, but unstable on hard UNSAT | negative (−4 solved) |
+
+Every eval-adding lever loses to the floor; reorder levers either win small (split point) or do
+nothing (constraint order). This re-confirms the prior "transcendental floor" conclusion on
+today's patched binary, now tested against **five** levers.
+
+**Deferred / not pursued (with rationale):**
+- `CtcNewton`-late (AUDIT D1): predicted-negative — it is eval-adding (Jacobian/gradient), the
+  same category as smear/ACID which both lost. Not implemented; the floor model already answers it.
+- ACID callback-bearing sub-contractor (AUDIT C1): would sharpen ACID's lemmas but cannot fix its
+  family-level deficit (the cs5c TIM is integration-cost, not lemma quality).
+- Polytope/LP relaxation (AUDIT D2): requires rebuilding IBEX with an LP backend — a dependency
+  change to **escalate to the owner**, not take on autonomously.
+
+All knobs are committed as default-off runtime flags; the recommendation is a per-workload recipe,
+so the solver's global defaults are unchanged. Leaderboard: `benchmark/optsearch/leaderboard.csv`.

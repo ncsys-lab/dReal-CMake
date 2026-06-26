@@ -25,6 +25,15 @@
 
 namespace dreal {
 
+/// Order in which the per-constraint contractors are run inside the ICP
+/// fixpoint. Sound: a fixpoint's result is order-independent, only its cost
+/// (number of contraction passes / transcendental evals) changes.
+enum class ConstraintOrder {
+  kNone,  ///< declaration order (default; unchanged behavior)
+  kAsc,   ///< fewest-variables first (cheap/tight constraints propagate first)
+  kDesc,  ///< most-variables first
+};
+
 class Config {
  public:
   Config() = default;
@@ -109,6 +118,11 @@ class Config {
   double split_ratio() const;
   /// Returns a mutable OptionValue for `split_ratio`.
   OptionValue<double>& mutable_split_ratio();
+
+  /// Returns the constraint ordering for the ICP fixpoint.
+  ConstraintOrder constraint_order() const;
+  /// Returns a mutable OptionValue for `constraint_order`.
+  OptionValue<ConstraintOrder>& mutable_constraint_order();
 
   /// Returns whether smear (smearsumrel) branching is enabled.
   bool use_smear() const;
@@ -346,6 +360,9 @@ class Config {
   OptionValue<OdeC0SetType> ode_c0_set_{OdeC0SetType::Rect2};
   OptionValue<bool> ode_backward_{true};
   OptionValue<double> ode_max_step_{kDefaultOdeMaxStep};
+
+  // ICP fixpoint constraint ordering (default kNone = declaration order).
+  OptionValue<ConstraintOrder> constraint_order_{ConstraintOrder::kNone};
 
   // Smear (smearsumrel) constraint-aware branching (default off; see
   // brancher_smear.cc). Picks the split variable, not the split point.

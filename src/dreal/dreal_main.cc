@@ -322,6 +322,12 @@ void MainProgram::AddOptions() {
                        "dimension's width (0<r<1; 0.5 = midpoint). (default = {})",
                        Config::kDefaultSplitRatio).c_str(),
            "--split-ratio", positive_double_option_validator);
+  auto* const constraint_order_validator =
+      new ez::ezOptionValidator("t", "in", "none,asc,desc", false);
+  opt_.add("none", false, 1, 0,
+           "ICP fixpoint constraint order: none (declaration), asc (fewest "
+           "variables first), desc (most first). (default = none)",
+           "--constraint-order", constraint_order_validator);
   opt_.add("false", false, 0, 0,
            "Use smear (smearsumrel) constraint-aware branching (Jacobian-weighted "
            "variable selection) instead of largest-first.\n",
@@ -609,6 +615,14 @@ void MainProgram::ExtractOptions() {
             Box* const right, const UpwardRounding& ur) {
           return BranchLargestFirstWithRatio(box, active_set, left, right, ur, v);
         });
+  }
+  if (opt_.isSet("--constraint-order")) {
+    string v;
+    opt_.get("--constraint-order")->getString(v);
+    const ConstraintOrder order = (v == "asc")    ? ConstraintOrder::kAsc
+                                  : (v == "desc")  ? ConstraintOrder::kDesc
+                                                   : ConstraintOrder::kNone;
+    config_.mutable_constraint_order().set_from_command_line(order);
   }
   if (opt_.isSet("--smear")) {
     config_.mutable_use_smear().set_from_command_line(true);

@@ -91,6 +91,13 @@ OptionValue<bool>& Config::mutable_smtlib2_compliant() {
 double Config::split_ratio() const { return split_ratio_.get(); }
 OptionValue<double>& Config::mutable_split_ratio() { return split_ratio_; }
 
+ConstraintOrder Config::constraint_order() const {
+  return constraint_order_.get();
+}
+OptionValue<ConstraintOrder>& Config::mutable_constraint_order() {
+  return constraint_order_;
+}
+
 bool Config::use_smear() const { return use_smear_.get(); }
 OptionValue<bool>& Config::mutable_use_smear() { return use_smear_; }
 

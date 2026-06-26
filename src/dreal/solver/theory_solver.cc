@@ -15,6 +15,7 @@
 */
 #include "dreal/solver/theory_solver.h"
 
+#include <algorithm>
 #include <atomic>
 #include <iostream>
 #include <limits>
@@ -203,6 +204,22 @@ optional<Contractor> TheorySolver::BuildContractor(
       nl_ctcs.emplace_back(it->second);
     }
   }
+  // Optional constraint ordering: reorder the per-constraint contractors by
+  // their variable count before assembling the fixpoint. Sound — a fixpoint's
+  // result is order-independent, only the number of passes/evals changes. A
+  // "reorder, no extra evals" perf lever (same category as --split-ratio).
+  // Applied to the per-formula contractors only (integer/polytope/acid are
+  // appended after, keeping their fixed positions).
+  if (config_.constraint_order() != ConstraintOrder::kNone) {
+    const bool asc = config_.constraint_order() == ConstraintOrder::kAsc;
+    std::stable_sort(nl_ctcs.begin(), nl_ctcs.end(),
+                     [asc](const Contractor& a, const Contractor& b) {
+                       const auto ca = a.input().count();
+                       const auto cb = b.input().count();
+                       return asc ? (ca < cb) : (ca > cb);
+                     });
+  }
+
   // Add integer contractor.
   nl_ctcs.push_back(make_contractor_integer(box, config_));
 
