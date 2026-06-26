@@ -22,17 +22,21 @@ Declared with the `SYMBOL` token and dispatched by `ParseSort` in `sort.cc`:
 
 ```smt2
 (declare-fun x () Real)                   ; unbounded Real
-(declare-fun x () Real [lb ub])           ; Real with domain [lb, ub]
+(declare-fun x () Real [lb, ub])          ; Real with domain [lb, ub] — comma is required
 (declare-const x Real)                    ; same as declare-fun with no params
-(declare-const x Real [lb ub])
+(declare-const x Real [lb, ub])
 
 (define-fun f ((a Real) (b Real)) Real e) ; function macro (inlined at call site)
 (define-fun c () Real e)                  ; zero-param: treated as `x = e` constraint
 ```
 
+The bound list is `'[' term ',' term ']'` in `parser.yy` — the **comma is mandatory**;
+`[lb ub]` is a parse error (`syntax error, unexpected …, expecting ','`). The same comma rule
+applies to `forall` quantified-variable bounds (§Quantifiers).
+
 `define-fun` with parameters creates a `FunctionDefinition` entry. Each call site substitutes
 the arguments and returns the instantiated term. There is no recursive function support
-(`define-fun-rec` token is recognized but produces a parse error if used).
+(`define-fun-rec` is recognized but unimplemented — see §Solver Commands).
 
 `define-fun` with zero parameters is treated as a variable declaration plus an equality assertion:
 `(declare-fun c () Real)` + `(assert (= c e))`.
@@ -134,13 +138,18 @@ This is n-ary odd-parity XOR.
 ### `forall` (real-variable quantification)
 
 ```smt2
-(forall ((x Real) (y Real [0.0 1.0])) body)
+(forall ((x Real) (y Real [0.0, 1.0])) body)   ; bounds need the comma (§Declare / Define)
 ```
 
-Produces a `Formula::Forall` node with domain constraints `imply(lb ≤ x ≤ ub, body)`. Variables
-that do not appear free in `body` are silently dropped. Boolean-typed quantified variables are
-eliminated by case-splitting (`f[b↦true] ∧ f[b↦false]`) before the `forall` node is created.
-Handled by `ContractorForall` in the contractor layer.
+Produces a `Formula::Forall` node, wrapping the body as `imply(domain, body)` where `domain`
+conjoins the `[lb, ub]` bound constraints.
+
+**Semantics live in [`forall-semantics.md`](forall-semantics.md)** — the ∃∀ fragment and its
+depth-one limit, Boolean-variable elimination, dead-variable pruning, the CE-guided
+`ContractorForall`, δ-completeness, and the nested-`forall` crash. That doc (§7) is also the
+canonical **`forall` vs `forall_t` disambiguation** (`forall-vs-forall_t`): `forall` is the NRA
+quantifier here; `forall_t` (§ODE-Specific Keywords) is the unrelated ODE trajectory invariant —
+same prefix, separate code paths, never substitute one for the other.
 
 ### `exists` (token only — no grammar production)
 
@@ -201,15 +210,30 @@ optimum, not necessarily global.
 | `(set-logic SYMBOL)` | Sets the logic; `QF_NRA` or `QF_NRA_ODE` are the relevant values |
 | `(assert f)` | Adds formula `f` to the current assertion set |
 | `(check-sat)` | Runs the solver; prints `delta-sat ...` or `unsat` |
-| `(push N)` | Pushes `N` scope levels |
-| `(pop N)` | Pops `N` scope levels |
-| `(get-model)` | Prints the model from the last `check-sat`; requires `--produce-models` |
-| `(get-value (t*))` | Evaluates a list of terms in the current model |
+| `(push N)` / `(pop N)` | **Crash** — the grammar accepts them, but `SatSolver::Push()`/`Pop()` throw `NOT YET IMPLEMENTED` (`sat_solver.cc`). Incremental scopes are unsupported |
+| `(get-model)` | Prints the model from the last `check-sat`. Works **without** `--produce-models` |
+| `(get-value (t*))` | Evaluates a list of terms in the current model. Works **without** `--produce-models` |
 | `(get-option :key)` | Queries a solver option |
-| `(set-option :key v)` | Sets a solver option (bool, numeric, or symbol value) |
-| `(set-info :key v)` | Metadata; `:precision` sets the solver delta if recognized |
-| `(exit)` | Terminates parsing immediately (`YYACCEPT`) |
-| `(echo STRING)` | Token recognized but has no grammar production; causes parse error |
+| `(set-option :key v)` | Sets a solver option (bool, numeric, or symbol value). `:precision` sets the solver delta |
+| `(set-info :key v)` | Metadata only — stored, never acted on. `:precision` here does **not** set the delta; use `set-option` |
+| `(exit)` | Terminates parsing immediately (`YYACCEPT`); any text after it is ignored |
+
+`--produce-models` does not gate `get-model`/`get-value`; it only makes `check-sat` itself
+auto-print the model inline on `delta-sat`.
+
+### Recognized but unimplemented commands
+
+These keywords are lexed (they have a `TK_*` token in `scanner.ll`) but have **no grammar
+production** in `parser.yy`, so using any of them is a parse error
+(`syntax error, unexpected TK_…`):
+
+```
+check-sat-assuming  declare-sort   define-sort   define-fun-rec   echo
+reset   reset-assertions   get-info   get-assertions   get-assignment
+get-proof   get-unsat-core   get-unsat-assumptions
+```
+
+(`exists` is in the same category — see §Quantifiers for the workaround.)
 
 ---
 
