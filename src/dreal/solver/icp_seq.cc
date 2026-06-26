@@ -141,12 +141,36 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
             : config().brancher()(current_box, *evaluation_result, &box_left,
                                   &box_right, ur);
     if (branching_dim >= 0) {
-      if (stack_left_box_first_) {
-        stack.emplace_back(box_left, branching_dim);
-        stack.emplace_back(box_right, branching_dim);
+      // COUPLED LEVER — split point + exploration order are one decision (see
+      // the ExploreOrder doc in config.h, the cut in brancher.cc/box.cc, and
+      // benchmark/optsearch/SEARCH_LOG.md). box_left is [lb, lb+ratio*diam], so
+      // it is the LARGER child iff split_ratio > 0.5. The --split-ratio 0.56 win
+      // needs the off-center cut AND the default *alternation* below: fixing the
+      // order (kLargerFirst/kSmallerFirst) was measured much slower (423/286 s
+      // vs 0.0 s on tanh_decrease__J1.0), so "larger child first" is NOT the win
+      // — it's the worst. kLargerFirst/kSmallerFirst exist only as experiment
+      // knobs. Stack is LIFO, so the child to explore first is pushed LAST.
+      const bool box_left_is_larger = config().split_ratio() >= 0.5;
+      bool explore_left_first;
+      switch (config().explore_order()) {
+        case ExploreOrder::kLargerFirst:
+          explore_left_first = box_left_is_larger;
+          break;
+        case ExploreOrder::kSmallerFirst:
+          explore_left_first = !box_left_is_larger;
+          break;
+        case ExploreOrder::kAlternate:
+          // Legacy: starts box_left-first at the root (stack_left_box_first_
+          // inits false) and toggles each level (below).
+          explore_left_first = !stack_left_box_first_;
+          break;
+      }
+      if (explore_left_first) {
+        stack.emplace_back(box_right, branching_dim);  // bottom
+        stack.emplace_back(box_left, branching_dim);   // top -> explored first
       } else {
-        stack.emplace_back(box_right, branching_dim);
         stack.emplace_back(box_left, branching_dim);
+        stack.emplace_back(box_right, branching_dim);
       }
     } else {
       DREAL_LOG_DEBUG(
@@ -157,8 +181,7 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
     }
     branch_timer_guard.pause();
 
-    // We alternate between adding-the-left-box-first policy and
-    // adding-the-right-box-first policy.
+    // Alternation phase — used only by ExploreOrder::kAlternate (the default).
     stack_left_box_first_ = !stack_left_box_first_;
     stat.num_branch_++;
   }

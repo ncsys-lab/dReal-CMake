@@ -262,3 +262,66 @@ zero flips, and up to ~17000× on individual symmetric SAT problems (J1.0). No p
 needed: ACID, smear, 3bcid, worklist-fixpoint, constraint-order are all dominated or null. The
 deeper win than expected is the symmetry-break, not contraction strength. (ACID remains a correct,
 sound, default-off flag — just never the best choice on this family.)
+
+## Both-TIM-excluded speedup — the honest headline (review follow-up)
+
+The ~3% aggregate is **diluted by the 12/50 benchmarks that TIM for every config** — each adds an
+identical 1200 s to both sides, ~92% of the raw PAR2 sum. Recomputing PAR2 over only the 38
+benchmarks solvable by *either* config (identical to CPU-on-commonly-solved here, since no split
+config solves-one-while-TIMing-the-other):
+
+| split ratio | PAR2 (all 50) | **PAR2 excl. both-TIM (38)** | note |
+|---|---|---|---|
+| 0.40 | 1.078× (−7.8%) | **1.97× (−97%)** | net-negative; knocks a base-solved bench into TIM |
+| 0.45 | 1.069× (−6.9%) | **1.86× (−86%)** | net-negative |
+| 0.55 | 0.972× (+2.8%) | **0.658× (+34%)** | |
+| **0.56** | 0.969× (+3.1%) | **0.619× (+38%)** | best |
+
+**Headline: `--split-ratio 0.56` is ~38% faster on the solvable subset** (not 3%). Concentrated:
+87% of the 486 s saved is the two symmetric `tanh_decrease` SAT problems (`__J1.0` 175 s→0 s,
+`__J0.6` 436 s→189 s); `kuramoto__N5` (−40%) and `cs5c_sigmoid` (−5%) add the rest; the other ~34
+solvable benchmarks are near-instant regardless. So: transformative on the symmetric non-trivial
+problems, neutral elsewhere. Cutting *left* of center (0.4/0.45) is net-negative.
+
+## The split point and the box-exploration order are coupled — both matter
+
+0.4 and 0.56 are **not mirror-symmetric in effect** (0.4 hurts, 0.56 helps) even though the domains
+are symmetric about the origin. A pure cut-*location* effect would make 0.44/0.56 equivalent — so
+the **box-processing order** is the symmetry-breaker, coupled to the ratio:
+
+- `Box::bisect(i, ratio)` → `.first = [lb, lb+ratio·diam]` (size `ratio`); the brancher assigns
+  `*left = .first`. So at **ratio > 0.5, `box_left` is the LARGER box**.
+- `IcpSeq` inits `stack_left_box_first_ = false` → the **root branch processes `box_left` first**
+  (then alternates). At 0.56 that means **the larger sub-box is explored first at the root**.
+
+These two behaviors live in **different files** (`util/box.cc` + `solver/brancher.cc` for the
+split; `solver/icp_seq.cc` for the order), so the coupling was documented/co-located via the
+`ExploreOrder` doc in `config.h` as the canonical home + cross-referencing comments at all three
+sites (review action).
+
+### Confirmation experiment — the coupled partner is ALTERNATION, not "bigger-first"
+
+Added `--explore-order {alternate|larger-first|smaller-first}` to isolate order from ratio, and
+tested at a fixed 0.56 cut:
+
+| benchmark | config | verdict | wall |
+|---|---|---|---|
+| tanh_decrease__J1.0 | 0.50 alternate (base) | delta-sat | 157 s |
+| tanh_decrease__J1.0 | **0.56 alternate (default)** | delta-sat | **0.0 s** |
+| tanh_decrease__J1.0 | 0.56 larger-first | delta-sat | 423 s |
+| tanh_decrease__J1.0 | 0.56 smaller-first | delta-sat | 286 s |
+| tanh_decrease__J0.6 | 0.56 larger-first | delta-sat | 330 s |
+| tanh_decrease__J0.6 | 0.56 smaller-first | TIM | 500 s |
+
+**Hypothesis overturned.** "Explore the larger box first" is the *worst* option (423 s vs 0.0 s at
+the same cut), not the win. What's load-bearing is the **default alternating traversal**, and it
+needs the off-center cut too:
+- `0.50 + alternate` = 157 s → alternation alone (midpoint cut) doesn't win.
+- `0.56 + fixed order` = 286–423 s → off-center cut alone (no alternation) doesn't win.
+- `0.56 + alternate` = **0.0 s** → only the *pair* (off-center cut × alternating traversal) wins.
+
+So the coupling is real (the user's instinct), but the partner is the alternation, not bigger-first.
+The 0.4-vs-0.56 asymmetry is the *cut direction* under alternation, not evidence of bigger-first.
+`--explore-order` defaults to `alternate` (the winner); `larger-first`/`smaller-first` are retained
+only as experiment knobs (both measured slower). **Recipe is unchanged: `--split-ratio 0.56`** (its
+win already includes the default alternation).

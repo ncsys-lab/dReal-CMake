@@ -55,6 +55,10 @@ int BranchLargestFirstWithRatio(const Box& box, const DynamicBitset& active_set,
   const int branching_dim{max_diam_and_idx.second};
   if (branching_dim >= 0) {
     pair<Box, Box> bisected_boxes{box.bisect(branching_dim, ratio)};
+    // *left is the [lb, lb+ratio*diam] child, so it is the LARGER child when
+    // ratio > 0.5. This pairs with the exploration order in IcpSeq::CheckSat:
+    // the split point and which child is explored first are ONE coupled lever
+    // (see ExploreOrder in config.h and benchmark/optsearch/SEARCH_LOG.md).
     *left = std::move(bisected_boxes.first);
     *right = std::move(bisected_boxes.second);
     DREAL_LOG_DEBUG(

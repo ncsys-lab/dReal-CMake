@@ -34,6 +34,25 @@ enum class ConstraintOrder {
   kDesc,  ///< most-variables first
 };
 
+/// Which child sub-box the branch-and-prune search explores first.
+///
+/// COUPLED to the split ratio, but NOT the way intuition suggests. Experiment
+/// (benchmark/optsearch/SEARCH_LOG.md "split point and box-exploration order"):
+/// the `--split-ratio 0.56` win on the symmetric Lyapunov problems needs BOTH
+/// the off-center cut AND the default *alternating* traversal. At an identical
+/// 0.56 cut, `tanh_decrease__J1.0` is 0.0 s under kAlternate but 423 s under
+/// kLargerFirst and 286 s under kSmallerFirst — i.e. fixing the order (either
+/// way) DESTROYS the win; "explore the larger child first" is actually the
+/// worst. And `0.50 + kAlternate` is 157 s — so alternation alone, without the
+/// off-center cut, also doesn't win. The two are a genuine pair: off-center cut
+/// × alternation. kLargerFirst/kSmallerFirst are kept only as experiment knobs
+/// (both measured slower on odeexpr); kAlternate is the default and the winner.
+enum class ExploreOrder {
+  kAlternate,     ///< DEFAULT and best: alternate left/right-first each level
+  kLargerFirst,   ///< always larger child first — experiment only (slower)
+  kSmallerFirst,  ///< always smaller child first — experiment only (slower)
+};
+
 class Config {
  public:
   Config() = default;
@@ -123,6 +142,11 @@ class Config {
   ConstraintOrder constraint_order() const;
   /// Returns a mutable OptionValue for `constraint_order`.
   OptionValue<ConstraintOrder>& mutable_constraint_order();
+
+  /// Returns the child-box exploration order (coupled to split_ratio).
+  ExploreOrder explore_order() const;
+  /// Returns a mutable OptionValue for `explore_order`.
+  OptionValue<ExploreOrder>& mutable_explore_order();
 
   /// Returns whether smear (smearsumrel) branching is enabled.
   bool use_smear() const;
@@ -363,6 +387,10 @@ class Config {
 
   // ICP fixpoint constraint ordering (default kNone = declaration order).
   OptionValue<ConstraintOrder> constraint_order_{ConstraintOrder::kNone};
+
+  // Child-box exploration order (default kAlternate = legacy alternating).
+  // Coupled to split_ratio_ — see the ExploreOrder enum doc.
+  OptionValue<ExploreOrder> explore_order_{ExploreOrder::kAlternate};
 
   // Smear (smearsumrel) constraint-aware branching (default off; see
   // brancher_smear.cc). Picks the split variable, not the split point.

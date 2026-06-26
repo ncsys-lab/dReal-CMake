@@ -222,6 +222,10 @@ pair<Box, Box> Box::bisect_continuous(const int i, const double ratio) const {
   Box b1{*this};
   Box b2{*this};
   const Interval intv_i{values_[i]};
+  // .first = [lb, lb+ratio*diam] (size `ratio`), .second = the remainder. So
+  // the first child is the larger one when ratio > 0.5. This size asymmetry is
+  // coupled to which child the search explores first — see the ExploreOrder doc
+  // in solver/config.h and benchmark/optsearch/SEARCH_LOG.md.
   const pair<Interval, Interval> bisected_intervals{intv_i.bisect(ratio)};
   b1[i] = bisected_intervals.first;
   b2[i] = bisected_intervals.second;

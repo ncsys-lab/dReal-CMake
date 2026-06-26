@@ -328,6 +328,12 @@ void MainProgram::AddOptions() {
            "ICP fixpoint constraint order: none (declaration), asc (fewest "
            "variables first), desc (most first). (default = none)",
            "--constraint-order", constraint_order_validator);
+  auto* const explore_order_validator = new ez::ezOptionValidator(
+      "t", "in", "alternate,larger-first,smaller-first", false);
+  opt_.add("alternate", false, 1, 0,
+           "Child-box exploration order, COUPLED to --split-ratio: alternate "
+           "(legacy), larger-first, smaller-first. (default = alternate)",
+           "--explore-order", explore_order_validator);
   opt_.add("false", false, 0, 0,
            "Use smear (smearsumrel) constraint-aware branching (Jacobian-weighted "
            "variable selection) instead of largest-first.\n",
@@ -623,6 +629,14 @@ void MainProgram::ExtractOptions() {
                                   : (v == "desc")  ? ConstraintOrder::kDesc
                                                    : ConstraintOrder::kNone;
     config_.mutable_constraint_order().set_from_command_line(order);
+  }
+  if (opt_.isSet("--explore-order")) {
+    string v;
+    opt_.get("--explore-order")->getString(v);
+    const ExploreOrder order = (v == "larger-first")  ? ExploreOrder::kLargerFirst
+                               : (v == "smaller-first") ? ExploreOrder::kSmallerFirst
+                                                        : ExploreOrder::kAlternate;
+    config_.mutable_explore_order().set_from_command_line(order);
   }
   if (opt_.isSet("--smear")) {
     config_.mutable_use_smear().set_from_command_line(true);

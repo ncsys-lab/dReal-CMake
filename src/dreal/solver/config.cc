@@ -98,6 +98,11 @@ OptionValue<ConstraintOrder>& Config::mutable_constraint_order() {
   return constraint_order_;
 }
 
+ExploreOrder Config::explore_order() const { return explore_order_.get(); }
+OptionValue<ExploreOrder>& Config::mutable_explore_order() {
+  return explore_order_;
+}
+
 bool Config::use_smear() const { return use_smear_.get(); }
 OptionValue<bool>& Config::mutable_use_smear() { return use_smear_; }
 
