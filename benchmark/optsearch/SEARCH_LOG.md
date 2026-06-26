@@ -235,3 +235,30 @@ today's patched binary, now tested against **five** levers.
 
 All knobs are committed as default-off runtime flags; the recommendation is a per-workload recipe,
 so the solver's global defaults are unchanged. Leaderboard: `benchmark/optsearch/leaderboard.csv`.
+
+## Confirmation round (R6) — IMPORTANT correction: split-0.56 dominates ACID
+
+The same-contention confirm (base / split56 / acid, all 50, zero flips) cross-compared split56 vs
+acid directly for the first time, and overturns the per-workload ACID recommendation:
+
+| benchmark | base | split56 | acid |
+|---|---|---|---|
+| tanh_decrease__J1.0 (SAT) | 175 s | **0.00 s** | 11 s |
+| tanh_decrease__J0.6 (SAT) | 436 s | **189 s** | 245 s |
+| cs5c_sigmoid__decrease (UNSAT) | 573 s | **546 s** | **TIM** |
+
+`split-ratio 0.56` is **faster than ACID on ACID's own best cases** (the tanh_decrease symmetric
+Lyapunov problems) *and* avoids the cs5c TIM. Per-benchmark best-of-{base,split56,acid} PAR2 =
+15191 = split56 exactly → **ACID wins zero benchmarks; it is strictly dominated.**
+
+**Why:** the off-center split breaks the origin-symmetry of these problems (the user's hypothesis)
+far more effectively than shaving — on `tanh_decrease__J1.0` it finds the witness essentially
+instantly (175 s → ~0). The ~3% *aggregate* undersells it because ~13 hard benchmarks TIM
+regardless; the real effect is **100s-of-seconds → instant on the symmetric SAT Lyapunov family.**
+
+### REVISED FINAL RECOMMENDATION
+**`--split-ratio 0.56` — single best config for odeexpr, full stop.** ~3% aggregate PAR2, 38/50,
+zero flips, and up to ~17000× on individual symmetric SAT problems (J1.0). No per-workload split
+needed: ACID, smear, 3bcid, worklist-fixpoint, constraint-order are all dominated or null. The
+deeper win than expected is the symmetry-break, not contraction strength. (ACID remains a correct,
+sound, default-off flag — just never the best choice on this family.)
