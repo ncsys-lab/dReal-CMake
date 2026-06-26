@@ -20,7 +20,14 @@ Run proactively at natural breakpoints even if the user doesn't ask.
 - **Regression:** PAR2 time >1.5× baseline (PAR2 = actual CPU time if solved, 2× timeout = 1200 s
   if TIM/OOM/ERR)
 - **Exceptional:** PAR2 time <0.6× baseline
-- **Correctness flip** (SAT↔UNSAT): immediate escalation regardless of timing
+- **Correctness flip** (SAT↔UNSAT): immediate escalation regardless of timing (a "zero flips"
+  result does **not** clear a correctness-class change — curated unit tests catch sharp cases a
+  corpus can't)
+- **Reporting a speedup — exclude both-TIM benchmarks.** Benchmarks that time out on *both* the
+  control and the variant add an equal penalty to each side and can dominate the raw PAR2 sum
+  (e.g. 12/50 odeexpr TIM for every config ≈ 92% of the sum), diluting a real win to near-zero.
+  Report PAR2 over the subset solvable by *either* arm (≈ CPU on commonly-solved) as the honest
+  speedup, alongside the raw aggregate — a win concentrated in a few benchmarks is otherwise hidden.
 
 ---
 
@@ -95,11 +102,32 @@ and a `weighted_overall` PAR2 in the family comparison; odeexpr regressions are 
 
 ---
 
-## Timing
+## Timing & running batches safely
 
 The metric is **CPU time (user+sys)**, not wall clock — the machine is multi-tenant, so wall
 clock is noisy. Solver runs under `nice -n 1`. `timeout` stays wall-clock at **600 s** (TIM
-detection keys on exit code 124).
+detection keys on exit code 124). Operational rules for any batch / A-B / sweep:
+
+- **≤12 concurrent solvers, one pool at a time.** The `run_batch.sh` / `do_sweep.sh` throttle
+  (count `pgrep -x dreal4`, not `-f`) and `do_sweep`'s shuffled 12-way pool already enforce this
+  and keep the cores saturated — see those bullets above. Never overlap two pools, and start no
+  ad-hoc `dreal4` while a pool is live.
+- **SIGKILL ⇒ blacklist, never restart.** The machine runs `oom_killer`/`swap_killer` daemons
+  that SIGKILL any process over **8 GB RAM**. A solver exit *by signal* (exit code **137** =
+  128+SIGKILL, or "Killed") is a memory event, not a result: do not retry it; append it to
+  `benchmark/optsearch/blacklist.txt` and exclude it from future rounds (report it excluded,
+  never as TIM/ERR). This is the dynamic complement to `select.py`'s static `_is_oom_risk`.
+  Filter a jobs file with
+  `awk -F'\t' 'FILENAME==ARGV[1]{bl[$0]=1;next} !($1 in bl)' blacklist jobs.tsv` — use the
+  `FILENAME==ARGV[1]` form, **not** `NR==FNR`, which mis-handles an empty blacklist and silently
+  drops every row (→ a 0-job no-op sweep).
+- **A timing run needs a quiet machine — don't compile during one.** A background build (`-j`,
+  or a CLion auto-build that recompiles on save) contends for cores and inflates wall time /
+  risks false 600 s TIMs. Correctness work (ctest) may overlap; baselines / A-Bs / sweeps may not.
+- **Compare ratios *within* a round, not absolute CPU across rounds.** Absolute CPU drifts
+  ~10–17% between runs (memory-bandwidth contention), so always pool a `base`/control config with
+  the variants and report ratio-vs-base; confirm a winner in a final pooled round, never by
+  diffing two separately-run batches.
 
 ---
 
