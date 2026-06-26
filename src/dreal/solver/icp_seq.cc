@@ -15,10 +15,12 @@
 */
 #include "dreal/solver/icp_seq.h"
 
+#include <optional>
 #include <tuple>
 #include <utility>
 
 #include "dreal/solver/brancher.h"
+#include "dreal/solver/brancher_smear.h"
 #include "dreal/solver/icp_stat.h"
 #include "dreal/util/interrupt.h"
 #include "dreal/util/logging.h"
@@ -66,6 +68,15 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
   // internally and restore FE_UPWARD on exit; brancher/eval below inherit it.
   const UpwardRoundingScope phase_scope;
   const UpwardRounding ur{phase_scope.token()};
+
+  // Constraint-aware smear branching (--smear): assemble the constraint system
+  // once (the variable set is fixed for the whole solve — branching only
+  // narrows intervals). When off, the configured brancher (largest-first) is
+  // used. Sound either way: variable choice never changes a verdict.
+  std::optional<SmearBrancher> smear_brancher;
+  if (config().use_smear()) {
+    smear_brancher.emplace(formula_evaluators, cs->box(), config().split_ratio());
+  }
 
   while (!stack.empty()) {
     DREAL_LOG_DEBUG("IcpSeq::CheckSat() Loop Head");
@@ -123,8 +134,12 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
     branch_timer_guard.resume();
     Box box_left;
     Box box_right;
-    const int branching_dim = config().brancher()(
-        current_box, *evaluation_result, &box_left, &box_right, ur);
+    const int branching_dim =
+        smear_brancher
+            ? (*smear_brancher)(current_box, *evaluation_result, &box_left,
+                                &box_right, ur)
+            : config().brancher()(current_box, *evaluation_result, &box_left,
+                                  &box_right, ur);
     if (branching_dim >= 0) {
       if (stack_left_box_first_) {
         stack.emplace_back(box_left, branching_dim);

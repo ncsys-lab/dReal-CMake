@@ -91,6 +91,9 @@ OptionValue<bool>& Config::mutable_smtlib2_compliant() {
 double Config::split_ratio() const { return split_ratio_.get(); }
 OptionValue<double>& Config::mutable_split_ratio() { return split_ratio_; }
 
+bool Config::use_smear() const { return use_smear_.get(); }
+OptionValue<bool>& Config::mutable_use_smear() { return use_smear_; }
+
 bool Config::use_acid() const { return use_acid_.get(); }
 OptionValue<bool>& Config::mutable_use_acid() { return use_acid_; }
 

@@ -323,6 +323,10 @@ void MainProgram::AddOptions() {
                        Config::kDefaultSplitRatio).c_str(),
            "--split-ratio", positive_double_option_validator);
   opt_.add("false", false, 0, 0,
+           "Use smear (smearsumrel) constraint-aware branching (Jacobian-weighted "
+           "variable selection) instead of largest-first.\n",
+           "--smear");
+  opt_.add("false", false, 0, 0,
            "Use the ACID (adaptive 3BCID) shaving contractor on the HC4 path.\n",
            "--acid");
   opt_.add("false", false, 0, 0,
@@ -605,6 +609,13 @@ void MainProgram::ExtractOptions() {
             Box* const right, const UpwardRounding& ur) {
           return BranchLargestFirstWithRatio(box, active_set, left, right, ur, v);
         });
+  }
+  if (opt_.isSet("--smear")) {
+    config_.mutable_use_smear().set_from_command_line(true);
+    // SmearBrancher is wired into IcpSeq only (odeexpr is single-threaded).
+    if (config_.number_of_jobs() > 1) {
+      throw DREAL_RUNTIME_ERROR("--smear is not implemented for parallel ICP (--jobs > 1).");
+    }
   }
   if (opt_.isSet("--acid")) {
     config_.mutable_use_acid().set_from_command_line(true);

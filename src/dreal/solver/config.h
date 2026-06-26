@@ -110,6 +110,11 @@ class Config {
   /// Returns a mutable OptionValue for `split_ratio`.
   OptionValue<double>& mutable_split_ratio();
 
+  /// Returns whether smear (smearsumrel) branching is enabled.
+  bool use_smear() const;
+  /// Returns a mutable OptionValue for `use_smear`.
+  OptionValue<bool>& mutable_use_smear();
+
   /// Returns whether the ACID shaving contractor is enabled.
   bool use_acid() const;
   /// Returns a mutable OptionValue for `use_acid`.
@@ -341,6 +346,10 @@ class Config {
   OptionValue<OdeC0SetType> ode_c0_set_{OdeC0SetType::Rect2};
   OptionValue<bool> ode_backward_{true};
   OptionValue<double> ode_max_step_{kDefaultOdeMaxStep};
+
+  // Smear (smearsumrel) constraint-aware branching (default off; see
+  // brancher_smear.cc). Picks the split variable, not the split point.
+  OptionValue<bool> use_smear_{false};
 
   // ACID / 3BCID shaving contractor (default off; see contractor_ibex_acid.cc).
   OptionValue<bool> use_acid_{false};

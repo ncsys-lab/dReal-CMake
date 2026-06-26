@@ -105,11 +105,36 @@ Configs: base, acid s3b∈{2,5,10,20,50}, split-ratio∈{0.55,0.6,0.65}.
    The remaining headroom is *node-count reduction that doesn't add per-node transcendental
    evals* — i.e. smarter **variable choice** (smear), the next strategy.
 
-### Round 3 — smear branching (constraint-aware variable selection)
-The proven win is from the split *point* (0.55); the untested lever is the split *variable*.
-Implementing `--branch smearsumrel` (Jacobian-weighted `Σ_i|J[i][j]|·diam/NC_i`, `Bisectors.md`)
-as a config-gated brancher that assembles an ibex::System for the Jacobian. Soundness: variable
-choice can't change verdicts, only node count — guard with a verdict-parity check. Then benchmark
-smear, smear×split-0.55, vs base.
+### Round 3 results (DONE 2026-06-26) — fine split scan + split×acid combo, zero flips
+
+| config | flags | solved | PAR2 | ratio |
+|---|---|---|---|---|
+| split56 | --split-ratio 0.56 | 38/50 | 15187 | **0.969** |
+| split55 | --split-ratio 0.55 | 38/50 | 15230 | 0.972 |
+| split58 | --split-ratio 0.58 | 38/50 | 15262 | 0.974 |
+| base | (default) | 38/50 | 15666 | 1.000 |
+| s55acid | --split-ratio 0.55 --acid | 36/50 | 17138 | 1.094 |
+| split52 | --split-ratio 0.52 | 36/50 | 17347 | 1.107 |
+| split54 | --split-ratio 0.54 | 36/50 | 17468 | 1.115 |
+
+**Takeaways:**
+1. **split-ratio optimum is a plateau ~0.55–0.58; 0.56 nominal best (0.969×, 38/50).** Robust
+   ~3% win, reproducible (split55 = 15230 a 3rd time). Below 0.55 (0.52/0.54) drops to 36/50
+   (benchmark-specific TIM-tipping; the sub-0.55 curve is noisy, the ≥0.55 plateau is stable).
+2. `--split-ratio 0.55 --acid` (1.094×) confirms **ACID does not compose at family level** — its
+   losses dominate even with the split win. ACID stays a per-workload-only lever.
+3. **Best family recipe so far: `--split-ratio 0.56`** (~3.1% PAR2, 38/50, zero flips).
+
+### Smear branching implemented (Phase 2)
+`--smear` (`SmearBrancher`, smearsumrel; Jacobian-weighted `Σ_i|J[i][j]|·diam/NC_i`, `Bisectors.md`)
+built + gated: Release ctest 662/664 (flaky ITE only), 2 smear unit tests pass (picks the
+Jacobian-dominant variable, not the widest; falls back to largest-first cleanly), rounding gate
+PASS, copy_lint clean, verdict parity verified on smoke benchmarks. Default-off — `icp_seq`
+unchanged when the flag is absent. The System's vars are box-ordered so Jacobian columns map 1:1
+to box dims. Sound: variable choice can't change a verdict.
+
+### Round 4 — smear branching (running)
+Configs: base, split56 (current best), smear, smear+split0.56. Tests whether constraint-aware
+variable choice cuts nodes enough to beat the split-point win despite its per-node Jacobian cost.
 
 _Results to be appended._
