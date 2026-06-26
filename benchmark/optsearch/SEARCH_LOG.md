@@ -134,7 +134,51 @@ unchanged when the flag is absent. The System's vars are box-ordered so Jacobian
 to box dims. Sound: variable choice can't change a verdict.
 
 ### Round 4 — smear branching (running)
-Configs: base, split56 (current best), smear, smear+split0.56. Tests whether constraint-aware
-variable choice cuts nodes enough to beat the split-point win despite its per-node Jacobian cost.
+Configs: base, split56 (current best), smear, smear+split0.56.
+
+### Round 4 results (DONE 2026-06-26) — smear is net-negative, zero flips
+
+| config | flags | solved | PAR2 | ratio |
+|---|---|---|---|---|
+| split56 | --split-ratio 0.56 | 38/50 | 15190 | **0.970** |
+| base | (default) | 38/50 | 15667 | 1.000 |
+| smear56 | --smear --split-ratio 0.56 | 33/50 | 20413 | 1.303 |
+| smear | --smear | 33/50 | 20837 | 1.330 |
+
+**Takeaways:**
+1. **Smear branching is net-negative (1.33×, −5 solved).** It loses exactly the slowest
+   benchmarks (tanh_decrease J0.6/J1.0, cs2b_dgas, cs5c_sigmoid, kuramoto N4/N5; kuramoto_doe
+   +432%) — the per-node Jacobian eval adds transcendental evals that push them over TIM. It
+   gained only 1 (tanh.decrease_slope). Even combined with split-0.56 it's 1.30×. Rejected.
+2. split-0.56 holds at 0.970× (4th consistent confirm).
+
+## Unifying conclusion (after 4 rounds)
+
+**The dominant cost on odeexpr is the gaol correctly-rounded transcendental evaluations (the
+30–45% irreducible floor from `OPTIMIZATION_LOG.md`).** Every lever splits cleanly by whether it
+*adds per-node transcendental evals*:
+
+| Lever | Category | Result |
+|---|---|---|
+| `--split-ratio 0.56` | reorder search, **no extra evals** | **win, ~3%** (the one aggregate win) |
+| `--acid` / `--3bcid` | stronger contraction, **+ evals/node** | net-negative on family; **per-workload win** (tanh_decrease) |
+| `--smear` | smarter var choice, **+ Jacobian evals/node** | net-negative (−5 solved) |
+| `--worklist-fixpoint` | reorder, but catastrophic on hard UNSAT | net-negative (−4 solved) |
+
+→ Levers that add evals lose; only the free reorder (split point) wins. This re-confirms the
+prior "transcendental floor" conclusion on today's patched binary, against all four levers.
+
+### Recommended recipe (per-workload, the search's deliverable)
+- **Family default: `--split-ratio 0.56`** — ~3.1% PAR2, 38/50, zero flips, reproducible 4×.
+- **For sharp single-variable nonlinear Lyapunov problems (tanh_decrease-shaped): add `--acid`**
+  — up to **16× faster** (J1.0 174s→11s); but NOT for coupled multi-var systems (kuramoto:
+  +165–258%) or as a family default (cs5c TIM).
+- Avoid `--smear`, `--3bcid`, `--worklist-fixpoint` on this family.
+
+### Round 5 — constraint ordering (next, the last untested "reorder, no extra evals" lever)
+The only winning category is reorder-without-adding-evals. Split-*point* is exhausted; the
+remaining one is constraint *order* in the fixpoint (front-load cheap/high-shrinkage constraints
+to cut fixpoint iterations → fewer evals). Sound (a fixpoint is order-independent in result, only
+in cost). Low confidence per `OPTIMIZATION_LOG.md` D, but it's the principled next try.
 
 _Results to be appended._
