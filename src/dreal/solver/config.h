@@ -304,10 +304,13 @@ class Config {
   // center): the off-center cut breaks the origin-symmetry common to these
   // problems and, paired with the default alternating exploration order, is a
   // large win on symmetric SAT Lyapunov instances (e.g. tanh_decrease__J1.0
-  // 175s -> 0s) while staying neutral elsewhere. Completeness lever only —
-  // cannot change a verdict, only search speed. See benchmark/optsearch/
-  // SEARCH_LOG.md and the ExploreOrder doc above for the coupled-with-alternation
-  // finding.
+  // 175s -> 0s). Completeness lever only — cannot change a verdict, only search
+  // speed. ACCEPTED GLOBAL-DEFAULT TRADE-OFF: the benefit is odeexpr-specific;
+  // on the ODE families (saradc/github/tacas) it is neutral on commonly-solved
+  // benchmarks but costs a few completeness regressions (e.g. one tacas SAT
+  // 10.8s -> TIM). Adopted as the default per owner decision for odeexpr
+  // out-of-the-box speed. Override with --split-ratio. See benchmark/optsearch/
+  // SEARCH_LOG.md (cross-family A/B) and the ExploreOrder doc above.
   static constexpr double kDefaultSplitRatio{0.56};
 
   // ACID / 3BCID shaving contractor knobs (mirror ibex CtcAcid/Ctc3BCid

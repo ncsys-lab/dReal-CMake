@@ -325,3 +325,23 @@ The 0.4-vs-0.56 asymmetry is the *cut direction* under alternation, not evidence
 `--explore-order` defaults to `alternate` (the winner); `larger-first`/`smaller-first` are retained
 only as experiment knobs (both measured slower). **Recipe is unchanged: `--split-ratio 0.56`** (its
 win already includes the default alternation).
+
+## Adopted as the GLOBAL default (0.56 + alternate) — owner decision + accepted trade-off
+
+`kDefaultSplitRatio` 0.5 → 0.56 (commit a0802e47a); default brancher now cuts at the constant,
+`--split-ratio` overrides. `alternate` was already the default exploration order.
+
+**Cross-family A/B before adopting** (old-0.5 vs new-0.56, 46-benchmark sample = all saradc +
+~25% of github/tacas; the 0.56 win is already confirmed on odeexpr):
+
+- **No SAT↔UNSAT disagreements** (sound).
+- **Neutral on the ODE families' commonly-solved benchmarks**: aggregate 0.99×, median 1.00×
+  (range 0.62–1.17×) — the symmetry-break benefit does **not** transfer to saradc/github/tacas.
+- **One completeness regression in the sample**: `tacas_c2e2_0hz_k15_..._ramp` (SAT) 10.8s → **TIM**.
+  The sample was ~25% of github/tacas, so the full corpus likely holds a few more such regressions
+  (exact count un-quantified — a full baseline would settle it).
+
+**Decision (owner):** keep 0.56 as the global default — odeexpr out-of-the-box speed is worth the
+small, sound (completeness-only, never false-`unsat`) cost on the ODE families. Override per-workload
+with `--split-ratio 0.5` if an ODE-family run needs the old behavior. Recorded so the default's known
+cost isn't later mistaken for free (cf. the hull-grid owner-accepted-completeness-tradeoff precedent).
