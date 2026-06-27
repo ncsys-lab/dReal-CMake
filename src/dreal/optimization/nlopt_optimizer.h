@@ -31,6 +31,14 @@
 
 namespace dreal {
 
+/// The expression whose minimization drives the relational formula @p f toward
+/// satisfaction: e₂ - e₁ for `>`/`>=`, e₁ - e₂ for `<`/`<=`, and 0 for `==`/`!=`
+/// (no signed descent direction) or any non-relational @p f. Conjunctions sum
+/// their operands. Shared by the forall counterexample refiner and the
+/// `--seed-local` nlopt proposer so both build the violation objective the same
+/// way (see counterexample_refiner.cc, seed.cc).
+Expression ConstraintViolation(const Formula& f);
+
 /// Wrapper class for nlopt.
 class NloptOptimizer {
  public:

@@ -34,23 +34,13 @@ enum class ConstraintOrder {
   kDesc,  ///< most-variables first
 };
 
-/// Which child sub-box the branch-and-prune search explores first.
-///
-/// COUPLED to the split ratio, but NOT the way intuition suggests. Experiment
-/// (benchmark/optsearch/SEARCH_LOG.md "split point and box-exploration order"):
-/// the `--split-ratio 0.56` win on the symmetric Lyapunov problems needs BOTH
-/// the off-center cut AND the default *alternating* traversal. At an identical
-/// 0.56 cut, `tanh_decrease__J1.0` is 0.0 s under kAlternate but 423 s under
-/// kLargerFirst and 286 s under kSmallerFirst — i.e. fixing the order (either
-/// way) DESTROYS the win; "explore the larger child first" is actually the
-/// worst. And `0.50 + kAlternate` is 157 s — so alternation alone, without the
-/// off-center cut, also doesn't win. The two are a genuine pair: off-center cut
-/// × alternation. kLargerFirst/kSmallerFirst are kept only as experiment knobs
-/// (both measured slower on odeexpr); kAlternate is the default and the winner.
-enum class ExploreOrder {
-  kAlternate,     ///< DEFAULT and best: alternate left/right-first each level
-  kLargerFirst,   ///< always larger child first — experiment only (slower)
-  kSmallerFirst,  ///< always smaller child first — experiment only (slower)
+/// How `--seed-local` proposes candidate points for the speculative
+/// seed-and-verify pre-pass (see icp_seq.cc, seed.h). Both feed the SAME verify
+/// hook (a small sound box pushed onto the ICP stack, decided by the existing
+/// prune+EvaluateBox loop), so the choice is a COMPLETENESS/perf lever only.
+enum class SeedMethod {
+  kLhs,    ///< Latin-hypercube sampling (gradient-free; no flat-center stall)
+  kNlopt,  ///< multi-start COBYLA local optimization (guided; for tiny regions)
 };
 
 class Config {
@@ -143,15 +133,26 @@ class Config {
   /// Returns a mutable OptionValue for `constraint_order`.
   OptionValue<ConstraintOrder>& mutable_constraint_order();
 
-  /// Returns the child-box exploration order (coupled to split_ratio).
-  ExploreOrder explore_order() const;
-  /// Returns a mutable OptionValue for `explore_order`.
-  OptionValue<ExploreOrder>& mutable_explore_order();
-
   /// Returns whether smear (smearsumrel) branching is enabled.
   bool use_smear() const;
   /// Returns a mutable OptionValue for `use_smear`.
   OptionValue<bool>& mutable_use_smear();
+
+  /// Returns whether the `--seed-local` seed-and-verify pre-pass is enabled.
+  bool seed_local() const;
+  /// Returns a mutable OptionValue for `seed_local`.
+  OptionValue<bool>& mutable_seed_local();
+
+  /// Returns the candidate-point budget for `--seed-local` (LHS sample count, or
+  /// COBYLA multi-start count for `--seed-method nlopt`).
+  int seed_samples() const;
+  /// Returns a mutable OptionValue for `seed_samples`.
+  OptionValue<int>& mutable_seed_samples();
+
+  /// Returns the `--seed-local` candidate-proposal method.
+  SeedMethod seed_method() const;
+  /// Returns a mutable OptionValue for `seed_method`.
+  OptionValue<SeedMethod>& mutable_seed_method();
 
   /// Returns whether the ACID shaving contractor is enabled.
   bool use_acid() const;
@@ -299,19 +300,23 @@ class Config {
   static constexpr int kDefaultOdeHullGrid{4};
   static constexpr double kDefaultOdeMaxStep{0.0};  // 0 => fully adaptive
 
-  // Branching split point: fraction of the chosen dimension's width at which
-  // the bisection cut falls (0.5 = midpoint). Default 0.56 (just right of
-  // center): the off-center cut breaks the origin-symmetry common to these
-  // problems and, paired with the default alternating exploration order, is a
-  // large win on symmetric SAT Lyapunov instances (e.g. tanh_decrease__J1.0
-  // 175s -> 0s). Completeness lever only — cannot change a verdict, only search
-  // speed. ACCEPTED GLOBAL-DEFAULT TRADE-OFF: the benefit is odeexpr-specific;
-  // on the ODE families (saradc/github/tacas) it is neutral on commonly-solved
-  // benchmarks but costs a few completeness regressions (e.g. one tacas SAT
-  // 10.8s -> TIM). Adopted as the default per owner decision for odeexpr
-  // out-of-the-box speed. Override with --split-ratio. See benchmark/optsearch/
-  // SEARCH_LOG.md (cross-family A/B) and the ExploreOrder doc above.
-  static constexpr double kDefaultSplitRatio{0.56};
+  // Branching split point: fraction of the chosen dimension's width at which the
+  // bisection cut falls. Default 0.5 (midpoint). The off-center 0.56 cut + the
+  // alternating traversal that once gave a large odeexpr win were a brittle,
+  // high-variance lottery for off-center-solution-in-flat-landscape; that case is
+  // now handled directly and robustly by --seed-local (see docs/decisions.md
+  // §"Seed-and-verify"), so the magic was removed and the cut returned to the
+  // midpoint. Completeness lever only — cannot change a verdict, only speed.
+  // Override with --split-ratio.
+  static constexpr double kDefaultSplitRatio{0.5};
+
+  // --seed-local candidate-point budget (COBYLA multi-start count for the
+  // default nlopt method; LHS sample count for --seed-method lhs). 64 multi-start
+  // COBYLA was the seed-and-verify A/B winner (solved +2 over the old 0.56 magic
+  // at 3x lower PAR2, zero flips, no overhead regressions). Guided descent needs
+  // ~1000x fewer candidates than blind LHS on tiny feasible regions, so it gets
+  // coverage at low overhead. See benchmark/optsearch/SEARCH_LOG.md §"Seed-and-verify".
+  static constexpr int kDefaultSeedSamples{64};
 
   // ACID / 3BCID shaving contractor knobs (mirror ibex CtcAcid/Ctc3BCid
   // defaults). s3b is the dominant tuning parameter (ibex: best 5-200, 10
@@ -397,13 +402,18 @@ class Config {
   // ICP fixpoint constraint ordering (default kNone = declaration order).
   OptionValue<ConstraintOrder> constraint_order_{ConstraintOrder::kNone};
 
-  // Child-box exploration order (default kAlternate = legacy alternating).
-  // Coupled to split_ratio_ — see the ExploreOrder enum doc.
-  OptionValue<ExploreOrder> explore_order_{ExploreOrder::kAlternate};
-
   // Smear (smearsumrel) constraint-aware branching (default off; see
   // brancher_smear.cc). Picks the split variable, not the split point.
   OptionValue<bool> use_smear_{false};
+
+  // --seed-local seed-and-verify pre-pass (see seed.h, icp_seq.cc). Default ON
+  // with multi-start nlopt — the 2026-06 A/B winner; it cracks off-center NRA SAT
+  // instances the old 0.56 branching magic timed out on, and is gated off for
+  // ODE/forall (AllRelational) so it never fires on those families. Speculative,
+  // completeness-only — the prune+EvaluateBox loop remains the sole arbiter.
+  OptionValue<bool> seed_local_{true};
+  OptionValue<int> seed_samples_{kDefaultSeedSamples};
+  OptionValue<SeedMethod> seed_method_{SeedMethod::kNlopt};
 
   // ACID / 3BCID shaving contractor (default off; see contractor_ibex_acid.cc).
   OptionValue<bool> use_acid_{false};

@@ -98,13 +98,17 @@ OptionValue<ConstraintOrder>& Config::mutable_constraint_order() {
   return constraint_order_;
 }
 
-ExploreOrder Config::explore_order() const { return explore_order_.get(); }
-OptionValue<ExploreOrder>& Config::mutable_explore_order() {
-  return explore_order_;
-}
-
 bool Config::use_smear() const { return use_smear_.get(); }
 OptionValue<bool>& Config::mutable_use_smear() { return use_smear_; }
+
+bool Config::seed_local() const { return seed_local_.get(); }
+OptionValue<bool>& Config::mutable_seed_local() { return seed_local_; }
+
+int Config::seed_samples() const { return seed_samples_.get(); }
+OptionValue<int>& Config::mutable_seed_samples() { return seed_samples_; }
+
+SeedMethod Config::seed_method() const { return seed_method_.get(); }
+OptionValue<SeedMethod>& Config::mutable_seed_method() { return seed_method_; }
 
 bool Config::use_acid() const { return use_acid_.get(); }
 OptionValue<bool>& Config::mutable_use_acid() { return use_acid_; }

@@ -22,6 +22,7 @@
 #include "dreal/solver/brancher.h"
 #include "dreal/solver/brancher_smear.h"
 #include "dreal/solver/icp_stat.h"
+#include "dreal/solver/seed.h"
 #include "dreal/util/interrupt.h"
 #include "dreal/util/logging.h"
 
@@ -36,8 +37,12 @@ IcpSeq::IcpSeq(const Config& config) : Icp{config} {}
 bool IcpSeq::CheckSat(const Contractor& contractor,
                       const vector<FormulaEvaluator>& formula_evaluators,
                       ContractorStatus* const cs) {
-  // Use the stacking policy set by the configuration.
-  stack_left_box_first_ = config().stack_left_box_first();
+  // Which child to explore first — a fixed per-solve choice (the forall
+  // contractor flips config().stack_left_box_first() across counterexample
+  // iterations to diversify). Per-level alternation and larger/smaller-first
+  // ordering were removed in 2026-06 as high-variance non-levers; off-center
+  // instances are cracked by --seed-local, not branch order.
+  const bool explore_left_first{!config().stack_left_box_first()};
   static IcpStat stat{DREAL_LOG_INFO_ENABLED};
   DREAL_LOG_DEBUG("IcpSeq::CheckSat()");
   // Stack of Box x BranchingPoint.
@@ -68,6 +73,20 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
   // internally and restore FE_UPWARD on exit; brancher/eval below inherit it.
   const UpwardRoundingScope phase_scope;
   const UpwardRounding ur{phase_scope.token()};
+
+  // --seed-local seed-and-verify pre-pass. For pure-relational (NRA) theory
+  // calls, propose candidate points (LHS sampling or COBYLA) and push a small
+  // SOUND box around each so they are explored FIRST (LIFO; the root box stays
+  // at the bottom). This is a COMPLETENESS-only speed optimization atop the
+  // complete search — the cache/recompute carve-out shape, NOT a fallback: the
+  // unchanged Prune+EvaluateBox loop is the SOLE arbiter of delta-SAT, so a poor
+  // candidate cannot cause a false delta-sat, and the root box below guarantees
+  // no subspace is dropped (completeness preserved).
+  if (config().seed_local() && AllRelational(formula_evaluators)) {
+    for (Box& seed_box : SeedBoxes(formula_evaluators, cs->box(), config(), ur)) {
+      stack.emplace_back(std::move(seed_box), -1);
+    }
+  }
 
   // Constraint-aware smear branching (--smear): assemble the constraint system
   // once (the variable set is fixed for the whole solve — branching only
@@ -141,30 +160,7 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
             : config().brancher()(current_box, *evaluation_result, &box_left,
                                   &box_right, ur);
     if (branching_dim >= 0) {
-      // COUPLED LEVER — split point + exploration order are one decision (see
-      // the ExploreOrder doc in config.h, the cut in brancher.cc/box.cc, and
-      // benchmark/optsearch/SEARCH_LOG.md). box_left is [lb, lb+ratio*diam], so
-      // it is the LARGER child iff split_ratio > 0.5. The --split-ratio 0.56 win
-      // needs the off-center cut AND the default *alternation* below: fixing the
-      // order (kLargerFirst/kSmallerFirst) was measured much slower (423/286 s
-      // vs 0.0 s on tanh_decrease__J1.0), so "larger child first" is NOT the win
-      // — it's the worst. kLargerFirst/kSmallerFirst exist only as experiment
-      // knobs. Stack is LIFO, so the child to explore first is pushed LAST.
-      const bool box_left_is_larger = config().split_ratio() >= 0.5;
-      bool explore_left_first;
-      switch (config().explore_order()) {
-        case ExploreOrder::kLargerFirst:
-          explore_left_first = box_left_is_larger;
-          break;
-        case ExploreOrder::kSmallerFirst:
-          explore_left_first = !box_left_is_larger;
-          break;
-        case ExploreOrder::kAlternate:
-          // Legacy: starts box_left-first at the root (stack_left_box_first_
-          // inits false) and toggles each level (below).
-          explore_left_first = !stack_left_box_first_;
-          break;
-      }
+      // Push both children; the one explored first is pushed LAST (LIFO stack).
       if (explore_left_first) {
         stack.emplace_back(box_right, branching_dim);  // bottom
         stack.emplace_back(box_left, branching_dim);   // top -> explored first
@@ -180,9 +176,6 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
       return true;
     }
     branch_timer_guard.pause();
-
-    // Alternation phase — used only by ExploreOrder::kAlternate (the default).
-    stack_left_box_first_ = !stack_left_box_first_;
     stat.num_branch_++;
   }
   DREAL_LOG_DEBUG("IcpSeq::CheckSat() No solution");

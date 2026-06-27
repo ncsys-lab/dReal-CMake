@@ -345,3 +345,258 @@ win already includes the default alternation).
 small, sound (completeness-only, never false-`unsat`) cost on the ODE families. Override per-workload
 with `--split-ratio 0.5` if an ODE-family run needs the old behavior. Recorded so the default's known
 cost isn't later mistaken for free (cf. the hull-grid owner-accepted-completeness-tradeoff precedent).
+
+---
+
+# Why branching matters here, and why no *order* is robust (2026-06, follow-up investigation)
+
+The 0.56-plus-"alternation" default was filed as a smell: a load-bearing solver decision nobody
+could rationalize. This follow-up instrumented the mechanism, tested the obvious principled
+replacement, and reached an honest negative-on-the-strategy / positive-on-the-understanding result.
+
+## The win is a search-TREE-SIZE collapse, at an off-center witness
+
+`tanh_decrease__{J1.0,J0.6}` are single-`CheckSat` solves, so the existing `IcpStat::num_branch_`
+counter already gives nodes-to-witness (no instrumentation code needed). Node counts (CPU tracks
+them linearly at ~125k branches/s — it is tree **size**, not per-node cost):
+
+| benchmark | config | nodes | CPU |
+|---|---|---|---|
+| J1.0 | 0.50 + alternate | 22,803,572 | 181 s |
+| J1.0 | **0.56 + alternate** | **69** | **0.00 s** |
+| J1.0 | 0.56 + larger-first | 52,914,427 | 432 s |
+| J1.0 | 0.56 + smaller-first | 27,528,292 | 224 s |
+| J0.6 | 0.50 + alternate | 55,227,828 | 442 s |
+| J0.6 | 0.56 + alternate | 24,732,081 | 198 s |
+
+A **~330,000× node collapse** on J1.0. The witness is dramatically off-center (`x_1≈0.76,
+y_1≈-0.83` in a `(-1,1)` box). (These corroborate the wall-clock table above.)
+
+## Mechanism: a degenerate (flat, ∇=0) feasibility landscape at the symmetric center
+
+`tanh_decrease` is pure QF_NRA: 9 vars on origin-symmetric `(-1,1)` boxes, two `cse` definition
+equalities, and **one** hard constraint — the Lyapunov residual `BigExpr > 3/2000`. At the
+symmetric origin every term of `BigExpr` is a product of factors that each vanish at 0, so
+`BigExpr(0)=0` **and** `∇BigExpr(0)=0`: the origin is a **critical point**, and the geometric
+center *violates* the constraint (`0 > 0.0015` is false). So the feasible region is off-center,
+and near the center — where the search starts and dwells — the constraint is **flat**: the
+contractor cannot prune (no gradient to propagate) and the search must bisect many dimensions to
+isolate the off-center solution. That is *why* branching matters so much here, and why the
+"alternation" is not really magic: the off-center cut is a **gradient-free symmetry-break** that
+escapes the flat basin by brute geometry.
+
+## Feasibility-guided ordering — implemented, then REFUTED
+
+The obvious principled replacement: dive into the child whose center is closer to feasibility
+(`ExploreOrder::kFeasibilityGuided`, a `CenterInfeasibility` point-evaluator). It **fails**:
+
+- With all constraints, the `cse` *equalities* dominate the score — a point box is never on an
+  equality surface, so each contributes an O(1) residual that swamps the hard inequality's ~0.0015
+  signal. Direct test: `J1.0 @0.56` = **120 s TIM**.
+- Inequality-only (skip equalities) gave a clean per-node signal but still did not converge: the
+  per-branch trace showed scores **tie** on the three `J` dimensions near the origin (the `∇=0`
+  flatness, observed directly) and the center residual bouncing far from a delta-box.
+- **Root cause:** gradient-following needs a gradient; there is none at the symmetric center. A
+  gradient-free symmetry-break is exactly what beats it. (Reverted; the harness that would have
+  given inequality-only an end-to-end *timing* had a bash-3.2 associative-array bug that silently
+  passed empty paths — the valid evidence is the 120 s with-equalities TIM and the non-converging
+  trace.)
+
+## The magic is brittle, and no traversal scheme robustly wins
+
+`0.56 + alternate` is **69 nodes on J1.0** but **24.7M nodes / 198 s on J0.6** — a lucky lottery
+ticket, not a robust strategy (the smell was real). The "alternation" itself was a single member
+flag toggled on *every branch event in DFS order* — path-dependent, the genuinely-arbitrary part.
+Replaced it with **depth-parity** (explore `box_left` first at even tree depth — path-independent,
+"alternate per level") and A/B'd vs the legacy global-toggle:
+
+| benchmark | split | global-toggle | depth-parity |
+|---|---|---|---|
+| J1.0 | 0.56 (default) | 69 / 0.00 s | 69 / 0.00 s (tie) |
+| J1.0 | 0.50 | 22.8M / 178 s | 3.65M / 27.8 s (6.4× fewer nodes — but still ≫ 0.56's 69) |
+| J0.6 | 0.56 (default) | 24.7M / 194 s | 32.1M / 231 s (+30% nodes) |
+| J0.6 | 0.50 | TIM | TIM |
+
+Full odeexpr-family A/B (both at default 0.56): **zero verdict flips, 38/50 solved by each, neither
+solves anything the other doesn't**; median per-benchmark ratio 1.00×, the one real difference being
+J0.6 (+30% nodes under depth-parity). So depth-parity is more *intelligible* but perf-neutral-to-
+slightly-worse at the default; **not adopted** (it regresses J0.6, and its only "gain" — 6.4× on
+J1.0@0.50 — is inside the 0.50 regime, which 0.56 strictly dominates on both benchmarks).
+
+## Conclusions
+
+1. **0.56 is a principled off-center symmetry-break, not a magic number.** It is load-bearing:
+   `--split-ratio 0.5` regresses both transformative benchmarks (J1.0 0.00s→27.8s, J0.6 solve→TIM)
+   under *either* traversal scheme. Keep it.
+2. **Branching *order* is a high-variance lever with no robust winner.** Feasibility-guided is
+   worse; depth-parity and the legacy global-toggle each win some configs and lose others. Chasing
+   a better deterministic order is not fruitful — kept the proven global-toggle, no code change.
+3. **The genuinely robust fix is local-search seeding, not a branching tweak.** Finding an
+   off-center solution in a flat landscape is what `nlopt` is for: seed the ICP search with a
+   locally-optimized candidate point and verify a delta-box around it. Scoped in
+   `docs/nlopt-seeding-plan.md`; dReal already links nlopt (`src/dreal/optimization/`).
+
+# Seed-and-verify (`--seed-local`): built and benchmarked (2026-06, follow-up)
+
+This is the fix item 3 points to, implemented (`src/dreal/solver/seed.{h,cc}`, hooked in
+`IcpSeq::CheckSat`) and benchmarked across all configs.
+
+## Architecture (soundness/completeness free)
+
+A speculative pre-pass, default off, gated to pure-relational (NRA) theory calls (`AllRelational`
+— skips `forall`/ODE): **propose** candidate points → **pin** a small SOUND box around each
+(`make_sound_interval` endpoints ∩ root box) → push onto the ICP stack to be explored FIRST →
+**verify** by the *unchanged* prune+`EvaluateBox` loop. The root box stays on the stack, so it is
+the cache/recompute carve-out shape, NOT a fallback: a poor candidate cannot cause a false
+delta-sat (EvaluateBox is the sole arbiter) and no subspace is dropped. *(COMPLETENESS-only — see
+the soundness mandate.)* Proven by a test→RED→fix→GREEN cycle: a "trust-the-seed-without-verify"
+bypass flips the UNSAT guards to false delta-sat (RED); the verify-only path is GREEN
+(`test/dreal/solver/test/seed_test.cc`, 6/6 pass).
+
+Two proposers (`--seed-method`): **`lhs`** (Latin-hypercube sampling — gradient-free, no
+flat-center vulnerability; the default per the "why not just sampling?" pivot — grid is rejected,
+k^d in 9-D) and **`nlopt`** (multi-start COBYLA local optimization). The budget is `--seed-samples`.
+
+## nlopt needed three real fixes (a fair test, each a finding about the instance structure)
+
+The odeexpr boxes mix bounded primaries (x/y/J ∈ (−1,1)) with **equality-defined CSE auxiliaries
+that carry no bound**. nlopt failed on even the easy J1.0 until all three were fixed:
+1. **Unbounded CSE dims** → pin only finite dims, leave CSE dims for the contractor's HC4 to derive
+   (this also made LHS fire at all).
+2. **CSE equalities sabotage COBYLA** (init-0 cse with `cse=2x−2y` *pulls toward the origin* = the
+   infeasible center; and an unconstrained ±inf dim wanders to NaN → "NULL args"). Fix: substitute
+   the CSE defs out (`DerivedSubstitution`, chain-resolved) and optimize a **sub-box of only the
+   bounded primaries**.
+3. **`>` stored as `¬(≤)`** → `ConstraintViolation` returned 0 → empty objective → nlopt aborts.
+   Fix: NNF-normalize (`Nnfizer::Convert(f, true)`). The shared `ConstraintViolation` was factored
+   out of the forall refiner (`nlopt_optimizer.cc`) and reused.
+
+## Spot-check: budget to crack the transformative instances (0.50 midpoint regime, which alone TIMs)
+
+| instance | feasible region | LHS budget | nlopt budget |
+|---|---|---|---|
+| `tanh_decrease__J1.0` | fat | 256 | **8** (nlopt-1 center-only FAILS) |
+| `tanh_decrease__J0.6` | tiny (f ≈ 1e-4) | **65 536** | **64** |
+
+- **Guided ≫ blind for tiny regions:** nlopt cracks J0.6 with **64** starts where LHS needs
+  **64 000** (~1000×) — each COBYLA start descends to feasibility instead of relying on a random hit.
+- **The flat center is real — for nlopt, not LHS:** `nlopt-1` (single COBYLA start from the box
+  center) TIMs on J1.0 — its `rhobeg` simplex does not escape the ∇=0 center from dead-center;
+  `nlopt-8` cracks it because the off-center LHS starts dodge the flat basin. LHS is immune by
+  construction.
+
+## Corpus A/B (odeexpr, 50 jobs, 300 s cap; seeding fires). Honest PAR2 over the 40 ever-solved:
+
+| config | solved | PAR2 | SAT↔UNSAT flips |
+|---|---|---|---|
+| `base056` (0.56 magic, default) | 37 | 51.0 | — |
+| `mid050` (0.50, no seed) | 36 | 66.7 | 0 |
+| `lhs050_256` | 35 | 77.3 | 0 |
+| `lhs050_64k` | 37 | 47.3 | 0 |
+| `lhs056_64k` | 36 | 61.4 | 0 |
+| `nlopt050_8` | 38 | 32.3 | 0 |
+| **`nlopt050_64`** | **39** | **17.3** | **0** |
+
+**`nlopt050_64` dominates**: +2 solved over the 0.56 magic (it cracks `tanh_decrease__xwin1.5` and
+`__xwin2.0`, two off-center SAT instances `base056` *times out* on, 0.02 s each), 3× lower PAR2,
+**zero soundness flips**, and **no overhead regressions**. It beats the magic *at the magic's own
+job* while removing the need for it.
+
+**Honest nuance — the methods are complementary, not strictly ordered:** `nlopt050_64` is not a
+strict superset. One instance (`odeexpr_tanh.decrease_d_i__tau0.0015`) is solved *only* by the
+large-N LHS configs (`lhs050_64k`/`lhs056_64k`) — its feasible region is one a 64-start COBYLA
+misses but 64 000 blind samples hit. So the union (guided ∪ large-blind) would solve 40/40; for a
+*single* config, `nlopt050_64` is the best (39/40, lowest PAR2, no regressions).
+
+**The LHS budget dilemma (why guided wins):** blind sampling is caught between coverage and
+overhead. `lhs050_256` misses the tiny J0.6-class regions; `lhs050_64k` cracks them but its 64 000
+pushed boxes genuinely **regress easy instances to TIM** (e.g. `aim_poly_vs_poly2__N2/N4`, base
+0.0 s → 299.9 s real CPU, exit 124 — confirmed compute, not contention). nlopt sidesteps the
+dilemma: ~64 guided candidates give both coverage (cracks J0.6) and low overhead (no regressions).
+
+## Conclusions
+
+1. **Seed-and-verify is the principled replacement the branching investigation pointed to** —
+   it makes the solver robust to the split ratio (cracks J1.0/J0.6 at the naive 0.50 midpoint that
+   otherwise TIMs) and, as `nlopt050_64`, **beats the 0.56 magic outright** (+2 solved, 3× PAR2).
+2. **LHS validates the idea and the "why not sampling?" intuition** — blind sampling really does
+   crack these off-center instances, gradient-free and flat-center-immune — but it is *dominated*
+   by guided search because of the coverage-vs-overhead budget dilemma.
+3. **nlopt is the winner once its 3 structural bugs are fixed**, and the win is understood: guided
+   descent needs ~1000× fewer candidates than blind sampling on tiny regions, so it gets coverage
+   without the overhead that makes large-N LHS regress.
+4. Cross-family (github/tacas/saradc, ODE): seeding is gated OFF (`AllRelational` false — verified
+   0 `[seed-nlopt]` firings on github/tacas/saradc representatives, because the ODE/integral
+   constraints are in every BMC theory call). So nlopt does NOT interact with the ODE families.
+
+## Adopted as the default (2026-06) — and the cross-family A/B that justified it
+
+`--seed-local` is now ON by default with `--seed-method nlopt --seed-samples 64`, `--split-ratio`
+back to **0.5**; the 0.56 magic, the `--explore-order` alternate/larger/smaller-first machinery, and
+the per-level alternation toggle were removed (sequential exploration is now a fixed per-solve
+order). Full A/B, current default (`cur` = 0.56) vs proposed new default (`newdef` = 0.5 + nlopt-64):
+
+| corpus | cur solved | new solved | cur PAR2 | new PAR2 | flips |
+|---|---|---|---|---|---|
+| odeexpr (50, NRA) | 37 | **39** | 51.0 | **17.3** | 0 |
+| github+tacas+saradc (119, ODE) | 113 | **116** | 69.2 | **55.1** | 0 |
+
+The new default is **strictly better on both** (+2 NRA, +3 ODE; zero SAT↔UNSAT flips; no losses).
+Tellingly, the 3 cross-family gains (`tacas_c2e2_k12/k15_ramp` TIM→9/11 s, `github prostate_p10`
+TIM→42 s) are instances where **seeding never fires** — they are recovered purely by reverting
+0.56→0.5, i.e. the old magic had been *hurting* the ODE families (the regression its own config.h
+comment admitted). So removing it is a win independent of seeding.
+
+**Authoritative confirmation on the actual built binaries** (old-default binary vs new-default
+binary, `do_ab.sh` over the combined 169-job odeexpr+ODE corpus — this captures the fixed-order
+change too, which the flag-based A/B above could not): old **151 solved / PAR2 99.1**, new **157 /
+77.9**, **+6 solved, 0 losses, 0 SAT↔UNSAT flips**. The 6 gains: `xwin1.5`, `xwin2.0` (odeexpr,
+seeding) + `github prostate_p10`/`battery_double-sat`, `tacas k12/k15_ramp` (ODE, the 0.5 revert;
+`battery` newly picked up by the fixed order). The fixed-order replacement of the alternation toggle
+is otherwise time-neutral on the ODE families (per-instance times match to <1%).
+
+# Interaction with `DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS` (2026-06, follow-up)
+
+Question: does flipping the compile-time `DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS`
+(`src/dreal/version.h`, default `true`) to `false` interact with seeding? When `false`, the SAT
+solver may return **under-constrained** theory models (fewer theory literals asserted per check;
+`context_impl.cc:214–265` then re-checks them through the `recent_under_constrained_deltasat`
+exponential-backoff loop). The hypothesis worth testing: under-constrained checks could omit the
+ODE/integral atoms, letting `AllRelational` pass and seeding fire on the ODE families where it is
+otherwise always gated off.
+
+**Method.** Built two binaries from the one macro (`/tmp/dreal4_FULLtrue` `daa7c2a9`,
+`/tmp/dreal4_FULLfalse` `b941c231`; gcc_build restored to FULL=true and md5-verified). Clean **2×2**
+— {FULL=true, FULL=false} × {seed-on, seed-off=`--seed-local false`} — over all 169 jobs, 600 s cap,
+12-way pool (`benchmark/results/sweep_20260627_{105211,121113}`). PAR2 over the 157 ever-solved:
+
+| | seed-on | seed-off | seeding Δ |
+|---|---|---|---|
+| **FULL=true** (current default) | **157** / 40.8 s | 153 / 73.6 s | **+4 solved** |
+| **FULL=false** | 151 / 136.4 s | 147 / 170.0 s | **+4 solved** |
+| FULL Δ (seed-on) | −6 solved, 3.34× PAR2 | | |
+
+Three findings (0 SAT↔UNSAT flips anywhere — soundness intact across all four corners):
+
+1. **No interaction — the knobs are additive.** Seeding delivers the *identical* +4 solved in both
+   FULL columns, the *same 4 instances* (`tanh_decrease__J0.6/xwin1.5/xwin2.0`, `cs2b_dgas__decrease`;
+   plus J1.0 392 s→0.02 s). Seeding's benefit is fully robust to the FULL setting.
+2. **The gate-bypass hypothesis is REFUTED — seeding does not leak onto the ODE families under
+   FULL=false.** Programmatic check (`f_seedon` vs `f_seedoff` verdicts): the 4 jobs where seeding
+   changes the verdict are *all* odeexpr NRA; **0** github/tacas/saradc verdicts differ. Under-
+   constrained BMC theory checks still carry their integral/forall atoms, so `AllRelational` stays
+   false there (matches a 0-firing `[seed-nlopt]` probe on all three families).
+3. **FULL=false is a regression in its own right** (−6 solved, 3.3× PAR2), orthogonal to seeding —
+   and the effect is on the **SAT/UNSAT axis, not the family axis**. Split by true status across all
+   families: ALL **UNSAT** (58) PAR2 1831→1299 s (FULL=false **−29%**, 0 solve change); ALL **SAT**
+   (99) PAR2 4572→20112 s, solved 99→**93**. Under-constrained models find a refuting conflict
+   faster (less to contradict) but force SAT models through the re-check backoff loop. The UNSAT
+   speedup is real and concentrated in **saradc** (13 UNSAT, −312 s) and **github** (17 UNSAT,
+   −204 s) — those two families simply *have* the most non-trivial UNSAT jobs (tacas has 2, odeexpr's
+   UNSAT are all sub-second), which is why the help looks family-specific. But SAT outnumbers UNSAT
+   99:58, so even within saradc (SAT +3118 vs UNSAT −312) and github (SAT +4073 vs UNSAT −204) the
+   family net is negative. FULL=false would only win if it could be restricted to UNSAT checks, which
+   is not knowable in advance.
+
+**Verdict:** keep `FULL_CONSTRAINTS=true` and seeding on — the best of the four corners. Seeding
+earns its +4 independent of this experimental knob; FULL=false not adopted.

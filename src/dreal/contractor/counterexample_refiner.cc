@@ -77,24 +77,10 @@ CounterexampleRefiner::CounterexampleRefiner(const Formula& query,
   Expression objective{};
   for (const Formula& f : formulas) {
     if (!f.GetFreeVariables().IsSubsetOf(forall_variables_)) {
-      // F has both of exist and forall variables. We turn this into an
-      // objective function.
-      if (is_greater_than(f) || is_greater_than_or_equal_to(f)) {
-        // f := e1 > e2  -->  e1 - e2 > 0.0
-        //               -->  Maximize e1 - e2
-        //               -->  Minimize e2 - e1
-        const Expression& e1{get_lhs_expression(f)};
-        const Expression& e2{get_rhs_expression(f)};
-        objective += e2 - e1;
-      } else if (is_less_than(f) || is_less_than_or_equal_to(f)) {
-        // f := e1 < e2  -->  e1 - e2 < 0.0
-        //               -->  Minimize e1 - e2
-        const Expression& e1{get_lhs_expression(f)};
-        const Expression& e2{get_rhs_expression(f)};
-        objective += e1 - e2;
-      } else {
-        // Do nothing for equality / inequalities.
-      }
+      // F has both exist and forall variables. Fold its violation (0 for
+      // equality/disequality) into the objective. ConstraintViolation is the
+      // shared builder used by --seed-local too (see nlopt_optimizer.h).
+      objective += ConstraintViolation(f);
     }
     // Always add it as a constraint.
     opt_->AddRelationalConstraint(f);

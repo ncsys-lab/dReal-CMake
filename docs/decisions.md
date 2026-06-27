@@ -180,3 +180,78 @@ and (b) unlinked positive `forall_t` — both reverted after crashing legitimate
 definitional binding (negated `integral`); parse-layer rejection of unlinkable assertions — all
 specified as aspirational `GTEST_SKIP` tests in `test/dreal/smt2/test/dreal_future.cc`. Full
 mechanism: `docs/ode-integration.md` §"Constraint forms accepted, and the silent drops (BUG-002)".
+
+## Branching split-ratio 0.56 is a symmetry-break, not magic; order has no robust winner
+
+**Context:** the `--split-ratio 0.56` + "alternating" traversal default gave a huge speedup on
+symmetric Lyapunov SAT instances (e.g. `tanh_decrease__J1.0` 22.8M → **69** branch nodes) that
+nobody could rationalize — a load-bearing decision that felt like a liability.
+
+**What it is:** these problems have an off-center feasible region and a **critical point**
+(`∇=0`) at the symmetric origin, so the constraint is *flat* near the center where the search
+dwells — the contractor can't prune, and bisection must subdivide many dimensions. The 0.56
+off-center cut is a **gradient-free symmetry-break** that escapes this flat basin; it is
+load-bearing (`--split-ratio 0.5` regresses both transformative benchmarks under any traversal).
+So 0.56 is principled, not a magic number — keep it.
+
+**What was tried and rejected:**
+- **Feasibility-guided ordering** (dive toward the less-violating child center): *refuted* —
+  gradient-following has no gradient at the symmetric center, and definitional equalities swamp
+  the point-score. (Implemented as `kFeasibilityGuided`, then reverted.)
+- **Depth-parity** replacing the legacy global-branch-count toggle (more intelligible,
+  path-independent): zero flips, but perf-neutral-to-slightly-worse at the default (J0.6 +30%
+  nodes). *Not adopted* — kept the proven global-toggle; no code change.
+
+**Conclusion:** branching **order** is a high-variance lever with no robust deterministic winner;
+the magic was a lucky lottery ticket (`J0.6` is still 24.7M nodes), confirming the smell. The real
+robust fix for off-center-solution-in-flat-landscape is **nlopt local-search seeding**
+(`docs/nlopt-seeding-plan.md`), not a branching tweak. Full instrumentation, tables, and
+refutations: `benchmark/optsearch/SEARCH_LOG.md` §"Why branching matters here, and why no order is
+robust".
+
+**Superseded (2026-06):** that nlopt seeding was built (`--seed-local`, next ADR) and adopted as
+the default, so the 0.56 magic, the `--explore-order` alternate/larger/smaller-first machinery, and
+the per-level alternation toggle were all **removed** — the split ratio returned to 0.5 (midpoint)
+and the sequential exploration order is now a single fixed per-solve choice. This "keep 0.56" snapshot
+records the reasoning at the time; the seeding ADR below is the resolution.
+
+## Seed-and-verify (`--seed-local`): guided nlopt seeding beats the 0.56 branching magic
+
+**Context:** the branching ADR above concluded the robust fix for "find an off-center solution
+where the constraint is flat (∇=0) at the symmetric center" is to find that point *directly*. Built
+as `--seed-local` (`src/dreal/solver/seed.{h,cc}`, hooked in `IcpSeq::CheckSat`), default off.
+
+**What it is:** a speculative, COMPLETENESS-only pre-pass gated to pure-relational (NRA) theory
+calls (`AllRelational` — skips `forall`/ODE). It **proposes** candidate points (LHS sampling or
+multi-start COBYLA), pins a small SOUND box around each (`make_sound_interval` ∩ root box), and
+pushes them onto the ICP stack to be explored first; the **unchanged** prune+`EvaluateBox` loop is
+the sole arbiter. Soundness/completeness are free (cache/recompute carve-out shape, not a fallback):
+a bad candidate cannot cause a false delta-sat and the root box stays on the stack. *(COMPLETENESS-
+only — asserting φ T-sat is gated by the real verifier, never by the proposer.)*
+
+**Result (odeexpr A/B, 50 jobs, honest PAR2 over 40 ever-solved; zero SAT↔UNSAT flips everywhere):**
+`nlopt050_64` solves **39** (PAR2 **17.3**) vs the `base056` 0.56 magic's **37** (PAR2 51.0) — it
+cracks two `xwin` off-center SAT instances the magic *times out* on, 3× lower PAR2, and **no
+overhead regressions**. So it removes the need for the 0.56 magic and beats it at its own job.
+
+**Why guided (nlopt) beats blind (LHS):** LHS is gradient-free and flat-center-immune (vindicating
+the "why not just sampling?" intuition) and cracks both transformative instances, but is caught in
+a coverage-vs-overhead dilemma — small budget misses the tiny J0.6-class region (f ≈ 1e-4), large
+budget (64k samples) cracks it but its pushed boxes regress easy instances to TIM. Guided COBYLA
+needs ~1000× fewer candidates on tiny regions (64 vs 64 000 on J0.6), so it gets coverage *and* low
+overhead. nlopt required three structural fixes to work on these CSE-heavy boxes (unbounded-dim
+sub-box, CSE-equality substitution, NNF objective) — see SEARCH_LOG.
+
+**Flat-center caveat (the original risk, confirmed):** a single COBYLA start from the box center
+*does* stall at ∇=0 (`nlopt-1` TIMs on J1.0); ≥2 multi-starts dodge it via off-center LHS starts.
+
+**Status: adopted as the default (2026-06, owner decision).** Defaults are now `seed_local=true`,
+`seed_method=nlopt`, `seed_samples=64`, `split_ratio=0.5`; disable with `--seed-local false`. The
+superseded branching machinery (0.56 default, `--explore-order`, per-level alternation) was removed
+in the same change. Gated off for ODE/forall — verified it fires 0 times on github/tacas/saradc
+representatives, so the ODE families are unaffected. Soundness proven by a test→RED→fix→GREEN bypass
+test (`test/dreal/solver/test/seed_test.cc`). Full investigation: `benchmark/optsearch/SEARCH_LOG.md`
+§"Seed-and-verify". A follow-up 2×2 confirmed seeding is **orthogonal to**
+`DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS` (same +4 in both settings; the under-constrained-model
+path does not let seeding leak onto the ODE families; FULL=false is a net regression on its own,
+helping UNSAT but hurting SAT) — SEARCH_LOG §"Interaction with …FULL_CONSTRAINTS".

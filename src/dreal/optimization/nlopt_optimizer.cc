@@ -29,6 +29,26 @@ using std::make_unique;
 using std::ostream;
 using std::vector;
 
+Expression ConstraintViolation(const Formula& f) {
+  if (is_conjunction(f)) {
+    Expression sum{};
+    for (const Formula& op : get_operands(f)) {
+      sum += ConstraintViolation(op);
+    }
+    return sum;
+  }
+  if (is_greater_than(f) || is_greater_than_or_equal_to(f)) {
+    // f := e₁ > e₂  -->  minimize e₂ - e₁ to push e₁ above e₂.
+    return get_rhs_expression(f) - get_lhs_expression(f);
+  }
+  if (is_less_than(f) || is_less_than_or_equal_to(f)) {
+    // f := e₁ < e₂  -->  minimize e₁ - e₂.
+    return get_lhs_expression(f) - get_rhs_expression(f);
+  }
+  // Equality / disequality carry no signed descent direction.
+  return Expression{};
+}
+
 namespace {
 /// A function passed to nlopt (type = nlopt_func). Given a vector @p
 /// x, returns the evaluation of @p f_data at @p x and updates @p grad

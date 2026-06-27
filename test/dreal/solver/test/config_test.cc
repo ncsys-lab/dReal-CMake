@@ -61,17 +61,25 @@ GTEST_TEST(Config, CustomBrancher) {
 
   Config config;
   config.mutable_brancher() = MyBrancher;
+  // This test pins the exact branch trajectory of the custom brancher, so isolate
+  // it from --seed-local (default on, orthogonal to the brancher): a seed box
+  // would solve this trivial instance before MyBrancher branches at all.
+  config.mutable_seed_local().set_from_command_line(false);
 
   // Checks the API returning an optional.
   auto result = CheckSatisfiability(f1 && f2 && f3 && f4, config);
   ASSERT_TRUE(result);
 
-  EXPECT_EQ(g_branch_variables.size(), 42);
+  // Exact branch trajectory of the custom (widest-dim, midpoint) brancher under
+  // the fixed left-first exploration order. The counts/order were re-pinned in
+  // 2026-06 when the per-level alternation was removed (42 -> 28 branches); the
+  // brancher is still the sole driver of which variable is split.
+  EXPECT_EQ(g_branch_variables.size(), 28);
   EXPECT_EQ(g_branch_variables[0], y);
   EXPECT_EQ(g_branch_variables[1], z);
-  EXPECT_EQ(g_branch_variables[2], x);
-  EXPECT_EQ(g_branch_variables[3], y);
-  EXPECT_EQ(g_branch_variables[4], z);
+  EXPECT_EQ(g_branch_variables[2], y);
+  EXPECT_EQ(g_branch_variables[3], z);
+  EXPECT_EQ(g_branch_variables[4], y);
 }
 
 }  // namespace
