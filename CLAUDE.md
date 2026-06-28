@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/benchmarking.md` — benchmark infrastructure, families, A/B, sweep, cross-solver comparison
 - `docs/soundness-vs-completeness.md` — T-relation definitions, dReal guarantees, worked F1 example
 - `docs/forall-semantics.md` — ∃∀ fragment: syntax, CE-guided contractor, nested-forall crash, QE limits, nested-quantifier project guide
+- `docs/seeding.md` — seed-and-verify (`--seed-samples`): the `AllRelational` gate, the CSE/COBYLA/NNF/outward-box pipeline, COMPLETENESS-only framing
 - `docs/papers/` — foundational Gao et al. literature: companion summaries (δ-decidability/δ-complete/dReal-tool/∃∀) cross-referenced into the docs above, with paper↔code drift flagged (e.g. opensmt+realpaver → CaDiCaL+IBEX+CAPD)
 
 ---
@@ -105,7 +106,8 @@ SAT instances — propose candidate points (multi-start COBYLA) and verify a sma
 the existing prune/`EvaluateBox` (soundness/completeness free; gated off for ODE/forall so it never
 fires there). `--seed-samples` is also the switch: `0` disables. This replaced the removed 0.56
 split-ratio magic + `--explore-order` alternation (split ratio is hardcoded back to 0.5, no flag).
-See `docs/decisions.md` §"Seed-and-verify" and `src/dreal/solver/seed.{h,cc}`.
+Mechanism + flags: `docs/seeding.md`. Rationale + A/B: `docs/decisions.md` §"Seed-and-verify".
+Code: `src/dreal/solver/seed/seed.{h,cc}`.
 
 **CAPD ODE tuning:** `--ode-taylor-order` (default 12), `--ode-hull-grid` (4 — per-step sub-slice
 count; lower widens enclosures (never a false-`unsat`). Since the 2026-06 centered-in-time tube

@@ -7,7 +7,7 @@
 
      http://www.apache.org/licenses/LICENSE-2.0
 */
-#include "dreal/solver/seed.h"
+#include "dreal/solver/seed/seed.h"
 
 #include <algorithm>
 #include <cmath>
@@ -37,6 +37,14 @@ bool FiniteDim(const Box& box, const int i) {
   return std::isfinite(box[i].lb()) && std::isfinite(box[i].ub());
 }
 
+// True iff variable v has finite bounds in box.
+bool FiniteVar(const Box& box, const Variable& v) {
+  const Box::Interval& iv{box[v]};
+  return std::isfinite(iv.lb()) && std::isfinite(iv.ub());
+}
+
+}  // namespace
+
 // Indices of the finite (samplable) dimensions of `box`.
 vector<int> FiniteDims(const Box& box) {
   vector<int> dims;
@@ -46,12 +54,6 @@ vector<int> FiniteDims(const Box& box) {
     }
   }
   return dims;
-}
-
-// True iff variable v has finite bounds in box.
-bool FiniteVar(const Box& box, const Variable& v) {
-  const Box::Interval& iv{box[v]};
-  return std::isfinite(iv.lb()) && std::isfinite(iv.ub());
 }
 
 // Substitution mapping each unbounded (no explicit bound) variable that an
@@ -241,8 +243,6 @@ Box SmallBoxAround(const Box& box, const vector<double>& pt,
   }
   return b;
 }
-
-}  // namespace
 
 bool AllRelational(const vector<FormulaEvaluator>& formula_evaluators) {
   for (const FormulaEvaluator& fe : formula_evaluators) {

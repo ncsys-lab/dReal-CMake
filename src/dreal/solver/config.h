@@ -250,27 +250,21 @@ class Config {
   static constexpr double kDefaultDrpmMaxTime{0.222};
 
   // CAPD ODE-contractor defaults (previously compile-time constants in
-  // contractor_odes_capd.cc). Retuned by the 2026-06 sweep (OPTIMIZATION_LOG.md
-  // "2026-06 re-tuning campaign"): forward & backward order 12 + hull-grid 4,
-  // down from order 20 / hull-16. 123-job ODE-family confirm vs the old default:
-  // ~2x faster (PAR2 0.49), +4 solved (121/123, incl. a newly-completed UNSAT),
-  // and ZERO SAT<->UNSAT flips across 141 benchmarks (backward-order 12 adds a
-  // further ~5%). The optimal forward order is problem-dependent (tacas inverters
-  // want ~8-12, stiff long-horizon github wants ~16-20), so it stays a flag.
+  // contractor_odes_capd.cc). Forward & backward order 12 + hull-grid 4 (down
+  // from 20 / 16) — the 2026-06 re-tuning result. The campaign numbers, the
+  // per-order problem-dependence (why order stays a flag: tacas inverters want
+  // ~8-12, stiff long-horizon github ~16-20), and the F1/hull history are in
+  // OPTIMIZATION_LOG.md §"2026-06 re-tuning campaign".
   //
-  // SOUNDNESS/COMPLETENESS NOTE: lowering order / hull-grid only WIDENS the enclosures (each
-  // sub-slice is still a sound outward over-approximation), so it can NEVER cause
-  // a false-UNSAT; the only cost of a coarser knob is *completeness* (a missed
-  // refutation / delta-sat), never a soundness hole. As of the 2026-06
-  // centered-in-time tube fix (HULL_COMPLETENESS.md "Resolution"), hull-grid is
-  // NO LONGER completeness-load-bearing: the per-slice enclosure is evaluated by
-  // a mean-value-in-time range (curve(mid) + curve'(sub)·(sub-mid), intersected
-  // with the naive curve(sub)), which holds the tube near CAPD's actual precision
-  // regardless of the adaptive step size — so the sharp interior
-  // invariant-violation (GravityInvariantTest F1) is now refuted at THIS default
-  // hull-4, not only at hull-16. Higher hull-grid still helps pathologically
-  // sharp cases but no longer trades away the F1-class refutation.
-  // Tolerances at 1e-10 (step size is not tolerance-limited on the corpus).
+  // SOUNDNESS/COMPLETENESS: lowering order / hull-grid only WIDENS the enclosures
+  // (each sub-slice stays a sound outward over-approximation), so a coarser knob
+  // can NEVER cause a false-`unsat` (SOUNDNESS) — its only cost is a missed
+  // refutation (COMPLETENESS). Since the 2026-06 centered-in-time tube fix
+  // (HULL_COMPLETENESS.md "Resolution") hull-grid is no longer
+  // completeness-load-bearing: the per-slice range is mean-value-in-time, holding
+  // the tube near CAPD precision regardless of step size (the GravityInvariantTest
+  // F1 sharp-interior case now refutes at this hull-4 default). Raise it (16+) only
+  // for pathologically sharp invariants. Tolerances 1e-10 (not step-limiting here).
   static constexpr int kDefaultOdeTaylorOrder{12};
   static constexpr int kDefaultOdeBackwardOrder{12};
   static constexpr double kDefaultOdeAbsTol{1e-10};
@@ -279,11 +273,9 @@ class Config {
   static constexpr double kDefaultOdeMaxStep{0.0};  // 0 => fully adaptive
 
   // --seed-samples candidate budget: the COBYLA multi-start count, and the
-  // seed-and-verify on/off switch (> 0 on, 0 off). 64 multi-start COBYLA was the
-  // A/B winner (solved +2 over the old 0.56 branching magic at 3x lower PAR2,
-  // zero flips, no overhead regressions). Guided descent needs ~1000x fewer
-  // candidates than blind sampling on tiny feasible regions, so it gets coverage
-  // at low overhead. See benchmark/optsearch/SEARCH_LOG.md §"Seed-and-verify".
+  // seed-and-verify on/off switch (> 0 on, 0 off). Multi-start (not a single
+  // center start) is what dodges the flat-center stall. Mechanism: docs/seeding.md;
+  // the A/B that picked 64: docs/decisions.md §"Seed-and-verify".
   static constexpr int kDefaultSeedSamples{64};
 
   // ACID / 3BCID shaving contractor knobs (mirror ibex CtcAcid/Ctc3BCid
@@ -374,12 +366,9 @@ class Config {
   // brancher_smear.cc). Picks the split variable, not the split point.
   OptionValue<bool> use_smear_{false};
 
-  // --seed-samples seed-and-verify pre-pass (see seed.h, icp_seq.cc). Default ON
-  // (64 multi-start nlopt) — the 2026-06 A/B winner; it cracks off-center NRA SAT
-  // instances the old 0.56 branching magic timed out on, and is gated off for
-  // ODE/forall (AllRelational) so it never fires on those families. The count is
-  // also the switch: 0 disables. Speculative, completeness-only — the
-  // prune+EvaluateBox loop remains the sole arbiter.
+  // Seed-and-verify pre-pass: speculative, COMPLETENESS-only, gated to
+  // pure-relational (NRA) calls (AllRelational). The count is also the on/off
+  // switch (0 disables). See seed/seed.h, docs/seeding.md.
   OptionValue<int> seed_samples_{kDefaultSeedSamples};
 
   // ACID / 3BCID shaving contractor (default off; see contractor_ibex_acid.cc).

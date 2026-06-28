@@ -205,7 +205,7 @@ So 0.56 is principled, not a magic number — keep it.
 **Conclusion:** branching **order** is a high-variance lever with no robust deterministic winner;
 the magic was a lucky lottery ticket (`J0.6` is still 24.7M nodes), confirming the smell. The real
 robust fix for off-center-solution-in-flat-landscape is **nlopt local-search seeding**
-(`docs/nlopt-seeding-plan.md`), not a branching tweak. Full instrumentation, tables, and
+(`docs/seeding.md`), not a branching tweak. Full instrumentation, tables, and
 refutations: `benchmark/optsearch/SEARCH_LOG.md` §"Why branching matters here, and why no order is
 robust".
 
@@ -219,7 +219,7 @@ records the reasoning at the time; the seeding ADR below is the resolution.
 
 **Context:** the branching ADR above concluded the robust fix for "find an off-center solution
 where the constraint is flat (∇=0) at the symmetric center" is to find that point *directly*. Built
-as `--seed-local` (`src/dreal/solver/seed.{h,cc}`, hooked in `IcpSeq::CheckSat`), default off.
+as `--seed-local` (`src/dreal/solver/seed/seed.{h,cc}`, hooked in `IcpSeq::CheckSat`), default off.
 
 **What it is:** a speculative, COMPLETENESS-only pre-pass gated to pure-relational (NRA) theory
 calls (`AllRelational` — skips `forall`/ODE). It **proposes** candidate points (LHS sampling or
@@ -252,7 +252,8 @@ change; a later consolidation also dropped `--split-ratio` (hardcoded 0.5), `--s
 is the sole proposer; the standalone LHS path was removed — LHS survives only as nlopt's multi-start
 generator), and the separate `--seed-local` toggle (folded into `--seed-samples > 0`). Gated off for ODE/forall — verified it fires 0 times on github/tacas/saradc
 representatives, so the ODE families are unaffected. Soundness proven by a test→RED→fix→GREEN bypass
-test (`test/dreal/solver/test/seed_test.cc`). Full investigation: `benchmark/optsearch/SEARCH_LOG.md`
+test (`test/dreal/solver/seed/test/seed_test.cc`, since expanded into an adversarial unit
+suite — see `docs/seeding.md`). Full investigation: `benchmark/optsearch/SEARCH_LOG.md`
 §"Seed-and-verify". A follow-up 2×2 confirmed seeding is **orthogonal to**
 `DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS` (same +4 in both settings; the under-constrained-model
 path does not let seeding leak onto the ODE families; FULL=false is a net regression on its own,

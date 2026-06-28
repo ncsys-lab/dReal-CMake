@@ -22,7 +22,7 @@
 #include "dreal/solver/brancher.h"
 #include "dreal/solver/brancher_smear.h"
 #include "dreal/solver/icp_stat.h"
-#include "dreal/solver/seed.h"
+#include "dreal/solver/seed/seed.h"
 #include "dreal/util/interrupt.h"
 #include "dreal/util/logging.h"
 
@@ -39,9 +39,9 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
                       ContractorStatus* const cs) {
   // Which child to explore first — a fixed per-solve choice (the forall
   // contractor flips config().stack_left_box_first() across counterexample
-  // iterations to diversify). Per-level alternation and larger/smaller-first
-  // ordering were removed in 2026-06 as high-variance non-levers; off-center
-  // instances are cracked by seed-and-verify (--seed-samples), not branch order.
+  // iterations to diversify). There is deliberately no branch-order knob:
+  // ordering is a high-variance non-lever, and off-center instances are cracked
+  // by seed-and-verify (--seed-samples), not by branch order.
   const bool explore_left_first{!config().stack_left_box_first()};
   static IcpStat stat{DREAL_LOG_INFO_ENABLED};
   DREAL_LOG_DEBUG("IcpSeq::CheckSat()");

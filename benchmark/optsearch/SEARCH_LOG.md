@@ -434,11 +434,11 @@ J1.0@0.50 — is inside the 0.50 regime, which 0.56 strictly dominates on both b
 3. **The genuinely robust fix is local-search seeding, not a branching tweak.** Finding an
    off-center solution in a flat landscape is what `nlopt` is for: seed the ICP search with a
    locally-optimized candidate point and verify a delta-box around it. Scoped in
-   `docs/nlopt-seeding-plan.md`; dReal already links nlopt (`src/dreal/optimization/`).
+   `docs/seeding.md`; dReal already links nlopt (`src/dreal/optimization/`).
 
 # Seed-and-verify (`--seed-local`): built and benchmarked (2026-06, follow-up)
 
-This is the fix item 3 points to, implemented (`src/dreal/solver/seed.{h,cc}`, hooked in
+This is the fix item 3 points to, implemented (`src/dreal/solver/seed/seed.{h,cc}`, hooked in
 `IcpSeq::CheckSat`) and benchmarked across all configs.
 
 ## Architecture (soundness/completeness free)
@@ -451,7 +451,8 @@ the cache/recompute carve-out shape, NOT a fallback: a poor candidate cannot cau
 delta-sat (EvaluateBox is the sole arbiter) and no subspace is dropped. *(COMPLETENESS-only — see
 the soundness mandate.)* Proven by a test→RED→fix→GREEN cycle: a "trust-the-seed-without-verify"
 bypass flips the UNSAT guards to false delta-sat (RED); the verify-only path is GREEN
-(`test/dreal/solver/test/seed_test.cc`, 6/6 pass).
+(`test/dreal/solver/seed/test/seed_test.cc`, 6/6 pass at the time; since expanded into a
+full adversarial unit suite).
 
 Two proposers (`--seed-method`): **`lhs`** (Latin-hypercube sampling — gradient-free, no
 flat-center vulnerability; the default per the "why not just sampling?" pivot — grid is rejected,

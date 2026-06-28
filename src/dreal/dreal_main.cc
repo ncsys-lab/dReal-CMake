@@ -331,8 +331,8 @@ void MainProgram::AddOptions() {
   // Seed-and-verify pre-pass (off-center NRA SAT instances). Speculative,
   // completeness-only: multi-start COBYLA proposes candidate points and a small
   // sound box around each is verified first by the existing prune+EvaluateBox.
-  // The sample count is also the switch — 0 disables; default ON at 64 (the
-  // 2026-06 A/B winner). Gated off for ODE/forall.
+  // The sample count is also the switch — 0 disables; default ON at 64. Gated
+  // off for ODE/forall. Mechanism: docs/seeding.md.
   opt_.add(fmt::format("{}", Config::kDefaultSeedSamples).c_str(), false, 1, 0,
            fmt::format("Seed-and-verify pre-pass for pure-relational (NRA) theory "
                        "calls: COBYLA multi-start count; 0 disables. (default = {})",
