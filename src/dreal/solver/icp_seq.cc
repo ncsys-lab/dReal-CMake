@@ -37,12 +37,23 @@ IcpSeq::IcpSeq(const Config& config) : Icp{config} {}
 bool IcpSeq::CheckSat(const Contractor& contractor,
                       const vector<FormulaEvaluator>& formula_evaluators,
                       ContractorStatus* const cs) {
-  // Which child to explore first — a fixed per-solve choice (the forall
-  // contractor flips config().stack_left_box_first() across counterexample
-  // iterations to diversify). There is deliberately no branch-order knob:
-  // ordering is a high-variance non-lever, and off-center instances are cracked
-  // by seed-and-verify (--seed-samples), not by branch order.
-  const bool explore_left_first{!config().stack_left_box_first()};
+  // Which child to explore first. ALTERNATES every branch (toggled below) — a
+  // parameter-free DFS diversification that is the years-long default (the
+  // parallel path alternates too). Why it is load-bearing: DFS commits fully to
+  // the first child's whole subtree before backtracking, so a FIXED first-side
+  // hugs one wall of the branch tree and can exhaustively grind a witness-free
+  // region; BMC unrollings are DEEP, so that region is astronomically large.
+  // Alternating zig-zags to diverse deep leaves fast — decisive on SAT, where we
+  // stop at the first witness (it only reorders leaf visits, so it can never
+  // change soundness or the UNSAT verdict). Removing it blows up deep ODE-BMC SAT
+  // like bouncing ball — <1s with, >60s without (~70x). seed-and-verify
+  // (--seed-samples) is the robust replacement for branch-order tricks, but it is
+  // GATED OFF for ODE/forall, so alternation is the only diversification those
+  // families get. It is a parity flip, not a tuned constant (cf. the removed 0.56
+  // split-ratio): no knob to overfit. Rationale: docs/decisions.md §"Per-branch
+  // alternation". The forall contractor seeds the starting side via
+  // config().stack_left_box_first().
+  bool explore_left_first{!config().stack_left_box_first()};
   static IcpStat stat{DREAL_LOG_INFO_ENABLED};
   DREAL_LOG_DEBUG("IcpSeq::CheckSat()");
   // Stack of Box x BranchingPoint.
@@ -168,6 +179,7 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
         stack.emplace_back(box_left, branching_dim);
         stack.emplace_back(box_right, branching_dim);
       }
+      explore_left_first = !explore_left_first;  // alternate each branch
     } else {
       DREAL_LOG_DEBUG(
           "IcpSeq::CheckSat() Found that the current box is not satisfying "

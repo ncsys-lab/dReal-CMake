@@ -379,11 +379,19 @@ equalities, and **one** hard constraint — the Lyapunov residual `BigExpr > 3/2
 symmetric origin every term of `BigExpr` is a product of factors that each vanish at 0, so
 `BigExpr(0)=0` **and** `∇BigExpr(0)=0`: the origin is a **critical point**, and the geometric
 center *violates* the constraint (`0 > 0.0015` is false). So the feasible region is off-center,
-and near the center — where the search starts and dwells — the constraint is **flat**: the
-contractor cannot prune (no gradient to propagate) and the search must bisect many dimensions to
-isolate the off-center solution. That is *why* branching matters so much here, and why the
-"alternation" is not really magic: the off-center cut is a **gradient-free symmetry-break** that
-escapes the flat basin by brute geometry.
+and near the center — where the search starts and dwells — HC4 cannot contract. The mechanism is
+**interval-arithmetic, not gradient-based** (HC4/FwdBwd uses no derivatives): because every
+factor's interval straddles 0 there, (a) the forward hull of `BigExpr` is wide and symmetric about
+0, so `BigExpr > 0.0015` is trivially consistent with the box and it cannot be refuted; and (b) the
+backward projections are un-contractive — projecting through a product node `z=x·y` gives
+`x ← X ∩ (Z/Y)` with the sibling `Y` straddling 0, so `Z/Y` is `(−∞,+∞)` and pins nothing, and
+through a sum node `Z−Y` is wide. No variable narrows, so the search must bisect many dimensions
+until sub-boxes are tight enough that the factors no longer straddle 0 (where HC4 finally bites).
+That is *why* branching matters so much here, and why the "alternation" is not really magic: the
+off-center cut is a **gradient-free symmetry-break** that escapes the flat basin by brute geometry.
+(The *same* origin degeneracy — every subterm straddling 0 — separately defeats the gradient-based
+alternatives below, Newton/smear/feasibility-guided ordering, via `∇=0`: one geometric fact, two
+distinct failure mechanisms — the interval one for HC4, the derivative one for the rest.)
 
 ## Feasibility-guided ordering — implemented, then REFUTED
 

@@ -213,7 +213,10 @@ robust".
 the default, so the 0.56 magic, the `--explore-order` alternate/larger/smaller-first machinery, and
 the per-level alternation toggle were all **removed** — the split ratio returned to 0.5 (midpoint)
 and the sequential exploration order is now a single fixed per-solve choice. This "keep 0.56" snapshot
-records the reasoning at the time; the seeding ADR below is the resolution.
+records the reasoning at the time; the seeding ADR below is the resolution. **(Later correction:
+per-branch alternation was *restored* in 2026-06 — it is load-bearing for ODE-BMC, which seeding does
+not cover; only the 0.56 ratio and `--explore-order` flag stay gone. See the final ADR, §"Per-branch
+alternation re-instated".)**
 
 ## Seed-and-verify (`--seed-local`): guided nlopt seeding beats the 0.56 branching magic
 
@@ -248,7 +251,8 @@ sub-box, CSE-equality substitution, NNF objective) — see SEARCH_LOG.
 **Status: adopted as the default (2026-06, owner decision).** Default is `--seed-samples 64`
 (multi-start COBYLA); `--seed-samples` is also the on/off switch (`0` disables). The superseded
 branching machinery (0.56 default, `--explore-order`, per-level alternation) was removed in the same
-change; a later consolidation also dropped `--split-ratio` (hardcoded 0.5), `--seed-method` (nlopt
+change (per-branch **alternation** was later restored for ODE-BMC — see the final ADR; only the 0.56
+ratio and `--explore-order` flag stay gone); a later consolidation also dropped `--split-ratio` (hardcoded 0.5), `--seed-method` (nlopt
 is the sole proposer; the standalone LHS path was removed — LHS survives only as nlopt's multi-start
 generator), and the separate `--seed-local` toggle (folded into `--seed-samples > 0`). Gated off for ODE/forall — verified it fires 0 times on github/tacas/saradc
 representatives, so the ODE families are unaffected. Soundness proven by a test→RED→fix→GREEN bypass
@@ -258,3 +262,38 @@ suite — see `docs/seeding.md`). Full investigation: `benchmark/optsearch/SEARC
 `DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS` (same +4 in both settings; the under-constrained-model
 path does not let seeding leak onto the ODE families; FULL=false is a net regression on its own,
 helping UNSAT but hurting SAT) — SEARCH_LOG §"Interaction with …FULL_CONSTRAINTS".
+
+## Per-branch alternation re-instated — load-bearing for ODE-BMC; seeding doesn't reach it
+
+**Supersedes the two "alternation removed" notes above.** The seed-and-verify rollout de-alternated
+the **sequential** ICP path (`IcpSeq::CheckSat`), leaving `explore_left_first` a fixed per-solve
+choice on the theory that branch order is a high-variance non-lever. But that A/B ran on **odeexpr —
+the only NRA family**, exactly where seed-and-verify fires; seed-and-verify is **gated off for
+ODE/forall** (skips non-`AllRelational` calls), so on the ODE-BMC families it replaced *nothing*. The
+`run_me.smt2` / bouncing-ball investigation (2026-06) found the de-alternated sequential path
+regresses deep ODE-BMC SAT instances catastrophically — **<1s with alternation, >60s without
+(~70×)** — so per-branch alternation was **restored** in `IcpSeq::CheckSat`. (The parallel path
+`IcpParallel` never lost it — it has alternated since the base commit, so the removal only ever
+de-synced the two paths.)
+
+**Why it works (intuition).** ICP search is depth-first over a binary branch tree, and DFS commits
+fully to the first-explored child's whole subtree before backtracking. A **fixed** first-side
+therefore hugs one wall of the tree; if the witness lies toward the other wall — and BMC unrollings
+are *deep*, so a root-level subtree is astronomically large — the search exhaustively grinds a
+witness-free region before it is ever "allowed" to drift across. Alternating the first side
+**zig-zags** down the tree, reaching diverse *deep* leaves quickly. On a SAT instance you stop at the
+first feasible box, so reaching a witness sooner is the whole game. Both orders explore the same tree
+to the same verdict in the limit; alternation only changes leaf **visit order** — so it can never
+affect soundness or the UNSAT verdict, only time-to-first-witness on SAT.
+
+**Is it a "magic number"? No — and that is why it is the robust default.** Unlike the removed `0.56`
+split-ratio (a genuinely tuned constant, a "lucky lottery ticket"), alternation is a
+**parameter-free parity flip** — there is no constant to fit or overfit. Its robustness is
+structural: a fixed order has an adversarial worst case (witness maximally far from the bias → grind
+everything first), while alternation has *no bias for an instance to be adversarial against*, so its
+worst case is strictly better. The more "principled" alternatives were considered and do not win
+here: **depth-parity** toggle — tried, perf-neutral-to-worse, not adopted (branching ADR above);
+**best-first** search — trades the ordering question for unbounded memory (DFS is memory-bounded);
+**informed first-side** (steer toward a sampled candidate) — this is precisely what seed-and-verify
+already does for NRA, and blind alternation is the residual robust default for the ODE/forall
+families it cannot reach. Code + intuition: `src/dreal/solver/icp_seq.cc` (`explore_left_first`).
