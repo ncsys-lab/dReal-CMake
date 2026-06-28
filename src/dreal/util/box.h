@@ -106,9 +106,7 @@ class Box {
 
   /// Bisects the box at @p i -th dimension. For a continuous variable the cut
   /// falls at @p ratio of the interval width (lb + ratio*diam); @p ratio is
-  /// ignored for integer/binary variables. @p ratio defaults to the midpoint
-  /// (0.5); the `--split-ratio` knob feeds an off-center value to break the
-  /// origin-symmetry common in these problems.
+  /// ignored for integer/binary variables and defaults to the midpoint (0.5).
   /// @throws std::runtime if @p i -th dimension is not bisectable.
   std::pair<Box, Box> bisect(int i, double ratio = 0.5) const;
 

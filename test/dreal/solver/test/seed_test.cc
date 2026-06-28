@@ -16,47 +16,35 @@
 namespace dreal {
 namespace {
 
-// A Config with the --seed-local seed-and-verify pre-pass enabled.
-Config SeedConfig(const SeedMethod method) {
+// A Config with the seed-and-verify pre-pass enabled (multi-start COBYLA).
+// --seed-samples is the on/off switch: > 0 enables it.
+Config SeedConfig() {
   Config c;
-  c.mutable_seed_local().set_from_command_line(true);
-  c.mutable_seed_method().set_from_command_line(method);
   c.mutable_seed_samples().set_from_command_line(64);
   return c;
 }
 
-// A Config with seeding explicitly OFF (seed_local is on by default now), for
-// the seeded-vs-unseeded parity baseline.
+// A Config with seeding explicitly OFF (--seed-samples 0; the count defaults
+// to 64, i.e. on), for the seeded-vs-unseeded parity baseline.
 Config UnseededConfig() {
   Config c;
-  c.mutable_seed_local().set_from_command_line(false);
+  c.mutable_seed_samples().set_from_command_line(0);
   return c;
 }
 
 // Off-center SAT: the geometric center (0,0) VIOLATES x²+y² ≥ 1 (0 ≥ 1 is
 // false); the feasible region is the off-center annulus. This is the structure
-// --seed-local targets — a fat feasible region that does not contain the center.
-// Seeding must reach delta-sat (the same verdict the default search reaches).
+// seed-and-verify targets — a fat feasible region that does not contain the
+// center. Seeding must reach delta-sat (the same verdict the default search
+// reaches).
 class SeedTest : public ::testing::Test {
  protected:
   const Variable x_{"x"};
   const Variable y_{"y"};
 };
 
-TEST_F(SeedTest, OffCenterSatLhs) {
-  Context ctx{SeedConfig(SeedMethod::kLhs)};
-  ctx.DeclareVariable(x_);
-  ctx.DeclareVariable(y_);
-  ctx.Assert(x_ >= -2);
-  ctx.Assert(x_ <= 2);
-  ctx.Assert(y_ >= -2);
-  ctx.Assert(y_ <= 2);
-  ctx.Assert(x_ * x_ + y_ * y_ >= 1);
-  EXPECT_TRUE(ctx.CheckSat());
-}
-
-TEST_F(SeedTest, OffCenterSatNlopt) {
-  Context ctx{SeedConfig(SeedMethod::kNlopt)};
+TEST_F(SeedTest, OffCenterSat) {
+  Context ctx{SeedConfig()};
   ctx.DeclareVariable(x_);
   ctx.DeclareVariable(y_);
   ctx.Assert(x_ >= -2);
@@ -80,7 +68,7 @@ TEST_F(SeedTest, VerdictParitySat) {
   plain.Assert(x_ * x_ + y_ * y_ >= 1);
   EXPECT_TRUE(plain.CheckSat());
 
-  Context seeded{SeedConfig(SeedMethod::kLhs)};
+  Context seeded{SeedConfig()};
   seeded.DeclareVariable(x_);
   seeded.DeclareVariable(y_);
   seeded.Assert(x_ >= -2);
@@ -100,21 +88,8 @@ TEST_F(SeedTest, VerdictParitySat) {
 // cannot assert φ T-sat on a T-unsat φ.) If a future change made the seed path
 // trust a candidate WITHOUT the box verify, this test would flip to a false
 // delta-sat and fail.
-TEST_F(SeedTest, SpuriousCandidateStaysUnsatLhs) {
-  Context ctx{SeedConfig(SeedMethod::kLhs)};
-  ctx.DeclareVariable(x_);
-  ctx.DeclareVariable(y_);
-  ctx.Assert(x_ >= -2);
-  ctx.Assert(x_ <= 2);
-  ctx.Assert(y_ >= -2);
-  ctx.Assert(y_ <= 2);
-  ctx.Assert(x_ * x_ + y_ * y_ <= 0.01);
-  ctx.Assert(x_ * x_ + y_ * y_ >= 0.04);
-  EXPECT_FALSE(ctx.CheckSat());
-}
-
-TEST_F(SeedTest, SpuriousCandidateStaysUnsatNlopt) {
-  Context ctx{SeedConfig(SeedMethod::kNlopt)};
+TEST_F(SeedTest, SpuriousCandidateStaysUnsat) {
+  Context ctx{SeedConfig()};
   ctx.DeclareVariable(x_);
   ctx.DeclareVariable(y_);
   ctx.Assert(x_ >= -2);
@@ -128,7 +103,7 @@ TEST_F(SeedTest, SpuriousCandidateStaysUnsatNlopt) {
 
 // Verdict parity on a plainly UNSAT instance (empty interval intersection).
 TEST_F(SeedTest, VerdictParityUnsat) {
-  Context ctx{SeedConfig(SeedMethod::kLhs)};
+  Context ctx{SeedConfig()};
   ctx.DeclareVariable(x_);
   ctx.Assert(x_ >= 0);
   ctx.Assert(x_ <= 1);

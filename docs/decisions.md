@@ -245,10 +245,12 @@ sub-box, CSE-equality substitution, NNF objective) — see SEARCH_LOG.
 **Flat-center caveat (the original risk, confirmed):** a single COBYLA start from the box center
 *does* stall at ∇=0 (`nlopt-1` TIMs on J1.0); ≥2 multi-starts dodge it via off-center LHS starts.
 
-**Status: adopted as the default (2026-06, owner decision).** Defaults are now `seed_local=true`,
-`seed_method=nlopt`, `seed_samples=64`, `split_ratio=0.5`; disable with `--seed-local false`. The
-superseded branching machinery (0.56 default, `--explore-order`, per-level alternation) was removed
-in the same change. Gated off for ODE/forall — verified it fires 0 times on github/tacas/saradc
+**Status: adopted as the default (2026-06, owner decision).** Default is `--seed-samples 64`
+(multi-start COBYLA); `--seed-samples` is also the on/off switch (`0` disables). The superseded
+branching machinery (0.56 default, `--explore-order`, per-level alternation) was removed in the same
+change; a later consolidation also dropped `--split-ratio` (hardcoded 0.5), `--seed-method` (nlopt
+is the sole proposer; the standalone LHS path was removed — LHS survives only as nlopt's multi-start
+generator), and the separate `--seed-local` toggle (folded into `--seed-samples > 0`). Gated off for ODE/forall — verified it fires 0 times on github/tacas/saradc
 representatives, so the ODE families are unaffected. Soundness proven by a test→RED→fix→GREEN bypass
 test (`test/dreal/solver/test/seed_test.cc`). Full investigation: `benchmark/optsearch/SEARCH_LOG.md`
 §"Seed-and-verify". A follow-up 2×2 confirmed seeding is **orthogonal to**

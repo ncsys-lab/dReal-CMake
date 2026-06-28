@@ -34,14 +34,6 @@ enum class ConstraintOrder {
   kDesc,  ///< most-variables first
 };
 
-/// How `--seed-local` proposes candidate points for the speculative
-/// seed-and-verify pre-pass (see icp_seq.cc, seed.h). Both feed the SAME verify
-/// hook (a small sound box pushed onto the ICP stack, decided by the existing
-/// prune+EvaluateBox loop), so the choice is a COMPLETENESS/perf lever only.
-enum class SeedMethod {
-  kLhs,    ///< Latin-hypercube sampling (gradient-free; no flat-center stall)
-  kNlopt,  ///< multi-start COBYLA local optimization (guided; for tiny regions)
-};
 
 class Config {
  public:
@@ -123,11 +115,6 @@ class Config {
   /// Returns a mutable OptionValue for `brancher`.
   OptionValue<Brancher>& mutable_brancher();
 
-  /// Returns the branching split ratio (cut point as a fraction of width).
-  double split_ratio() const;
-  /// Returns a mutable OptionValue for `split_ratio`.
-  OptionValue<double>& mutable_split_ratio();
-
   /// Returns the constraint ordering for the ICP fixpoint.
   ConstraintOrder constraint_order() const;
   /// Returns a mutable OptionValue for `constraint_order`.
@@ -138,21 +125,12 @@ class Config {
   /// Returns a mutable OptionValue for `use_smear`.
   OptionValue<bool>& mutable_use_smear();
 
-  /// Returns whether the `--seed-local` seed-and-verify pre-pass is enabled.
-  bool seed_local() const;
-  /// Returns a mutable OptionValue for `seed_local`.
-  OptionValue<bool>& mutable_seed_local();
-
-  /// Returns the candidate-point budget for `--seed-local` (LHS sample count, or
-  /// COBYLA multi-start count for `--seed-method nlopt`).
+  /// Returns the seed-and-verify candidate budget: the COBYLA multi-start count,
+  /// and the on/off switch — `> 0` enables the `--seed-samples` pre-pass, `0`
+  /// disables it.
   int seed_samples() const;
   /// Returns a mutable OptionValue for `seed_samples`.
   OptionValue<int>& mutable_seed_samples();
-
-  /// Returns the `--seed-local` candidate-proposal method.
-  SeedMethod seed_method() const;
-  /// Returns a mutable OptionValue for `seed_method`.
-  OptionValue<SeedMethod>& mutable_seed_method();
 
   /// Returns whether the ACID shaving contractor is enabled.
   bool use_acid() const;
@@ -300,22 +278,12 @@ class Config {
   static constexpr int kDefaultOdeHullGrid{4};
   static constexpr double kDefaultOdeMaxStep{0.0};  // 0 => fully adaptive
 
-  // Branching split point: fraction of the chosen dimension's width at which the
-  // bisection cut falls. Default 0.5 (midpoint). The off-center 0.56 cut + the
-  // alternating traversal that once gave a large odeexpr win were a brittle,
-  // high-variance lottery for off-center-solution-in-flat-landscape; that case is
-  // now handled directly and robustly by --seed-local (see docs/decisions.md
-  // §"Seed-and-verify"), so the magic was removed and the cut returned to the
-  // midpoint. Completeness lever only — cannot change a verdict, only speed.
-  // Override with --split-ratio.
-  static constexpr double kDefaultSplitRatio{0.5};
-
-  // --seed-local candidate-point budget (COBYLA multi-start count for the
-  // default nlopt method; LHS sample count for --seed-method lhs). 64 multi-start
-  // COBYLA was the seed-and-verify A/B winner (solved +2 over the old 0.56 magic
-  // at 3x lower PAR2, zero flips, no overhead regressions). Guided descent needs
-  // ~1000x fewer candidates than blind LHS on tiny feasible regions, so it gets
-  // coverage at low overhead. See benchmark/optsearch/SEARCH_LOG.md §"Seed-and-verify".
+  // --seed-samples candidate budget: the COBYLA multi-start count, and the
+  // seed-and-verify on/off switch (> 0 on, 0 off). 64 multi-start COBYLA was the
+  // A/B winner (solved +2 over the old 0.56 branching magic at 3x lower PAR2,
+  // zero flips, no overhead regressions). Guided descent needs ~1000x fewer
+  // candidates than blind sampling on tiny feasible regions, so it gets coverage
+  // at low overhead. See benchmark/optsearch/SEARCH_LOG.md §"Seed-and-verify".
   static constexpr int kDefaultSeedSamples{64};
 
   // ACID / 3BCID shaving contractor knobs (mirror ibex CtcAcid/Ctc3BCid
@@ -406,23 +374,19 @@ class Config {
   // brancher_smear.cc). Picks the split variable, not the split point.
   OptionValue<bool> use_smear_{false};
 
-  // --seed-local seed-and-verify pre-pass (see seed.h, icp_seq.cc). Default ON
-  // with multi-start nlopt — the 2026-06 A/B winner; it cracks off-center NRA SAT
+  // --seed-samples seed-and-verify pre-pass (see seed.h, icp_seq.cc). Default ON
+  // (64 multi-start nlopt) — the 2026-06 A/B winner; it cracks off-center NRA SAT
   // instances the old 0.56 branching magic timed out on, and is gated off for
-  // ODE/forall (AllRelational) so it never fires on those families. Speculative,
-  // completeness-only — the prune+EvaluateBox loop remains the sole arbiter.
-  OptionValue<bool> seed_local_{true};
+  // ODE/forall (AllRelational) so it never fires on those families. The count is
+  // also the switch: 0 disables. Speculative, completeness-only — the
+  // prune+EvaluateBox loop remains the sole arbiter.
   OptionValue<int> seed_samples_{kDefaultSeedSamples};
-  OptionValue<SeedMethod> seed_method_{SeedMethod::kNlopt};
 
   // ACID / 3BCID shaving contractor (default off; see contractor_ibex_acid.cc).
   OptionValue<bool> use_acid_{false};
   OptionValue<bool> use_3bcid_{false};
   OptionValue<int> acid_s3b_{kDefaultAcidS3b};
   OptionValue<double> acid_ct_ratio_{kDefaultAcidCtRatio};
-
-  // Branching split point (see kDefaultSplitRatio). Threaded into the brancher.
-  OptionValue<double> split_ratio_{kDefaultSplitRatio};
 
   // Brancher to use. By default it uses `BranchLargestFirst`.
   OptionValue<Brancher> brancher_{BranchLargestFirst};

@@ -23,7 +23,6 @@
 
 #include "dreal/dr/run.h"
 #include "dreal/smt2/run.h"
-#include "dreal/solver/brancher.h"
 #include "dreal/solver/config.h"
 #include "dreal/solver/context.h"
 #include "dreal/util/exception.h"
@@ -114,6 +113,9 @@ void MainProgram::AddOptions() {
 
   auto* const positive_int_option_validator =
       new ez::ezOptionValidator("s4" /* 4byte integer */, "gt", "0");
+
+  auto* const nonneg_int_option_validator =
+      new ez::ezOptionValidator("s4" /* 4byte integer */, "ge", "0");
 
   const string kDefaultPrecision{fmt::format("{}", Config::kDefaultPrecision)};
   opt_.add(kDefaultPrecision.c_str() /* Default */, false /* Required? */,
@@ -316,12 +318,6 @@ void MainProgram::AddOptions() {
            "CAPD max integration step cap; 0 = fully adaptive. (default = 0)",
            "--ode-max-step", nonneg_double_option_validator);
 
-  // Branching split point + ACID/3BCID shaving contractor (odeexpr perf knobs).
-  opt_.add(fmt::format("{}", Config::kDefaultSplitRatio).c_str(), false, 1, 0,
-           fmt::format("Branching split point as a fraction of the chosen "
-                       "dimension's width (0<r<1; 0.5 = midpoint). (default = {})",
-                       Config::kDefaultSplitRatio).c_str(),
-           "--split-ratio", positive_double_option_validator);
   auto* const constraint_order_validator =
       new ez::ezOptionValidator("t", "in", "none,asc,desc", false);
   opt_.add("none", false, 1, 0,
@@ -333,25 +329,15 @@ void MainProgram::AddOptions() {
            "variable selection) instead of largest-first.\n",
            "--smear");
   // Seed-and-verify pre-pass (off-center NRA SAT instances). Speculative,
-  // completeness-only: candidate points are proposed (LHS or COBYLA) and a small
+  // completeness-only: multi-start COBYLA proposes candidate points and a small
   // sound box around each is verified first by the existing prune+EvaluateBox.
-  // Default ON (the 2026-06 A/B winner); pass --seed-local false to disable.
-  opt_.add("true", false, 1, 0,
-           "Seed-and-verify pre-pass for pure-relational (NRA) theory calls:\n"
-           "propose candidate points and verify a small box around each first.\n"
-           "Gated off for ODE/forall. (default = true)",
-           "--seed-local", bool_option_validator);
+  // The sample count is also the switch — 0 disables; default ON at 64 (the
+  // 2026-06 A/B winner). Gated off for ODE/forall.
   opt_.add(fmt::format("{}", Config::kDefaultSeedSamples).c_str(), false, 1, 0,
-           fmt::format("--seed-local candidate budget: COBYLA multi-start count "
-                       "(nlopt) or LHS sample count. (default = {})",
+           fmt::format("Seed-and-verify pre-pass for pure-relational (NRA) theory "
+                       "calls: COBYLA multi-start count; 0 disables. (default = {})",
                        Config::kDefaultSeedSamples).c_str(),
-           "--seed-samples", positive_int_option_validator);
-  auto* const seed_method_validator =
-      new ez::ezOptionValidator("t", "in", "lhs,nlopt", false);
-  opt_.add("nlopt", false, 1, 0,
-           "--seed-local candidate-proposal method: nlopt (multi-start COBYLA, "
-           "default), lhs (Latin-hypercube sampling).",
-           "--seed-method", seed_method_validator);
+           "--seed-samples", nonneg_int_option_validator);
   opt_.add("false", false, 0, 0,
            "Use the ACID (adaptive 3BCID) shaving contractor on the HC4 path.\n",
            "--acid");
@@ -621,21 +607,6 @@ void MainProgram::ExtractOptions() {
     opt_.get("--ode-max-step")->getDouble(v);
     config_.mutable_ode_max_step().set_from_command_line(v);
   }
-  if (opt_.isSet("--split-ratio")) {
-    double v{0};
-    opt_.get("--split-ratio")->getDouble(v);
-    if (!(v > 0.0 && v < 1.0)) {
-      throw DREAL_RUNTIME_ERROR("--split-ratio must be in (0, 1) but got {}.", v);
-    }
-    config_.mutable_split_ratio().set_from_command_line(v);
-    // Install a LargestFirst brancher that cuts at this ratio. Variable choice
-    // is unchanged (still widest dimension); only the split point moves.
-    config_.mutable_brancher().set_from_command_line(
-        [v](const Box& box, const DynamicBitset& active_set, Box* const left,
-            Box* const right, const UpwardRounding& ur) {
-          return BranchLargestFirstWithRatio(box, active_set, left, right, ur, v);
-        });
-  }
   if (opt_.isSet("--constraint-order")) {
     string v;
     opt_.get("--constraint-order")->getString(v);
@@ -651,29 +622,16 @@ void MainProgram::ExtractOptions() {
       throw DREAL_RUNTIME_ERROR("--smear is not implemented for parallel ICP (--jobs > 1).");
     }
   }
-  if (opt_.isSet("--seed-local")) {
-    string v;
-    opt_.get("--seed-local")->getString(v);
-    const bool on{v == "true"};
-    config_.mutable_seed_local().set_from_command_line(on);
-    // The seed hook lives in IcpSeq only; IcpParallel ignores seed_local, so the
-    // default-on flag is harmless under --jobs > 1 (just inert). Only an explicit
-    // request to seed in parallel is an error worth flagging.
-    if (on && config_.number_of_jobs() > 1) {
-      throw DREAL_RUNTIME_ERROR("--seed-local is IcpSeq-only; not used with --jobs > 1.");
-    }
-  }
   if (opt_.isSet("--seed-samples")) {
     int v{0};
     opt_.get("--seed-samples")->getInt(v);
     config_.mutable_seed_samples().set_from_command_line(v);
-  }
-  if (opt_.isSet("--seed-method")) {
-    string v;
-    opt_.get("--seed-method")->getString(v);
-    const SeedMethod method =
-        (v == "nlopt") ? SeedMethod::kNlopt : SeedMethod::kLhs;
-    config_.mutable_seed_method().set_from_command_line(method);
+    // The seed hook lives in IcpSeq only; IcpParallel ignores it, so the
+    // default-on count is harmless under --jobs > 1 (just inert). Only an
+    // explicit request to seed in parallel is an error worth flagging.
+    if (v > 0 && config_.number_of_jobs() > 1) {
+      throw DREAL_RUNTIME_ERROR("--seed-samples > 0 (seed-and-verify) is IcpSeq-only; not used with --jobs > 1.");
+    }
   }
   if (opt_.isSet("--acid")) {
     config_.mutable_use_acid().set_from_command_line(true);

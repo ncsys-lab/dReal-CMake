@@ -46,9 +46,9 @@ namespace dreal {
 class SmearBrancher {
  public:
   /// Assembles the constraint system from the relational @p formula_evaluators
-  /// over @p box; @p ratio is the split point forwarded to Box::bisect.
+  /// over @p box. The split point is the midpoint (Box::bisect default).
   SmearBrancher(const std::vector<FormulaEvaluator>& formula_evaluators,
-                const Box& box, double ratio);
+                const Box& box);
 
   SmearBrancher(const SmearBrancher&) = delete;
   SmearBrancher(SmearBrancher&&) = delete;
@@ -57,9 +57,9 @@ class SmearBrancher {
   ~SmearBrancher() = default;
 
   /// Brancher interface (same shape as BranchLargestFirst): chooses a dimension
-  /// in @p active_set, splits @p box into @p left / @p right at the configured
-  /// ratio, and returns the dimension (or -1 if none bisectable). Caller must
-  /// hold FE_UPWARD (witnessed by @p ur).
+  /// in @p active_set, splits @p box into @p left / @p right at the midpoint, and
+  /// returns the dimension (or -1 if none bisectable). Caller must hold FE_UPWARD
+  /// (witnessed by @p ur).
   int operator()(const Box& box, const DynamicBitset& active_set, Box* left,
                  Box* right, const UpwardRounding& ur) const;
 
@@ -68,7 +68,6 @@ class SmearBrancher {
   std::unique_ptr<ibex::SystemFactory> system_factory_;
   std::unique_ptr<ibex::System> system_;
   std::vector<std::unique_ptr<const ibex::ExprCtr, ExprCtrDeleter>> expr_ctrs_;
-  double ratio_;
   bool is_dummy_{false};  // no usable constraints -> always largest-first
 };
 

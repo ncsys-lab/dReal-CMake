@@ -46,7 +46,7 @@ TEST_F(SmearBrancherTest, PicksJacobianDominantVariableNotWidest) {
   box[y_] = Box::Interval(-1, 1);    // width 2
   vector<FormulaEvaluator> fes{
       make_relational_formula_evaluator(x_ + 100 * y_ == 0)};
-  const SmearBrancher smear{fes, box, 0.5};
+  const SmearBrancher smear{fes, box};
 
   DynamicBitset active(box.size());
   active.set(box.index(x_));
@@ -76,7 +76,7 @@ TEST_F(SmearBrancherTest, FallsBackToLargestFirstWhenNoConstraints) {
   box[x_] = Box::Interval(-10, 10);
   box[y_] = Box::Interval(-1, 1);
   const vector<FormulaEvaluator> fes{};
-  const SmearBrancher smear{fes, box, 0.5};
+  const SmearBrancher smear{fes, box};
 
   DynamicBitset active(box.size());
   active.set(box.index(x_));

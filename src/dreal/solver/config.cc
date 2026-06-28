@@ -88,9 +88,6 @@ OptionValue<bool>& Config::mutable_smtlib2_compliant() {
   return smtlib2_compliant_;
 }
 
-double Config::split_ratio() const { return split_ratio_.get(); }
-OptionValue<double>& Config::mutable_split_ratio() { return split_ratio_; }
-
 ConstraintOrder Config::constraint_order() const {
   return constraint_order_.get();
 }
@@ -101,14 +98,8 @@ OptionValue<ConstraintOrder>& Config::mutable_constraint_order() {
 bool Config::use_smear() const { return use_smear_.get(); }
 OptionValue<bool>& Config::mutable_use_smear() { return use_smear_; }
 
-bool Config::seed_local() const { return seed_local_.get(); }
-OptionValue<bool>& Config::mutable_seed_local() { return seed_local_; }
-
 int Config::seed_samples() const { return seed_samples_.get(); }
 OptionValue<int>& Config::mutable_seed_samples() { return seed_samples_; }
-
-SeedMethod Config::seed_method() const { return seed_method_.get(); }
-OptionValue<SeedMethod>& Config::mutable_seed_method() { return seed_method_; }
 
 bool Config::use_acid() const { return use_acid_.get(); }
 OptionValue<bool>& Config::mutable_use_acid() { return use_acid_; }

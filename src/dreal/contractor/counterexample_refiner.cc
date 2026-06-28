@@ -79,7 +79,7 @@ CounterexampleRefiner::CounterexampleRefiner(const Formula& query,
     if (!f.GetFreeVariables().IsSubsetOf(forall_variables_)) {
       // F has both exist and forall variables. Fold its violation (0 for
       // equality/disequality) into the objective. ConstraintViolation is the
-      // shared builder used by --seed-local too (see nlopt_optimizer.h).
+      // shared builder used by seed-and-verify too (see nlopt_optimizer.h).
       objective += ConstraintViolation(f);
     }
     // Always add it as a constraint.

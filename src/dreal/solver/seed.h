@@ -19,14 +19,14 @@
 namespace dreal {
 
 /// True iff every evaluator's formula is a plain relational constraint — no
-/// `forall`, no ODE/integral. The `--seed-local` gate: only pure-NRA theory
+/// `forall`, no ODE/integral. The seed-and-verify gate: only pure-NRA theory
 /// calls are seeded (`forall` already uses nlopt internally; per-node proposal
 /// over ODE flows is too costly), and the nlopt proposer can only build a
 /// relational objective. Predicates match theory_solver.cc's evaluator dispatch.
 bool AllRelational(const std::vector<FormulaEvaluator>& formula_evaluators);
 
-/// Proposes small SOUND candidate boxes (each ⊆ @p box) for the `--seed-local`
-/// seed-and-verify pre-pass, per `config.seed_method()`. The caller pushes these
+/// Proposes small SOUND candidate boxes (each ⊆ @p box) for the `--seed-samples`
+/// seed-and-verify pre-pass (multi-start COBYLA). The caller pushes these
 /// onto the ICP stack to be explored first; the existing prune+`EvaluateBox`
 /// loop is the SOLE arbiter of delta-SAT, so a poor candidate can never cause a
 /// false delta-sat — this is a COMPLETENESS-only speed optimization, not a

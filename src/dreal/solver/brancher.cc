@@ -18,7 +18,6 @@
 #include <dreal/util/rounding.h>
 #include <dreal/util/rounded_interval.h>
 
-#include "dreal/solver/config.h"  // Config::kDefaultSplitRatio
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
 
@@ -46,17 +45,16 @@ pair<double, int> FindMaxDiam(const Box& box, const DynamicBitset& active_set,
   return make_pair(max_diam, max_diam_idx);
 }
 
-int BranchLargestFirstWithRatio(const Box& box, const DynamicBitset& active_set,
-                                Box* const left, Box* const right,
-                                const UpwardRounding& ur, const double ratio) {
+int BranchLargestFirst(const Box& box, const DynamicBitset& active_set,
+                       Box* const left, Box* const right,
+                       const UpwardRounding& ur) {
   DREAL_ASSERT_ROUNDING(FE_UPWARD); // using ibex operations. only non-ibex operations are comparison and assign
   DREAL_ASSERT(!active_set.none());
 
   const pair<double, int> max_diam_and_idx{FindMaxDiam(box, active_set, ur)};
   const int branching_dim{max_diam_and_idx.second};
   if (branching_dim >= 0) {
-    pair<Box, Box> bisected_boxes{box.bisect(branching_dim, ratio)};
-    // *left is the [lb, lb+ratio*diam] child (equal halves at the default 0.5).
+    pair<Box, Box> bisected_boxes{box.bisect(branching_dim)};  // midpoint
     *left = std::move(bisected_boxes.first);
     *right = std::move(bisected_boxes.second);
     DREAL_LOG_DEBUG(
@@ -68,14 +66,5 @@ int BranchLargestFirstWithRatio(const Box& box, const DynamicBitset& active_set,
     return branching_dim;
   }
   return -1;
-}
-
-int BranchLargestFirst(const Box& box, const DynamicBitset& active_set,
-                       Box* const left, Box* const right,
-                       const UpwardRounding& ur) {
-  // The default brancher cuts at the default split ratio (kDefaultSplitRatio,
-  // 0.5 = midpoint) — see config.h. --split-ratio overrides via an installed lambda.
-  return BranchLargestFirstWithRatio(box, active_set, left, right, ur,
-                                     Config::kDefaultSplitRatio);
 }
 }  // namespace dreal

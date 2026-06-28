@@ -41,7 +41,7 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
   // contractor flips config().stack_left_box_first() across counterexample
   // iterations to diversify). Per-level alternation and larger/smaller-first
   // ordering were removed in 2026-06 as high-variance non-levers; off-center
-  // instances are cracked by --seed-local, not branch order.
+  // instances are cracked by seed-and-verify (--seed-samples), not branch order.
   const bool explore_left_first{!config().stack_left_box_first()};
   static IcpStat stat{DREAL_LOG_INFO_ENABLED};
   DREAL_LOG_DEBUG("IcpSeq::CheckSat()");
@@ -74,7 +74,7 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
   const UpwardRoundingScope phase_scope;
   const UpwardRounding ur{phase_scope.token()};
 
-  // --seed-local seed-and-verify pre-pass. For pure-relational (NRA) theory
+  // --seed-samples seed-and-verify pre-pass. For pure-relational (NRA) theory
   // calls, propose candidate points (LHS sampling or COBYLA) and push a small
   // SOUND box around each so they are explored FIRST (LIFO; the root box stays
   // at the bottom). This is a COMPLETENESS-only speed optimization atop the
@@ -82,7 +82,7 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
   // unchanged Prune+EvaluateBox loop is the SOLE arbiter of delta-SAT, so a poor
   // candidate cannot cause a false delta-sat, and the root box below guarantees
   // no subspace is dropped (completeness preserved).
-  if (config().seed_local() && AllRelational(formula_evaluators)) {
+  if (config().seed_samples() > 0 && AllRelational(formula_evaluators)) {
     for (Box& seed_box : SeedBoxes(formula_evaluators, cs->box(), config(), ur)) {
       stack.emplace_back(std::move(seed_box), -1);
     }
@@ -94,7 +94,7 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
   // used. Sound either way: variable choice never changes a verdict.
   std::optional<SmearBrancher> smear_brancher;
   if (config().use_smear()) {
-    smear_brancher.emplace(formula_evaluators, cs->box(), config().split_ratio());
+    smear_brancher.emplace(formula_evaluators, cs->box());
   }
 
   while (!stack.empty()) {

@@ -209,7 +209,7 @@ TEST_F(BoxTest, BisectRealWithRatio) {
 
   // Split x = [-10, 10] off-center at ratio 0.25 -> cut at lb + 0.25*diam =
   // -10 + 0.25*20 = -5. The default (ratio 0.5) cuts at 0; this proves the
-  // ratio is threaded into the continuous bisection (the --split-ratio knob).
+  // ratio argument is threaded into the continuous bisection.
   const pair<Box, Box> p{box.bisect(box.index(x_), 0.25)};
   const Box& box1{p.first};
   const Box& box2{p.second};

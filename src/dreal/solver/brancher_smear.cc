@@ -20,7 +20,7 @@
 
 #include <dreal/util/rounded_interval.h>
 
-#include "dreal/solver/brancher.h"  // BranchLargestFirstWithRatio
+#include "dreal/solver/brancher.h"  // BranchLargestFirst
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
@@ -32,9 +32,8 @@ using std::unique_ptr;
 using std::vector;
 
 SmearBrancher::SmearBrancher(
-    const vector<FormulaEvaluator>& formula_evaluators, const Box& box,
-    const double ratio)
-    : ibex_converter_{box}, ratio_{ratio} {
+    const vector<FormulaEvaluator>& formula_evaluators, const Box& box)
+    : ibex_converter_{box} {
   // Assemble an ibex::System over the box variables and the relational
   // constraints (skip forall / ODE — the smear Jacobian is for plain NRA
   // constraints). Same assembly as ContractorIbexPolytope/Acid; built from the
@@ -68,7 +67,7 @@ int SmearBrancher::operator()(const Box& box, const DynamicBitset& active_set,
   DREAL_ASSERT_ROUNDING(FE_UPWARD);
   DREAL_ASSERT(!active_set.none());
   if (is_dummy_) {
-    return BranchLargestFirstWithRatio(box, active_set, left, right, ur, ratio_);
+    return BranchLargestFirst(box, active_set, left, right, ur);
   }
 
   const Box::IntervalVector& iv{box.interval_vector()};
@@ -104,9 +103,9 @@ int SmearBrancher::operator()(const Box& box, const DynamicBitset& active_set,
   // error path: every variable choice is sound, so this only affects how fast
   // the search converges.
   if (best < 0 || !(best_score > 0.0)) {
-    return BranchLargestFirstWithRatio(box, active_set, left, right, ur, ratio_);
+    return BranchLargestFirst(box, active_set, left, right, ur);
   }
-  std::pair<Box, Box> bisected{box.bisect(best, ratio_)};
+  std::pair<Box, Box> bisected{box.bisect(best)};  // midpoint
   *left = std::move(bisected.first);
   *right = std::move(bisected.second);
   return best;

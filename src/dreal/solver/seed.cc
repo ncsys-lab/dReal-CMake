@@ -262,16 +262,8 @@ vector<Box> SeedBoxes(const vector<FormulaEvaluator>& formula_evaluators,
     // Nothing to pin — seeding cannot shrink the box. The complete search runs.
     return {};
   }
-  vector<vector<double>> points;
-  switch (config.seed_method()) {
-    case SeedMethod::kLhs:
-      points = LatinHypercubeSamples(box, dims, std::max(1, config.seed_samples()),
-                                     config.random_seed());
-      break;
-    case SeedMethod::kNlopt:
-      points = NloptSeeds(formula_evaluators, box, config, ur);
-      break;
-  }
+  const vector<vector<double>> points{
+      NloptSeeds(formula_evaluators, box, config, ur)};
   vector<Box> boxes;
   boxes.reserve(points.size());
   const double half_width{config.precision()};

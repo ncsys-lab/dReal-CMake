@@ -207,7 +207,7 @@ optional<Contractor> TheorySolver::BuildContractor(
   // Optional constraint ordering: reorder the per-constraint contractors by
   // their variable count before assembling the fixpoint. Sound — a fixpoint's
   // result is order-independent, only the number of passes/evals changes. A
-  // "reorder, no extra evals" perf lever (same category as --split-ratio).
+  // "reorder, no extra evals" perf lever (a completeness/search-order lever).
   // Applied to the per-formula contractors only (integer/polytope/acid are
   // appended after, keeping their fixed positions).
   if (config_.constraint_order() != ConstraintOrder::kNone) {

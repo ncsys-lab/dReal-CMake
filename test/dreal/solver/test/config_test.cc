@@ -62,9 +62,10 @@ GTEST_TEST(Config, CustomBrancher) {
   Config config;
   config.mutable_brancher() = MyBrancher;
   // This test pins the exact branch trajectory of the custom brancher, so isolate
-  // it from --seed-local (default on, orthogonal to the brancher): a seed box
+  // it from seed-and-verify (default on, orthogonal to the brancher): a seed box
   // would solve this trivial instance before MyBrancher branches at all.
-  config.mutable_seed_local().set_from_command_line(false);
+  // --seed-samples 0 is the disable switch.
+  config.mutable_seed_samples().set_from_command_line(0);
 
   // Checks the API returning an optional.
   auto result = CheckSatisfiability(f1 && f2 && f3 && f4, config);

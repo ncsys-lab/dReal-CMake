@@ -100,11 +100,11 @@ only these failing":
 
 Key flags: `--precision <delta>`, `--produce-models`, `--logic <QF_NRA|QF_NRA_ODE>`, `--verbose`.
 
-**Seed-and-verify (`--seed-local`, default ON):** speculative pre-pass for off-center NRA SAT
-instances — propose candidate points (default `--seed-method nlopt --seed-samples 64`; also `lhs`)
-and verify a small box around each via the existing prune/`EvaluateBox` (soundness/completeness
-free; gated off for ODE/forall so it never fires there). This replaced the removed 0.56 split-ratio
-magic + `--explore-order` alternation (split ratio is back to 0.5). Disable with `--seed-local false`.
+**Seed-and-verify (`--seed-samples N`, default 64 = ON):** speculative pre-pass for off-center NRA
+SAT instances — propose candidate points (multi-start COBYLA) and verify a small box around each via
+the existing prune/`EvaluateBox` (soundness/completeness free; gated off for ODE/forall so it never
+fires there). `--seed-samples` is also the switch: `0` disables. This replaced the removed 0.56
+split-ratio magic + `--explore-order` alternation (split ratio is hardcoded back to 0.5, no flag).
 See `docs/decisions.md` §"Seed-and-verify" and `src/dreal/solver/seed.{h,cc}`.
 
 **CAPD ODE tuning:** `--ode-taylor-order` (default 12), `--ode-hull-grid` (4 — per-step sub-slice
