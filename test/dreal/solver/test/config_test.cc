@@ -71,16 +71,16 @@ GTEST_TEST(Config, CustomBrancher) {
   auto result = CheckSatisfiability(f1 && f2 && f3 && f4, config);
   ASSERT_TRUE(result);
 
-  // Exact branch trajectory of the custom (widest-dim, midpoint) brancher under
-  // the fixed left-first exploration order. The counts/order were re-pinned in
-  // 2026-06 when the per-level alternation was removed (42 -> 28 branches); the
-  // brancher is still the sole driver of which variable is split.
-  EXPECT_EQ(g_branch_variables.size(), 28);
+  // Exact branch trajectory of the custom (widest-dim, midpoint) brancher.
+  // Re-pinned 2026-06: per-branch alternation reinstated in IcpSeq (commit
+  // 418c7d1) restores 42 branches and a regular y,z,x,y,z,x,... cycle.
+  // The brancher is still the sole driver of which variable is split.
+  EXPECT_EQ(g_branch_variables.size(), 42);
   EXPECT_EQ(g_branch_variables[0], y);
   EXPECT_EQ(g_branch_variables[1], z);
-  EXPECT_EQ(g_branch_variables[2], y);
-  EXPECT_EQ(g_branch_variables[3], z);
-  EXPECT_EQ(g_branch_variables[4], y);
+  EXPECT_EQ(g_branch_variables[2], x);
+  EXPECT_EQ(g_branch_variables[3], y);
+  EXPECT_EQ(g_branch_variables[4], z);
 }
 
 }  // namespace
