@@ -1,11 +1,16 @@
 {
-  "anomalies": [],
-  "exceptional": [],
+  "anomalies": [
+    "github_oct5_0hz_k256_thermostat_thermostat-triple-network-sat.drh.n"
+  ],
+  "exceptional": [
+    "odeexpr_box_sweep.tanh_decrease__J0.6",
+    "tacas_c2e2_0hz_k23_50000.0clkhz_uniform_NOR__sigmoid.hyxml_SAT.drh.o"
+  ],
   "baseline_source": "benchmark/baseline_local.csv",
   "baseline_column": "wall_time_s",
   "baseline_sha": "a15d29919",
-  "last_run": "2026-06-24T01:36:22.545613+00:00",
-  "last_run_dir": "benchmark/results/run_e9fd97cc3_20260623_182622_odesaradc",
+  "last_run": "2026-06-29T07:41:33.211597+00:00",
+  "last_run_dir": "/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/run_418c7d156_20260629_003139",
   "runs": [
     {
       "timestamp": "2026-06-23T14:27:58.136995+00:00",
@@ -38,6 +43,28 @@
       "n_resolved": 0,
       "n_correctness_improvements": 0,
       "n_undetermined_flips": 0,
+      "correctness_flips": []
+    },
+    {
+      "timestamp": "2026-06-28T05:46:27.107111+00:00",
+      "results_dir": "/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/run_4bf76d2ad_20260627_223626",
+      "n_ran": 8,
+      "n_regressions": 0,
+      "n_exceptional": 1,
+      "n_resolved": 0,
+      "n_correctness_improvements": 0,
+      "n_undetermined_flips": 1,
+      "correctness_flips": []
+    },
+    {
+      "timestamp": "2026-06-29T07:41:33.211597+00:00",
+      "results_dir": "/Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/results/run_418c7d156_20260629_003139",
+      "n_ran": 9,
+      "n_regressions": 0,
+      "n_exceptional": 1,
+      "n_resolved": 1,
+      "n_correctness_improvements": 0,
+      "n_undetermined_flips": 2,
       "correctness_flips": []
     }
   ]
