@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Cross-solver comparison over the odeexpr set.
+"""Cross-solver comparison over a benchmark set (e.g. the odeexpr_v1 family).
 
 Joins per-solver summary CSVs (benchmark_name, solver_result, cpu_time_s, ...)
 by benchmark and reports: solve counts, per-benchmark verdict/timing, SAT↔UNSAT
 disagreements, and CPU-time speedups on commonly-solved benchmarks.
 
 Usage:
-  compare_solvers.py HEAD=baseline_odeexpr.csv cav26=baseline_odeexpr_cav26.csv [dreal3=baseline_odeexpr_dreal3.csv]
+  compare_solvers.py HEAD=baseline_odeexpr_v1.csv cav26=baseline_odeexpr_cav26.csv [dreal3=baseline_odeexpr_dreal3.csv]
 """
 import csv
 import statistics
@@ -81,7 +81,7 @@ def main():
         rel = f"{p2mean/ref_mean:.2f}x" if ref_mean else "—"
         print(f"  {lab:8s} {nsolved:>7d}/{len(scored):<2d} {p2sum:>10.1f}s {p2mean:>10.1f}s {rel:>10s}")
     if never:
-        print(f"\n  excluded (solved by none): {', '.join(n.replace('odeexpr_','') for n in never)}")
+        print(f"\n  excluded (solved by none): {', '.join(n.replace('odeexpr_v1_','').replace('odeexpr_v2_','') for n in never)}")
     print()
 
     # Verdict disagreements (SAT vs UNSAT between any two solvers — notable)

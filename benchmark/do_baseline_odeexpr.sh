@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Establish the ode_expressivity (odeexpr) family baseline: run ALL 43 current
-# benchmarks at the 600 s global timeout, under nice, measuring CPU time, and
-# write benchmark/baseline_odeexpr.csv (new format with a cpu_time_s column).
+# Establish a manifest-family baseline: run ALL current benchmarks of FAMILY
+# (default odeexpr_v1; choices odeexpr_v1|odeexpr_v2) at the 600 s global
+# timeout, under nice, measuring CPU time, and write benchmark/baseline_<FAMILY>.csv
+# (new format with a cpu_time_s column).
 # Prints OUT_DIR to stdout on completion; all other output goes to stderr.
-# Usage: do_baseline_odeexpr.sh
+# Usage: do_baseline_odeexpr.sh [FAMILY]
 
 set -euo pipefail
+
+FAMILY="${1:-odeexpr_v1}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -23,16 +26,16 @@ fi
 
 SHA=$(git -C "$PROJECT_DIR" rev-parse --short HEAD)
 TS=$(date +%Y%m%d_%H%M%S)
-OUT_DIR="$PROJECT_DIR/benchmark/results/baseline_odeexpr_${SHA}_${TS}"
-JOBS_FILE="/tmp/dreal_odeexpr_jobs_${SHA}_${TS}.tsv"
+OUT_DIR="$PROJECT_DIR/benchmark/results/baseline_${FAMILY}_${SHA}_${TS}"
+JOBS_FILE="/tmp/dreal_${FAMILY}_jobs_${SHA}_${TS}.tsv"
 
 mkdir -p "$OUT_DIR"
 
-python3 "$SCRIPT_DIR/odeexpr.py" --all > "$JOBS_FILE"
+python3 "$SCRIPT_DIR/odeexpr.py" --all "$FAMILY" > "$JOBS_FILE"
 bash "$SCRIPT_DIR/run_batch.sh" "$OUT_DIR" "$JOBS_FILE"
 python3 "$SCRIPT_DIR/parse_results.py" "$OUT_DIR" >&2
 
-# Save as the odeexpr baseline reference (aggregate.py loads this hardcoded path).
-cp "$OUT_DIR/summary.csv" "$SCRIPT_DIR/baseline_odeexpr.csv"
+# Save as the family's baseline reference (aggregate.py loads baseline_<FAMILY>.csv).
+cp "$OUT_DIR/summary.csv" "$SCRIPT_DIR/baseline_${FAMILY}.csv"
 
 echo "$OUT_DIR"

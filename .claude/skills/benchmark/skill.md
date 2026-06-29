@@ -18,13 +18,13 @@ The script prints OUT_DIR to stdout when done. Use the Read tool to read `<OUT_D
 
 Return a formatted summary as your only output:
 - If `correctness_flips` is non-empty, lead with: **CORRECTNESS REGRESSION**: [names] changed SAT/UNSAT result.
-- Then, if any regression has priority `ODEEXPR-HIGH`/`ODEEXPR` (the high-priority ode_expressivity family — names start `odeexpr_`), lead with those next: **ODEEXPR REGRESSION**: [names]. odeexpr is weighted ~3× the other families, so treat its regressions as more serious and its speedups as more meaningful.
+- Then, if any regression has priority `ODEEXPR-HIGH`/`ODEEXPR` (the high-priority odeexpr_v1 / odeexpr_v2 manifest families — names start `odeexpr_v1_` / `odeexpr_v2_`), lead with those next: **ODEEXPR REGRESSION**: [names]. These families are weighted well above the others (odeexpr_v2=8, odeexpr_v1=6), so treat their regressions as more serious and their speedups as more meaningful.
 - First line: `N ran, M regressions, K exceptional`
 - 2–4 sentences: (1) overall health, (2) notable timing changes using PAR2 scores — PAR2 is now CPU time (user+sys), 600 s timeout / 1200 s penalty (e.g. "PAR2: 50 s vs 1200 s (0.04×, formerly TIM)"), (3) whether exceptional speedups look real or noise
 - One sentence: what needs investigation before continuing, if anything
 - Last line: `anomaly_report: <OUT_DIR>/anomaly_report.txt`
 
-Then, as the FINAL part of your output, ALWAYS render the per-family PAR2 table from `family_comparison` in `aggregate.json` (the run vs the frozen baseline, `baseline_sha` in the same file). One markdown table, one row per family plus `weighted_overall`, columns: Family | Weight | n | Baseline PAR2 (s) | This run PAR2 (s) | Ratio. Sort families by descending weight (odeexpr, saradc, tacas, github) with `weighted_overall` last. Flag ratio >1.5 as a regression and <0.6 as exceptional. If `family_comparison` is absent (older run), say so in one line instead of inventing numbers.
+Then, as the FINAL part of your output, ALWAYS render the per-family PAR2 table from `family_comparison` in `aggregate.json` (the run vs the frozen baseline, `baseline_sha` in the same file). One markdown table, one row per family plus `weighted_overall`, columns: Family | Weight | n | Baseline PAR2 (s) | This run PAR2 (s) | Ratio. Sort families by descending weight (odeexpr_v2, odeexpr_v1, saradc, tacas, github) with `weighted_overall` last. Flag ratio >1.5 as a regression and <0.6 as exceptional. If `family_comparison` is absent (older run), say so in one line instead of inventing numbers.
 
 Be terse. Only return the final summary + the PAR2 table — no narration.
 

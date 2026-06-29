@@ -9,9 +9,9 @@ Run proactively at natural breakpoints even if the user doesn't ask.
 
 - `/benchmark` — runs ~8-12 family-weighted benchmarks in parallel, spawns a Haiku subagent to
   interpret results, reports back a 2-4 sentence summary with regression/exceptional counts
-- `/benchmark-baseline` — runs all 43 odeexpr + ~10 each of the other three families to
-  establish a fresh local baseline (use before branch merges or when the exceptional list grows
-  stale)
+- `/benchmark-baseline` — runs all odeexpr_v1 + all odeexpr_v2 + ~10 each of the three flat
+  families to establish a fresh local baseline (use before branch merges or when the exceptional
+  list grows stale)
 
 ---
 
@@ -33,9 +33,20 @@ Run proactively at natural breakpoints even if the user doesn't ask.
 
 ## Benchmark sources
 
-- `~/Documents/new_dreal/ode_expressivity/benchmarks/` — `odeexpr` family (43 self-contained
-  `.smt2`, content-addressed via `manifest.json`; each sets its own `:precision`; no ground-truth
-  `:status`)
+Two **content-addressed manifest families** (`odeexpr_v*`) plus three flat-directory families.
+A manifest family keys each logical benchmark on a stable `bench_id` (the manifest key) and
+resolves through `manifest.json` to the *current* revision, so regeneration (new hashed files,
+never overwritten) never silently repoints a name. `benchmark/odeexpr.py` is the registry for all
+families (`MANIFEST_FAMILIES`, `FAMILY_WEIGHTS`, `family_of`, `load_manifest_names`,
+`resolve_manifest`); `python3 odeexpr.py --all [FAMILY]` dumps a manifest family's TSV.
+
+- `~/Documents/new_dreal/ode_expressivity/benchmarks/` — `odeexpr_v1` family (self-contained
+  `.smt2`, content-addressed via `manifest.json` with `revisions[].file`; each sets its own
+  `:precision`; NRA-only — no ODEs; no ground-truth `:status`)
+- `~/Documents/new_dreal/ode_expressivity_energy/benchmarks/` — `odeexpr_v2` family (**newest
+  high-priority target**; ∀/∃∀ MLP-expressivity queries in `forall/` + `exists_forall/`,
+  content-addressed via `manifest.json` with `revisions[].smt2` — a *different* manifest schema
+  from v1, handled by the same loader parameterized over the revision-file key)
 - `~/Documents/new_dreal/nraode_to_nra/drealgithub_sunoct5/rolled/` — `github_oct5_` family
 - `~/Documents/new_dreal/nraode_to_nra/VNAMSCwI_satoct11/rolled/` — `tacas_c2e2_` family
 - `~/Documents/new_dreal/AMS-verification-bundle-of-sticks/saradc/rolled/` — `1mhz_` family
@@ -45,11 +56,12 @@ Run proactively at natural breakpoints even if the user doesn't ask.
 ## Infrastructure (`benchmark/` directory)
 
 - `baseline.csv` — frozen DRPM_0L reference times for 102 benchmarks (good_benchmarks.csv subset)
-- `baseline_odeexpr.csv` — odeexpr-family reference times (`cpu_time_s` column); produced by
-  `do_baseline_odeexpr.sh`; authoritative for `aggregate.py` on `odeexpr_*` rows
-- `odeexpr.py` — single source of truth for the `odeexpr` family: `ODEEXPR_ROOT`,
-  `FAMILY_WEIGHTS`, `family_of`, manifest-based `load_odeexpr_names`/`resolve_odeexpr`, `--all`
-  TSV dump
+- `baseline_<family>.csv` (e.g. `baseline_odeexpr_v1.csv`, `baseline_odeexpr_v2.csv`) —
+  manifest-family reference times (`cpu_time_s` column); produced by
+  `do_baseline_odeexpr.sh <family>`; authoritative for `aggregate.py` on that family's rows
+- `odeexpr.py` — registry for all families: `MANIFEST_FAMILIES` (the `odeexpr_v*` content-addressed
+  families, each `(name, root, rev_file_key)`), `FAMILY_WEIGHTS`, `family_of`, `weight_of`,
+  manifest-based `load_manifest_names`/`resolve_manifest`, `--all [FAMILY]` TSV dump
 - `state.json` — persistent anomaly/exceptional tracker; updated automatically each run
 - `run_batch.sh` — parallel runner: reads TSV from stdin, runs each with `gtime -v -o`,
   `nice -n 1`, `timeout 600`. Env hooks: `DREAL_ARGS` injects per-invocation solver flags;
@@ -58,7 +70,7 @@ Run proactively at natural breakpoints even if the user doesn't ask.
   (the latter also matches `gtime`/`nice`/`timeout` wrappers, ~3 per solve)
 - `select.py` — picks 8 **family-weighted** random benchmarks + all current anomalies; outputs
   TSV (csv_name TAB filepath). `--family a,b,c` restricts corpus to those families
-  (`odeexpr,saradc,github,tacas`); `--all` emits every benchmark of the filtered corpus
+  (`odeexpr_v1,odeexpr_v2,saradc,github,tacas`); `--all` emits every benchmark of the filtered corpus
   deterministically (no random, no anomalies) — for an A/B over a fixed set.
   **OOM exclusion** (`_is_oom_risk`): github/tacas `_k<N>_` with N ≥ 1024, saradc `_<N>b_` with
   N ≥ 9 — these crash the OS; the filter applies inside `load_benchmarks` so it covers both
@@ -90,21 +102,25 @@ Run proactively at natural breakpoints even if the user doesn't ask.
 
 ## Families and weighting
 
-Four families, classified by name prefix (`odeexpr.family_of`):
+Five families, classified by name prefix (`odeexpr.family_of`):
 
 - `saradc` — prefix `1mhz_`
 - `github` — prefix `github_oct5_`
 - `tacas` — prefix `tacas_c2e2_`
-- `odeexpr` — prefix `odeexpr_<bench_id>` (**high-priority**; these are NRA-only — no ODEs,
-  runs the `IcpSeq → Fixpoint[IbexFwdbwd, Integer]` path)
+- `odeexpr_v1` — prefix `odeexpr_v1_<bench_id>` (**high-priority**; NRA-only — no ODEs, runs the
+  `IcpSeq → Fixpoint[IbexFwdbwd, Integer]` path)
+- `odeexpr_v2` — prefix `odeexpr_v2_<bench_id>` (**newest, highest-priority**; ∀/∃∀
+  MLP-expressivity queries — exercises the `ContractorForall` CE-guided path, coverage no other
+  family provides)
 
-`FAMILY_WEIGHTS = {odeexpr:6, saradc:3, github:2, tacas:2}` encodes relative importance.
-The weight drives weighted-without-replacement selection (odeexpr appears ~3× as often per item)
-and a `weighted_overall` PAR2 in the family comparison; odeexpr regressions are tagged
-`ODEEXPR`/`ODEEXPR-HIGH` so reports lead with them.
+`FAMILY_WEIGHTS = {odeexpr_v2:8, odeexpr_v1:6, saradc:3, github:2, tacas:2}` encodes relative
+importance. The weight drives weighted-without-replacement selection (the `odeexpr_v*` families
+appear proportionally more often per item) and a `weighted_overall` PAR2 in the family comparison;
+regressions in either manifest family are tagged `ODEEXPR`/`ODEEXPR-HIGH` so reports lead with them.
 
 **Note:** `OPTIMIZATION_LOG.md` (§Adopted/§Rejected) is all CAPD/ODE-path tuning and is
-**orthogonal to odeexpr** — odeexpr has no ODEs.
+**orthogonal to the `odeexpr_v*` families** — odeexpr_v1 is NRA-only and odeexpr_v2 is ∀/∃∀, neither
+has ODEs.
 
 ---
 
@@ -145,10 +161,11 @@ python3 benchmark/parse_results.py <results_dir>
 python3 benchmark/aggregate.py <results_dir>
 ```
 
-Re-baseline the odeexpr family (after the set is regenerated, or to refresh reference times):
+Re-baseline a manifest family (after the set is regenerated, or to refresh reference times):
 
 ```bash
-bash benchmark/do_baseline_odeexpr.sh   # runs all 43 at 600 s → benchmark/baseline_odeexpr.csv
+bash benchmark/do_baseline_odeexpr.sh odeexpr_v1   # all v1 at 600 s → benchmark/baseline_odeexpr_v1.csv
+bash benchmark/do_baseline_odeexpr.sh odeexpr_v2   # all v2 at 600 s → benchmark/baseline_odeexpr_v2.csv
 ```
 
 ---
@@ -169,8 +186,9 @@ to TIM.
 
 `compare_solvers.py LABEL=summary.csv …` joins per-solver summaries by benchmark and reports
 solve counts, SAT/UNSAT disagreements, solve-set deltas, and CPU-time speedups on
-commonly-solved benchmarks. Frozen reference results: `baseline_odeexpr_cav26.csv`,
-`baseline_odeexpr_dreal3.csv`; rendered table: `odeexpr_solver_comparison.txt`.
+commonly-solved benchmarks. Frozen reference results (odeexpr_v1 set):
+`baseline_odeexpr_cav26.csv`, `baseline_odeexpr_dreal3.csv`; rendered table:
+`odeexpr_solver_comparison.txt`.
 
 As of HEAD (arm64, upgraded IBEX/CAPD): identical solve-set + verdicts vs cav26 but ~2–3×
 faster; ~6–20× faster than dReal3, which also solves 2 fewer. No SAT/UNSAT disagreements among

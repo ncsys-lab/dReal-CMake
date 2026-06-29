@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Select a stratified sample of benchmarks for re-establishing a local baseline.
 
-Picks up to 10 benchmarks from each of the three families (saradc, github, tacas)
-for a ~30-benchmark run. Prints TSV (csv_name TAB filepath) to stdout.
+Picks up to 10 benchmarks from each flat family (saradc, github, tacas) plus ALL
+of the manifest families (odeexpr_v1, odeexpr_v2). Prints TSV (csv_name TAB
+filepath) to stdout.
 """
 import argparse
 import csv
@@ -13,7 +14,7 @@ import sys
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 from select import SARADC_DIRS, GITHUB_DIR, TACAS_DIR, load_benchmarks, resolve_path
-from odeexpr import load_odeexpr_names, family_of
+from odeexpr import load_manifest_names, family_of
 
 
 def main():
@@ -21,22 +22,21 @@ def main():
     parser.add_argument("--input", default=os.path.join(SCRIPT_DIR, "baseline.csv"),
                         help="CSV with benchmark names to sample from (default: baseline.csv)")
     args = parser.parse_args()
-    # Corpus = the input CSV (saradc/github/tacas) plus the odeexpr family.
-    all_names = load_benchmarks(args.input) + load_odeexpr_names()
 
-    fams: dict[str, list[str]] = {"saradc": [], "github": [], "tacas": [], "odeexpr": []}
-    for n in all_names:
+    flat: dict[str, list[str]] = {"saradc": [], "github": [], "tacas": []}
+    for n in load_benchmarks(args.input):
         fam = family_of(n)
-        if fam in fams:
-            fams[fam].append(n)
+        if fam in flat:
+            flat[fam].append(n)
 
-    # odeexpr is the high-priority target: take ALL of it (only 43) rather than
-    # a 10-sample, so the local baseline always covers the whole set.
+    # The manifest families (odeexpr_v1/v2) are the high-priority targets: take
+    # ALL of each rather than a 10-sample, so the local baseline always covers
+    # them wholly. The flat ODE families are sampled at 10 each.
     sample = (
-        random.sample(fams["saradc"], min(10, len(fams["saradc"])))
-        + random.sample(fams["github"], min(10, len(fams["github"])))
-        + random.sample(fams["tacas"], min(10, len(fams["tacas"])))
-        + fams["odeexpr"]
+        random.sample(flat["saradc"], min(10, len(flat["saradc"])))
+        + random.sample(flat["github"], min(10, len(flat["github"])))
+        + random.sample(flat["tacas"], min(10, len(flat["tacas"])))
+        + load_manifest_names()
     )
 
     selected = 0
@@ -48,7 +48,7 @@ def main():
         else:
             print(f"WARN: could not find file for {name}", file=sys.stderr)
 
-    print(f"Selected {selected} benchmarks across 3 families.", file=sys.stderr)
+    print(f"Selected {selected} benchmarks across all families.", file=sys.stderr)
 
 
 if __name__ == "__main__":

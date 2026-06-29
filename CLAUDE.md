@@ -152,13 +152,17 @@ build wiring; `../ibex-fork/MIGRATION.md` for the 12 ibex-fork patch catalog.
 Run `/benchmark` after every meaningful code change. Run proactively at natural breakpoints.
 
 - `/benchmark` — ~8-12 benchmarks, Haiku subagent interprets, 2-4 sentence summary
-- `/benchmark-baseline` — full baseline (43 odeexpr + ~10 each other family)
+- `/benchmark-baseline` — full baseline (all odeexpr_v1 + odeexpr_v2 + ~10 each flat family)
 
 **Thresholds:** PAR2 >1.5× baseline = regression; <0.6× = exceptional; SAT↔UNSAT flip = immediate
 escalation. CPU time (user+sys), not wall clock.
 
-**Benchmark sources:**
-- `~/Documents/new_dreal/ode_expressivity/benchmarks/` — odeexpr family (43 `.smt2`)
+**Benchmark sources** (two content-addressed `odeexpr_v*` manifest families + three flat dirs):
+- `~/Documents/new_dreal/ode_expressivity/benchmarks/` — `odeexpr_v1` family (NRA-only,
+  manifest `revisions[].file`)
+- `~/Documents/new_dreal/ode_expressivity_energy/benchmarks/` — `odeexpr_v2` family
+  (**newest high-priority target**; ∀/∃∀ MLP-expressivity queries in `forall/` + `exists_forall/`,
+  manifest `revisions[].smt2`)
 - `~/Documents/new_dreal/nraode_to_nra/drealgithub_sunoct5/rolled/` — github_oct5_
 - `~/Documents/new_dreal/nraode_to_nra/VNAMSCwI_satoct11/rolled/` — tacas_c2e2_
 - `~/Documents/new_dreal/AMS-verification-bundle-of-sticks/saradc/rolled/` — 1mhz_

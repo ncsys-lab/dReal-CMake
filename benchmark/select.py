@@ -19,7 +19,7 @@ import random
 import re
 import sys
 
-from odeexpr import family_of, load_odeexpr_names, resolve_odeexpr, weight_of
+from odeexpr import family_of, load_manifest_names, resolve_manifest, weight_of
 
 _LARGE_K_RE = re.compile(r'_k(\d+)_')
 _BITWIDTH_RE = re.compile(r'_(\d+)b_')
@@ -68,9 +68,9 @@ def resolve_path(bench_name: str) -> str | None:
             if os.path.exists(p):
                 return p
         return None
-    if bench_name.startswith("odeexpr_"):
-        return resolve_odeexpr(bench_name)
-    return None
+    # Manifest families (odeexpr_v1/v2) — resolve_manifest returns None for any
+    # non-manifest name, so this is a safe fallthrough for the flat families above.
+    return resolve_manifest(bench_name)
 
 
 def load_benchmarks(baseline_csv: str) -> list[str]:
@@ -110,7 +110,8 @@ def main():
     parser.add_argument("--n", type=int, default=8, help="random benchmarks to add (not counting anomalies)")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--family", default=None,
-                        help="comma-separated family filter (odeexpr,saradc,github,tacas); "
+                        help="comma-separated family filter "
+                             "(odeexpr_v1,odeexpr_v2,saradc,github,tacas); "
                              "restricts the corpus to those families before selection")
     parser.add_argument("--all", action="store_true",
                         help="emit EVERY benchmark of the (filtered) corpus, deterministically "
@@ -122,8 +123,8 @@ def main():
     state_path = os.path.join(SCRIPT_DIR, "state.json")
 
     # Corpus = the frozen baseline CSV rows (saradc/github/tacas) plus the
-    # manifest-derived odeexpr family (4th family, content-addressed).
-    all_names = load_benchmarks(baseline_csv) + load_odeexpr_names()
+    # manifest-derived odeexpr_v1/odeexpr_v2 families (content-addressed).
+    all_names = load_benchmarks(baseline_csv) + load_manifest_names()
 
     if args.family:
         want = {f.strip() for f in args.family.split(",") if f.strip()}

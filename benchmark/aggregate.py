@@ -14,7 +14,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from odeexpr import family_of, FAMILY_WEIGHTS
+from odeexpr import family_of, FAMILY_WEIGHTS, MANIFEST_FAMILY_NAMES
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -37,9 +37,11 @@ def safe_ratio(cur: float, base: float) -> float:
     """PAR2 ratio with both operands floored at the measurement resolution."""
     return max(cur, TIME_FLOOR_S) / max(base, TIME_FLOOR_S)
 
-# odeexpr baseline lives in its own CSV (the other three are in baseline.csv /
-# baseline_local.csv); produced by do_baseline_odeexpr.sh.
-ODEEXPR_BASELINE = os.path.join(SCRIPT_DIR, "baseline_odeexpr.csv")
+# Each manifest family (odeexpr_v1/v2) keeps its own local baseline CSV,
+# baseline_<family>.csv, produced by `do_baseline_odeexpr.sh <family>` (the flat
+# families live in baseline.csv / baseline_local.csv).
+MANIFEST_BASELINES = {fam: os.path.join(SCRIPT_DIR, f"baseline_{fam}.csv")
+                      for fam in MANIFEST_FAMILY_NAMES}
 
 
 def row_time(row: dict) -> float | None:
@@ -162,14 +164,15 @@ def compute_family_comparison(frozen_csv: str, local_summary: list[dict]) -> dic
     appearing to raise it.
 
     Families are weighted (FAMILY_WEIGHTS) into a `weighted_overall` PAR2 so the
-    high-priority odeexpr family dominates the single-number summary.
+    high-priority odeexpr families dominate the single-number summary.
     """
     frozen = load_baseline(frozen_csv, "DRPM_0L")
-    # The odeexpr family is not in the frozen DRPM_0L CSV; pull its reference
-    # from baseline_odeexpr.csv (new format).
-    if os.path.exists(ODEEXPR_BASELINE):
-        for name, entry in load_baseline(ODEEXPR_BASELINE).items():
-            frozen.setdefault(name, entry)
+    # The manifest families are not in the frozen DRPM_0L CSV; pull their
+    # references from baseline_<family>.csv (new format).
+    for path in MANIFEST_BASELINES.values():
+        if os.path.exists(path):
+            for name, entry in load_baseline(path).items():
+                frozen.setdefault(name, entry)
 
     from collections import defaultdict
     frozen_par2: dict[str, list[float]] = defaultdict(list)
@@ -190,7 +193,8 @@ def compute_family_comparison(frozen_csv: str, local_summary: list[dict]) -> dic
 
     result = {}
     weighted_local_num = weighted_frozen_num = weight_den = 0.0
-    for fam in ("saradc", "github", "tacas", "odeexpr"):
+    # Iterate families by descending weight for stable, priority-ordered output.
+    for fam in sorted(FAMILY_WEIGHTS, key=lambda f: -FAMILY_WEIGHTS[f]):
         lp = local_par2.get(fam, [])
         fp = frozen_par2.get(fam, [])
         if lp and fp:
@@ -271,12 +275,13 @@ def main():
                 # Local baseline lacks ground_truth for this row — fill from frozen.
                 baseline[name]["ground_truth"] = fentry.get("ground_truth", "")
 
-    # Merge the odeexpr baseline as a REAL timing reference (same machine, same
-    # 600 s budget) — unlike the frozen rows above, these carry a usable time_s,
-    # so the full PAR2 timing comparison applies to odeexpr benchmarks.
-    if os.path.exists(ODEEXPR_BASELINE):
-        for name, oentry in load_baseline(ODEEXPR_BASELINE).items():
-            baseline[name] = oentry  # authoritative for odeexpr rows
+    # Merge the manifest-family baselines as REAL timing references (same
+    # machine, same 600 s budget) — unlike the frozen rows above, these carry a
+    # usable time_s, so the full PAR2 timing comparison applies to them.
+    for path in MANIFEST_BASELINES.values():
+        if os.path.exists(path):
+            for name, oentry in load_baseline(path).items():
+                baseline[name] = oentry  # authoritative for its manifest-family rows
 
     summary = load_summary(summary_csv)
 
@@ -370,9 +375,10 @@ def main():
             if ratio > REGRESSION_RATIO:
                 solve_to_fail = (base_result in ("SAT", "UNSAT")
                                  and cur_result in ("TIM", "OOM", "ERR"))
-                # odeexpr is the high-priority target: its regressions outrank
-                # ordinary ones so the report/skill lead with them.
-                if family_of(name) == "odeexpr":
+                # The manifest families (odeexpr_v1/v2) are the high-priority
+                # targets: their regressions outrank ordinary ones so the
+                # report/skill lead with them.
+                if family_of(name) in MANIFEST_FAMILY_NAMES:
                     priority = "ODEEXPR-HIGH" if solve_to_fail else "ODEEXPR"
                 else:
                     priority = "HIGH" if solve_to_fail else "TIMING"
