@@ -76,6 +76,12 @@ Run proactively at natural breakpoints even if the user doesn't ask.
   Emits per-config `summary.csv` + a `compare_solvers.py` table
 - `parse_results.py` — parses gtime output + solver stdout into `summary.csv` (primary timing
   column `cpu_time_s` = user+sys; `wall_time_s` kept as reference/TIM backup)
+- `drpm_log.py` — post-hoc extractor for `drpm_benchmark_log` stderr lines (one per learned theory
+  lemma: `L <size> <mode>`, `T.ms`, `PM.ms`, optional CAV26 `C26.*`). Library
+  (`parse_line`/`scan_sweep`/`summarize`/`ascii_histogram`) + a generic CLI over any numeric field:
+  `python3 drpm_log.py <sweep_dir> --field lemma_size|theory_ms|… [--compare-to <ref> --same-verdict]
+  [--csv out.csv]` → per-config histograms and verdict-gated paired per-benchmark median-Δ. Fail-loud
+  on format drift (a signature line that won't parse raises). Tests: `test_drpm_log.py` (stdlib-only)
 - `aggregate.py` — compares vs baseline on CPU time, flags regressions/exceptional, updates
   `state.json`
 - `results/` — per-run output directories (gitignored)
