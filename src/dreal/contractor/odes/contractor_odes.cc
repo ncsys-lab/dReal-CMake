@@ -275,7 +275,7 @@ namespace dreal
         // inside the adapter (cav26's exception differentiation). There is no
         // other backend to fall back to.
 
-        if (!m_capd_cache) return;  // RHS not translatable to capd::IMap
+        if (!m_capd_cache) { cs->AddInconclusiveOde(ic); return; }  // RHS not translatable to capd::IMap
 
         // Integration-time window [win_lb, win_ub]. cav26 accepted a time that
         // is a variable, a real-constant interval, or an exact constant; the
@@ -296,9 +296,10 @@ namespace dreal
         } else if (is_constant(icct)) {
             win_lb = win_ub = get_constant_value(icct);
         } else {
+            cs->AddInconclusiveOde(ic);
             return;  // unsupported time term
         }
-        if (win_ub <= 0.0) return;
+        if (win_ub <= 0.0) { cs->AddInconclusiveOde(ic); return; }
 
         const int n = static_cast<int>(m_vars_0.size());
 
@@ -362,7 +363,7 @@ namespace dreal
         // — divergence carries no information, whereas a successful integration
         // whose tube is disjoint from the gate (or whose interior violates the
         // invariant) IS infeasibility and is refuted below.
-        if (!res.found) return;
+        if (!res.found) { cs->AddInconclusiveOde(ic); return; }
 
         // --- Per-slice filter (cav26 compute_enclosures terminal-window filter
         //     + check_invariant), done here where the box and invariant

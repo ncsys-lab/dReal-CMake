@@ -61,6 +61,15 @@ class ContractorStatus {
   /// Add a formula @p formulas into the used constraints.
   void AddUsedConstraint(const std::vector<Formula>& formulas);
 
+  /// Records an ODE constraint that the Lohner contractor could neither refute
+  /// nor narrow on this box (CAPD diverged, or another inconclusive early
+  /// return). Such a constraint is logically in play but leaves no trace in
+  /// @c used_constraints_, so the explanation would omit it (a soundness hole —
+  /// see docs/constraint-order-explanation-soundness.md). Unlike
+  /// AddUsedConstraint it never seeds the unsat witness (divergence does not
+  /// empty the box); it is spliced into the explanation as a non-expanding leaf.
+  void AddInconclusiveOde(const Formula& f);
+
   /// Add a variable @p var which is directly responsible for the unsat.
   void AddUnsatWitness(const Variable& var);
 
@@ -89,6 +98,13 @@ class ContractorStatus {
   // A set of constraints used during pruning processes. This is an
   // over-approximation of an explanation.
   std::set<Formula> used_constraints_;
+
+  // ODE constraints that an inconclusive Lohner pass (CAPD divergence etc.)
+  // could not record in used_constraints_. Spliced into the explanation as
+  // non-expanding leaves so only those touching the relational refutation
+  // footprint enter the lemma (avoids dragging in the whole densely-chained
+  // BMC ODE web). See AddInconclusiveOde and GenerateExplanation.
+  std::set<Formula> inconclusive_odes_;
 
   // A set of variables directly responsible for the unsat result. This
   // is used to generate an explanation.

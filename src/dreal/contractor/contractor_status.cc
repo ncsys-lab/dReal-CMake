@@ -104,13 +104,19 @@ void ContractorStatus::AddUsedConstraint(const vector<Formula>& formulas) {
   }
 }
 
+void ContractorStatus::AddInconclusiveOde(const Formula& f) {
+  DREAL_LOG_DEBUG("ContractorStatus::AddInconclusiveOde({})", f);
+  inconclusive_odes_.insert(f);
+}
+
 void ContractorStatus::AddUnsatWitness(const Variable& var) {
   DREAL_LOG_DEBUG("ContractorStatus::AddUnsatWitness({})", fmt::streamed(var));
   unsat_witness_.insert(var);
 }
 
 set<Formula> GenerateExplanation(const Variables& unsat_witness,
-                                 const set<Formula>& used_constraints) {
+                                 const set<Formula>& used_constraints,
+                                 const set<Formula>& inconclusive_odes) {
   static ContractorStatusStat stat(DREAL_LOG_INFO_ENABLED);
   stat.increase_num_explanation_generation();
   TimerGuard timer_guard(&stat.timer_explanation_generation_, stat.enabled());
@@ -156,11 +162,30 @@ set<Formula> GenerateExplanation(const Variables& unsat_witness,
       }
     }
   }
+
+  // Splice in the inconclusive ODE constraints (CAPD diverged etc., so they
+  // recorded no narrowing) as NON-EXPANDING leaves: include each whose variables
+  // touch the EMPTYING witness `unsat_witness` — the vars of the constraints that
+  // actually pruned the box to empty — not the whole relational closure `seen`.
+  // The responsible ODE shares the emptying constraint's time/state var (the
+  // relational system pins the candidate the ODE rejects), so the witness is the
+  // principled "minimal relevant" tie; intersecting with the broad `seen` instead
+  // drags in ODEs from unrelated parts of the densely-chained BMC unrolling,
+  // bloating the lemma and starving the SAT search (measured: a c2e2 k12 SAT
+  // instance went 9 s -> timeout). Soundness is monotone either way — adding
+  // constraints can only shrink the solution set of `R ∧ E`, never make a sound
+  // ¬E unsound — so the witness tie is validated by the no-flip + auditor oracles,
+  // not assumed minimal.
+  for (const Formula& f : inconclusive_odes) {
+    if (HaveIntersection(unsat_witness, f.GetFreeVariables())) {
+      explanation.insert(f);
+    }
+  }
   return explanation;
 }
 
 set<Formula> ContractorStatus::Explanation() const {
-  return GenerateExplanation(unsat_witness_, used_constraints_);
+  return GenerateExplanation(unsat_witness_, used_constraints_, inconclusive_odes_);
 }
 
 ContractorStatus& ContractorStatus::InplaceJoin(
@@ -171,6 +196,8 @@ ContractorStatus& ContractorStatus::InplaceJoin(
                         contractor_status.unsat_witness_.end());
   used_constraints_.insert(contractor_status.used_constraints_.begin(),
                            contractor_status.used_constraints_.end());
+  inconclusive_odes_.insert(contractor_status.inconclusive_odes_.begin(),
+                            contractor_status.inconclusive_odes_.end());
   return *this;
 }
 

@@ -14,6 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/soundness-vs-completeness.md` — T-relation definitions, dReal guarantees, worked F1 example
 - `docs/forall-semantics.md` — ∃∀ fragment: syntax, CE-guided contractor, nested-forall crash, QE limits, nested-quantifier project guide
 - `docs/seeding.md` — seed-and-verify (`--seed-samples`): the `AllRelational` gate, the CSE/COBYLA/NNF/outward-box pipeline, COMPLETENESS-only framing
+- `docs/constraint-order-explanation-soundness.md` — **FIXED SOUNDNESS bug** (2026-06-29): a stiff ODE `integral` logically responsible for a conflict was dropped from `used_constraints_` (CAPD diverges → `contractor_ode_lohner::Prune` returned at its inconclusive exit without recording), so the learned theory clause was built from the satisfiable relational remainder → false `unsat` (triggered by `--constraint-order desc`). Fix: the inconclusive exits call `ContractorStatus::AddInconclusiveOde`, and `GenerateExplanation` splices the ODE in as a non-expanding leaf keyed on the emptying `unsat_witness` (minimal-relevant; witness not the broad closure, which regressed a c2e2 SAT instance to TIM). Validated by no-flip + auditor (2819 lemmas, 0 invalid) + corpus A/B (1.01× PAR2). Adversarial tests: `test/dreal/solver/test/constraint_order_soundness_test.cc`
 - `docs/papers/` — foundational Gao et al. literature: companion summaries (δ-decidability/δ-complete/dReal-tool/∃∀) cross-referenced into the docs above, with paper↔code drift flagged (e.g. opensmt+realpaver → CaDiCaL+IBEX+CAPD)
 
 ---
