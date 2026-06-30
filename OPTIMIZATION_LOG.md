@@ -445,10 +445,29 @@ verdict). Results dir `benchmark/results/sweep_20260629_181925/`.
 - 8 benchmarks (kuramoto_doe N4–N6, composite_lipschitz i0/i1, decrease_exact, cs5c_sigmoid
   __decrease, kuramoto__N6) time out under *every* variant — brancher-insensitive.
 
-**Status.** Variant machinery + best variant identified; **default left OFF**. Flipping the
-global default needs a full-corpus sweep first — smear no-ops on the ODE/forall constraints that
-dominate saradc/github/tacas, but their relational portions are untested here. For the odeexpr
-projects, invoke with `--smear smearsum`.
+**Full-corpus A/B — global default ruled OUT; smearsum is NRA-only (2026-06-29).** `smearsum`
+vs smear-off over all 191 (odeexpr_v1 50 + odeexpr_v2 22 + saradc 21 + github 56 + tacas 42),
+300 s cap, CPU PAR2, **0 SAT/UNSAT flips**. Results `benchmark/results/sweep_20260629_215556/`.
+
+| family | n | base solved / PAR2 | smearsum solved / PAR2 |
+|---|---|---|---|
+| odeexpr_v1 | 50 | 39 / 1.00× | 42 / **0.73×** ✅ |
+| odeexpr_v2 | 22 | 14 / 1.00× | 22 / **0.02×** ✅ |
+| saradc | 21 | 20 / 1.00× | **1 / 14.3×** ❌ (15 OOM'd that base solved in 7–58 s) |
+| github | 56 | 51 / 1.00× | 44 / **2.21×** ❌ |
+| tacas | 42 | 42 / 1.00× | 41 / **2.80×** ❌ |
+| **overall** | 191 | 166 / 1.00× | 150 / **2.03×** ❌ |
+
+smearsum **collapses on the ODE families** (net −16 solves, 2.03× worse PAR2) — the dividing
+line is exactly NRA-vs-ODE. *Why:* `SmearBrancher` builds its Jacobian only from the relational
+constraints, **skipping ODE/`forall_t`** (the smear criterion is undefined there). On ODE
+benchmarks those skipped constraints carry most of the variable coupling, so smear steers the
+split-variable choice against a partial, misleading view — worse than ODE-agnostic largest-first,
+badly enough to OOM saradc. On pure-NRA odeexpr the Jacobian is complete, so it excels.
+
+**Status.** Variant machinery + best variant identified; **default stays OFF — global flip ruled
+out** by the sweep above. Enable `--smear smearsum` **per-project for odeexpr_v1/v2 only**; never
+on the ODE families.
 
 ---
 
