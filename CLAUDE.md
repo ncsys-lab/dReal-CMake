@@ -113,7 +113,8 @@ Code: `src/dreal/solver/seed/seed.{h,cc}`.
 **Smear branching (`--smear <variant>`, default off):** constraint-aware split-variable choice
 (Jacobian-weighted) replacing largest-first; one of IBEX's four `SmearFunction` variants —
 `smearsumrel`, `smearsum`, `smearmax`, `smearmaxrel` (required arg; bare `--smear` errors).
-Soundness-free (variable choice never moves a verdict); `IcpSeq`-only, `--jobs>1` rejected. On
+Soundness-free (variable choice never moves a verdict). Works in both `IcpSeq` and `IcpParallel`
+(`--jobs>1` builds one `SmearBrancher` per worker — the brancher is not thread-safe to share). On
 the odeexpr families **`smearsum` is the strongest** (64/72 solved vs 53 off, PAR2 0.03×, 0 flips)
 and `smearsumrel` actually regresses v1 — so prefer `--smear smearsum` there. **NRA-only: the
 full-corpus A/B ruled out a global default** — smearsum *collapses* the ODE families (saradc

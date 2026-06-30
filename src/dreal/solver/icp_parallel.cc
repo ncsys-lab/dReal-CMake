@@ -16,10 +16,10 @@
 #include "dreal/solver/icp_parallel.h"
 
 #include <atomic>
-#include <tuple>
-#include <utility>
+#include <memory>
 
 #include "dreal/solver/brancher.h"
+#include "dreal/solver/brancher_smear.h"
 #include "dreal/solver/icp_stat.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/cds.h"
@@ -27,44 +27,43 @@
 #include "dreal/util/logging.h"
 
 using std::atomic;
-using std::pair;
+using std::make_unique;
+using std::unique_ptr;
 using std::vector;
 
 namespace dreal {
 
 namespace {
 
-bool ParallelBranch(const DynamicBitset& bitset,
+bool ParallelBranch(const SmearBrancher* const smear_brancher,
+                    const DynamicBitset& bitset,
                     const bool stack_left_box_first, Box* const box,
                     Stack<Box>* const global_stack,
                     atomic<int>* const number_of_boxes,
                     const UpwardRounding& ur) {
-  const pair<double, int> max_diam_and_idx{FindMaxDiam(*box, bitset, ur)};
-  const int branching_point{max_diam_and_idx.second};
-  if (branching_point >= 0) {
-    const auto boxes = box->bisect(branching_point);
-    const Box* box1_ptr{nullptr};
-    const Box* box2_ptr{nullptr};
-    if (stack_left_box_first) {
-      box1_ptr = &boxes.first;
-      box2_ptr = &boxes.second;
-    } else {
-      box2_ptr = &boxes.first;
-      box1_ptr = &boxes.second;
-    }
-    const Box& box1{*box1_ptr};
-    const Box& box2{*box2_ptr};
-    number_of_boxes->fetch_add(1, std::memory_order_relaxed);
-    global_stack->push(box1);
-    *box = box2;
-    return true;
+  // Constraint-aware smear (when enabled for this worker) vs largest-first;
+  // both share the brancher interface (dimension + left/right out-params).
+  Box box_left;
+  Box box_right;
+  const int branching_dim{
+      smear_brancher
+          ? (*smear_brancher)(*box, bitset, &box_left, &box_right, ur)
+          : BranchLargestFirst(*box, bitset, &box_left, &box_right, ur)};
+  if (branching_dim < 0) {
+    // Fail to find a branching point.
+    return false;
   }
-  // Fail to find a branching point.
-  return false;
+  const Box& to_stack{stack_left_box_first ? box_left : box_right};
+  const Box& to_keep{stack_left_box_first ? box_right : box_left};
+  number_of_boxes->fetch_add(1, std::memory_order_relaxed);
+  global_stack->push(to_stack);
+  *box = to_keep;
+  return true;
 }
 
 void Worker(const Contractor& contractor, const Config& config,
-            const vector<FormulaEvaluator>& formula_evaluators, const int id,
+            const vector<FormulaEvaluator>& formula_evaluators,
+            const SmearBrancher* const smear_brancher, const int id,
             const bool main_thread, Stack<Box>* const global_stack,
             ContractorStatus* const cs, atomic<int>* const found_delta_sat,
             atomic<int>* const number_of_boxes) {
@@ -154,8 +153,8 @@ void Worker(const Contractor& contractor, const Config& config,
 
     // 3.2.3. This box is bigger than delta. Need branching.
     branch_timer_guard.resume();
-    if (!ParallelBranch(*evaluation_result, stack_left_box_first, &current_box,
-                        global_stack, number_of_boxes, ur)) {
+    if (!ParallelBranch(smear_brancher, *evaluation_result, stack_left_box_first,
+                        &current_box, global_stack, number_of_boxes, ur)) {
       DREAL_LOG_DEBUG(
           "IcpParallel::Worker() Found that the current box is not "
           "satisfying "
@@ -206,6 +205,23 @@ bool IcpParallel::CheckSat(const Contractor& contractor,
 
   const int number_of_jobs = config().number_of_jobs();
 
+  // Constraint-aware smear branching (--smear): each worker owns its own
+  // SmearBrancher because operator() mutates ibex Function eval scratch
+  // (f_ctrs.jacobian) — the same per-worker-instance discipline as the
+  // contractor copy below. Built once here on the main thread (sequential, so
+  // the shared formula_evaluators reads don't race), from the fixed variable
+  // set. Empty (nullptr passed) when smear is off -> largest-first.
+  vector<unique_ptr<SmearBrancher>> smear_branchers;
+  if (config().smear_variant() != SmearVariant::kNone) {
+    for (int i = 0; i < number_of_jobs; ++i) {
+      smear_branchers.push_back(make_unique<SmearBrancher>(
+          formula_evaluators, cs->box(), config().smear_variant()));
+    }
+  }
+  const auto brancher_for = [&smear_branchers](const int i) {
+    return smear_branchers.empty() ? nullptr : smear_branchers[i].get();
+  };
+
   // Total number of boxes that are either 1) under processing in a worker or 2)
   // waiting for a worker in the stack. This number goes zero when there is no
   // more work to do.
@@ -219,16 +235,16 @@ bool IcpParallel::CheckSat(const Contractor& contractor,
   }
 
   for (int i = 0; i < number_of_jobs - 1; ++i) {
-    results_.push_back(
-        pool_.enqueue(Worker, contractor, config(), formula_evaluators, i,
-                      false /* not main thread */, &global_stack,
-                      &status_vector_[i], &found_delta_sat, &number_of_boxes));
+    results_.push_back(pool_.enqueue(
+        Worker, contractor, config(), formula_evaluators, brancher_for(i), i,
+        false /* not main thread */, &global_stack, &status_vector_[i],
+        &found_delta_sat, &number_of_boxes));
   }
 
   const int last_index{number_of_jobs - 1};
-  Worker(contractor, config(), formula_evaluators, last_index,
-         true /* main thread */, &global_stack, &status_vector_[last_index],
-         &found_delta_sat, &number_of_boxes);
+  Worker(contractor, config(), formula_evaluators, brancher_for(last_index),
+         last_index, true /* main thread */, &global_stack,
+         &status_vector_[last_index], &found_delta_sat, &number_of_boxes);
 
   // barrier.
   for (auto&& result : results_) {

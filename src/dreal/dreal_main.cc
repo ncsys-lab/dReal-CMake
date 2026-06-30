@@ -628,10 +628,6 @@ void MainProgram::ExtractOptions() {
                                      ? SmearVariant::kMaxRel
                                      : SmearVariant::kSumRel;
     config_.mutable_smear_variant().set_from_command_line(variant);
-    // SmearBrancher is wired into IcpSeq only (odeexpr is single-threaded).
-    if (config_.number_of_jobs() > 1) {
-      throw DREAL_RUNTIME_ERROR("--smear is not implemented for parallel ICP (--jobs > 1).");
-    }
   }
   if (opt_.isSet("--seed-samples")) {
     int v{0};

@@ -45,7 +45,8 @@ namespace dreal {
 /// (node count), never a verdict — a completeness/perf lever, never soundness.
 /// When the Jacobian is uninformative (all-zero / infinite entries, or no
 /// constraints) it falls back to largest-first, matching IBEX's SmearFunction.
-/// IcpSeq only (single-threaded); --jobs>1 is rejected at the CLI.
+/// Not thread-safe to share (operator() mutates ibex Function eval scratch via
+/// f_ctrs.jacobian): IcpSeq holds one; IcpParallel builds one per worker.
 class SmearBrancher {
  public:
   /// Assembles the constraint system from the relational @p formula_evaluators
