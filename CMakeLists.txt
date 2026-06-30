@@ -169,7 +169,9 @@ target_link_libraries(dreal4_cmake PUBLIC "${CADICAL_LIB}")
 #
 # Build options:
 #   INTERVAL_LIB=gaol  — arm64-native works since mainline 971f8eb0
-#   LP_LIB=none        — dReal does not exercise IBEX's LP-based contractors
+#   LP_LIB=soplex      — vendored SoPlex 4.0.2 (hermetic, ZLIB/GMP off); enables
+#                        the polytope/X-Newton linear-relaxation contractors that
+#                        --forall-polytope exercises for ∃∀ queries
 #   BUILD_TESTING=0    — skip cppunit (not needed at consume time)
 # ---------------------------------------------------------------------------
 include(ExternalProject)
@@ -199,7 +201,7 @@ ExternalProject_Add(ibex_external
     CMAKE_ARGS
         "-DCMAKE_INSTALL_PREFIX=${IBEX_INSTALL_DIR}"
         "-DINTERVAL_LIB=gaol"
-        "-DLP_LIB=none"
+        "-DLP_LIB=soplex"
         "-DBUILD_TESTING=0"
         "-DCMAKE_BUILD_TYPE=Release"
         "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
@@ -208,6 +210,7 @@ ExternalProject_Add(ibex_external
         "${IBEX_INSTALL_DIR}/lib/libibex.a"
         "${IBEX_INSTALL_DIR}/lib/ibex/3rd/libgaol.a"
         "${IBEX_INSTALL_DIR}/lib/ibex/3rd/libultim.a"
+        "${IBEX_INSTALL_DIR}/lib/ibex/3rd/libsoplex.a"
     INSTALL_DIR       "${IBEX_INSTALL_DIR}"
 )
 # Pre-create the include dir so the IMPORTED-target validation doesn't fail
@@ -229,6 +232,11 @@ add_dependencies(ibex_gaol  ibex_external)
 add_dependencies(ibex_ultim ibex_external)
 set_target_properties(ibex_gaol  PROPERTIES IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/ibex/3rd/libgaol.a")
 set_target_properties(ibex_ultim PROPERTIES IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/ibex/3rd/libultim.a")
+# soplex is IBEX's LP backend (LP_LIB=soplex), needed by the polytope/X-Newton
+# linear-relaxation contractors that --forall-polytope exercises.
+add_library(ibex_soplex STATIC IMPORTED GLOBAL)
+add_dependencies(ibex_soplex ibex_external)
+set_target_properties(ibex_soplex PROPERTIES IMPORTED_LOCATION "${IBEX_INSTALL_DIR}/lib/ibex/3rd/libsoplex.a")
 
 # ---------------------------------------------------------------------------
 # CAPD via ExternalProject — second ODE backend (order-20 Taylor) running
@@ -302,6 +310,7 @@ target_link_libraries(dreal4_cmake PUBLIC
     ibex_imported
     ibex_gaol
     ibex_ultim
+    ibex_soplex
     capd_imported
 )
 # CAPD builds at build time (ExternalProject), so dreal4_cmake must wait for it.
