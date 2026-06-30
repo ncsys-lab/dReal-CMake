@@ -88,7 +88,10 @@ extend the shapes it can attack.
   existential-isolation wall, as predicted). Lessons for Q3–Q7: (a) re-validate per
   workload, the benefit does not carry; (b) `prec` (Q4) is near-irrelevant once it's
   ≥ ~half the universal-box width — and *inverts* for an unsat goal (finer ⇒ stronger
-  refutation), so the "coarse is better" rule is SAT-specific.
+  refutation), so the "coarse is better" rule is SAT-specific. Runs under `--jobs>1` via a
+  per-worker `ContractorIbexForallMt` cell (one `ibex::CtcForAll` per thread, keyed on
+  `ThreadPool::get_thread_id()`; the worklist is not shareable, so each worker builds its
+  own — mirrors `ContractorIbexFwdbwdMt`).
 
 ### Q2 — Nested composable contractors: the path to `∀∃∃∀`  ⭐ (enable the unsupported)
 - **The gap:** dReal **crashes** on any nested quantifier (`DeltaStrengthen` throws on a

@@ -178,7 +178,7 @@ void MainProgram::AddOptions() {
            0 /* Number of args expected. */,
            0 /* Delimiter if expecting multiple args. */,
            "Run the ibex::CtcForAll sound pre-pruner beside the CEGIS forall "
-           "decider (NRA exist-forall; single-job only).\n",
+           "decider (NRA exist-forall; works under --jobs>1).\n",
            "--forall-pre-prune");
 
   opt_.add(

@@ -127,8 +127,9 @@ constraints. Enable per-project for odeexpr only. Mechanism:
 **Forall pre-pruner (`--forall-pre-prune`, default off):** a sound, COMPLETENESS-only IBEX
 `ibex::CtcForAll` proj-intersection pre-pruner (`ContractorIbexForall`) that runs *beside* —
 never instead of — the δ-complete CEGIS `ContractorForall` in the forall fixpoint, shrinking
-the existential box by pure interval contraction (no nested δ-solve). NRA ∃∀ only; single-job
-(throws under `--jobs>1`; no Mt cell). `--forall-pre-prune-prec` (default 0.5) is the
+the existential box by pure interval contraction (no nested δ-solve). NRA ∃∀ only; works under
+`--jobs>1` via a per-worker `ContractorIbexForallMt` cell (one `ibex::CtcForAll` per thread,
+keyed on `ThreadPool::get_thread_id()`; mirrors `ContractorIbexFwdbwdMt`). `--forall-pre-prune-prec` (default 0.5) is the
 universal-box bisection precision — near-irrelevant on odeexpr_v2 and capped at the
 universal-box width above which `CtcForAll` degenerates to a single midpoint check; for an
 *unsat* goal it inverts (finer ⇒ stronger refutation). **Encoding-fragile speedup that never

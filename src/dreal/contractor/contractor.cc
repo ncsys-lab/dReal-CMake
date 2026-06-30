@@ -24,6 +24,7 @@
 #include "dreal/contractor/contractor_forall.h"
 #include "dreal/contractor/contractor_ibex_acid.h"
 #include "dreal/contractor/contractor_ibex_forall.h"
+#include "dreal/contractor/contractor_ibex_forall_mt.h"
 #include "dreal/contractor/contractor_ibex_fwdbwd.h"
 #include "dreal/contractor/contractor_ibex_fwdbwd_mt.h"
 #include "dreal/contractor/contractor_ibex_polytope.h"
@@ -184,20 +185,24 @@ Contractor make_contractor_ibex_polytope(vector<Formula> formulas,
 Contractor make_contractor_ibex_forall(Formula f, const Box& box,
                                        const Config& config) {
   // ibex::CtcForAll holds a mutable parameter-box worklist, so a single cell
-  // cannot be shared across parallel ICP workers. No Mt variant yet — fail loud
-  // rather than silently race. (The flag is off by default; the A/B runs
-  // single-job.)
+  // cannot be shared across parallel ICP workers; the Mt variant builds one
+  // ContractorIbexForall per worker thread (mirrors make_contractor_ibex_fwdbwd).
   if (config.number_of_jobs() > 1) {
-    throw DREAL_RUNTIME_ERROR(
-        "The forall pre-pruner (--forall-pre-prune) is not implemented for "
-        "parallel ICP (--jobs > 1).");
-  }
-  const auto ctc =
-      make_shared<ContractorIbexForall>(std::move(f), box, config);
-  if (ctc->is_dummy()) {
-    return make_contractor_id(config);
+    const auto ctc =
+        make_shared<ContractorIbexForallMt>(std::move(f), box, config);
+    if (ctc->is_dummy()) {
+      return make_contractor_id(config);
+    } else {
+      return Contractor{ctc};
+    }
   } else {
-    return Contractor{ctc};
+    const auto ctc =
+        make_shared<ContractorIbexForall>(std::move(f), box, config);
+    if (ctc->is_dummy()) {
+      return make_contractor_id(config);
+    } else {
+      return Contractor{ctc};
+    }
   }
 }
 

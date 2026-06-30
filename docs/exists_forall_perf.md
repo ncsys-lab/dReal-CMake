@@ -125,4 +125,5 @@ direction), not a solver lever.
   *unsat* goal the heuristic *inverts* (finer prec samples more universal points ⇒ stronger
   refutation), so "bigger = faster" is a SAT-only artifact. Default stays **0.5** (the only
   measured harm from too-fine was the first encoding's prec=0.1 δ=0.2 regression).
-- **Off by default**; NRA ∃∀ only; single-job (throws under `--jobs>1`).
+- **Off by default**; NRA ∃∀ only; runs under `--jobs>1` via a per-worker
+  `ContractorIbexForallMt` cell (one `ibex::CtcForAll` per thread).

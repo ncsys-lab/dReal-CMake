@@ -394,7 +394,8 @@ live; this caveat is the historical `LP_LIB=none` state.)
 decider in the forall fixpoint — pure interval contraction on the existential box, no nested
 δ-solve. It augments, never replaces, the δ-complete `ContractorForall`. `--forall-pre-prune-prec`
 (default 0.5) sets the universal-box bisection precision. COMPLETENESS-only (cannot move a
-verdict). NRA ∃∀ only; single-job. The mechanism and its IBEX-lever rationale are in
+verdict). NRA ∃∀ only; runs under `--jobs>1` via a per-worker `ContractorIbexForallMt` cell.
+The mechanism and its IBEX-lever rationale are in
 `ibex_docs/AUDIT-QUANTIFIERS.md` Q1; the measured tractability outcome on odeexpr_v2 (sound,
 but speedup is encoding-fragile and never cracks the pinned δ) is in
 `docs/exists_forall_perf.md`.
