@@ -192,8 +192,17 @@ optional<Contractor> TheorySolver::BuildContractor(
         DREAL_ASSERT(inner_delta < epsilon && epsilon < delta);
         const Contractor ctc{make_contractor_forall<Context>(
             f, box, epsilon, inner_delta, config_)};
-        nl_ctcs.emplace_back(make_contractor_fixpoint(DefaultTerminationCondition,
-                                                   {ctc}, config_));
+        std::vector<Contractor> forall_ctcs;
+        if (config_.use_forall_pre_prune()) {
+          // A cheap, sound proj-intersection skim (ibex::CtcForAll) ahead of the
+          // expensive δ-complete CEGIS decider in the same fixpoint. Pure
+          // contraction (no nested δ-solve); COMPLETENESS-only, never a false
+          // unsat. See docs/exists_forall_perf.md / ibex_docs/AUDIT-QUANTIFIERS.md.
+          forall_ctcs.push_back(make_contractor_ibex_forall(f, box, config_));
+        }
+        forall_ctcs.push_back(ctc);
+        nl_ctcs.emplace_back(make_contractor_fixpoint(
+            DefaultTerminationCondition, forall_ctcs, config_));
       } else {
         nl_ctcs.emplace_back(make_contractor_ibex_fwdbwd(f, box, config_));
       }

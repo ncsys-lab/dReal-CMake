@@ -76,6 +76,19 @@ extend the shapes it can attack.
   *worse* than CEGIS, whose CE search is targeted rather than exhaustive). It cannot
   decide δ-sat — CEGIS stays the decider. Node:
   [`classes/contractors/Quantifiers.md`](classes/contractors/Quantifiers.md).
+- **IMPLEMENTED + MEASURED (2026-06-30):** shipped as `--forall-pre-prune`
+  (`src/dreal/contractor/contractor_ibex_forall.{h,cc}`, run beside CEGIS in the forall
+  fixpoint at `theory_solver.cc`). Sound (proj-inter + implication guard preserved by a
+  recursive Formula→`ibex::Ctc` builder: `∧`→`CtcCompo`, `∨`→`CtcUnion`, atom→`CtcFwdBwd`
+  over one shared `ibex::System`); no verdict flips anywhere. **The speedup is real but
+  encoding-fragile:** on the *first* `odeexpr_v2` encoding it gave ~40–100× at δ=0.2–0.35 on
+  `mlp2_n1_h1`, but a same-day re-encoding made those cases 0 s at baseline (no headroom
+  left) and pre-prune rescued none of the still-hard cases — full record in
+  `docs/exists_forall_perf.md`. **No rescue at the pinned δ=0.0005** under any encoding (the
+  existential-isolation wall, as predicted). Lessons for Q3–Q7: (a) re-validate per
+  workload, the benefit does not carry; (b) `prec` (Q4) is near-irrelevant once it's
+  ≥ ~half the universal-box width — and *inverts* for an unsat goal (finer ⇒ stronger
+  refutation), so the "coarse is better" rule is SAT-specific.
 
 ### Q2 — Nested composable contractors: the path to `∀∃∃∀`  ⭐ (enable the unsupported)
 - **The gap:** dReal **crashes** on any nested quantifier (`DeltaStrengthen` throws on a
@@ -155,8 +168,12 @@ hardcodes `LargestFirst`; that dReal is depth-one and crashes on nesting, uses
 HC4-only inside, and that `use_polytope_in_forall` is broken under `LP_LIB=none`
 (the latter three via the project's cross-referenced `forall-semantics.md` + the
 config/theory_solver anchors confirmed in [`AUDIT.md`](AUDIT.md)/[`dreal-ibex-usage.md`](dreal-ibex-usage.md)).
-**Hypothesized** (NOT benchmarked): every *speedup/tractability* claim and the
-ranking. The dominant risk for all of Q1/Q2/Q5 is the **`dim(y)` exponential** — on
+**Measured** (2026-06-30): **Q1** is now implemented and benchmarked — see its
+"IMPLEMENTED + MEASURED" note above (sound; speedups real but **encoding-fragile** — large
+on the first `odeexpr_v2` encoding, gone after a re-encoding; no rescue of the δ⁻ⁿ
+existential wall under any encoding). **Hypothesized** (still NOT benchmarked):
+every *other* speedup/tractability claim (Q2–Q7) and the ranking. The dominant risk for all
+of Q1/Q2/Q5 is the **`dim(y)` exponential** — on
 genuinely high-dimensional parameter blocks, exhaustive interval quantification can
 be *worse* than CEGIS's targeted CE search; these levers are "cheap shallow pruning +
 strong inner contractor," not "replace CEGIS with `CtcForAll`." Start validation with

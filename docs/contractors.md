@@ -119,6 +119,14 @@ Handles the **∃∀ `QF_NRA` quantifier** — `∃x. ∀y∈D. φ(x, y)` — *n
 
 ---
 
+## IBEX Forall Pre-Pruner (`ContractorIbexForall`, `Kind::IBEX_FORALL`)
+
+**File:** `src/dreal/contractor/contractor_ibex_forall.{h,cc}` — opt-in via `--forall-pre-prune` (off by default).
+
+A **sound, COMPLETENESS-only** pre-pruner over IBEX's native `ibex::CtcForAll` (proj-intersection), wired *beside* — not instead of — the CEGIS `ContractorForall` above in the same forall fixpoint (`theory_solver.cc`). Unlike CEGIS (a δ-complete decision sub-procedure that pays a full nested dReal solve per `Prune`), this is **pure interval contraction**: bisect the universal box `y` to `--forall-pre-prune-prec`, contract the existential box at `mid(y)`, intersect. It cannot decide δ-sat — CEGIS stays the decider — it only skims easy prunings off the expensive loop. Soundness is by construction: it contracts the existential box only against a *real* universal point `mid(y)`, so it can never delete a true ∃∀ solution (false-`unsat` impossible). The construction's load-bearing piece is the recursive `Formula → ibex::Ctc` builder (`∧`→`CtcCompo`, `∨`→`CtcUnion`, atom→`CtcFwdBwd` over one shared `ibex::System`): the `∨`→`CtcUnion` mapping is what preserves the body's `domain ⟹ φ` implication guard (dropping it would be a false-`unsat` soundness bug — guarded by the mutation-checked unit test). Single-threaded only (the `CtcForAll` worklist is not shareable; the factory throws under `--jobs>1`). **Effectiveness is workload- and even encoding-specific** — see `docs/exists_forall_perf.md` and the IBEX-lever audit `ibex_docs/AUDIT-QUANTIFIERS.md` Q1.
+
+---
+
 ## ODE Contractor (`contractor_ode_lohner`)
 
 **File:** `src/dreal/contractor/odes/contractor_odes.cc` (CAPD backend in `contractor_odes_capd.cc`)

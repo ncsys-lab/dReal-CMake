@@ -51,6 +51,20 @@ OptionValue<bool>& Config::mutable_use_polytope_in_forall() {
   return use_polytope_in_forall_;
 }
 
+bool Config::use_forall_pre_prune() const {
+  return use_forall_pre_prune_.get();
+}
+OptionValue<bool>& Config::mutable_use_forall_pre_prune() {
+  return use_forall_pre_prune_;
+}
+
+double Config::forall_pre_prune_prec() const {
+  return forall_pre_prune_prec_.get();
+}
+OptionValue<double>& Config::mutable_forall_pre_prune_prec() {
+  return forall_pre_prune_prec_;
+}
+
 bool Config::use_worklist_fixpoint() const {
   return use_worklist_fixpoint_.get();
 }

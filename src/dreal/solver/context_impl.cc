@@ -517,6 +517,13 @@ void Context::Impl::SetOption(const string& key, const double val) {
     }
     return config_.mutable_precision().set_from_file(val);
   }
+  if (key == ":forall-pre-prune-prec") {
+    if (val <= 0.0) {
+      throw DREAL_RUNTIME_ERROR(
+          "forall-pre-prune-prec has to be positive (input = {}).", val);
+    }
+    return config_.mutable_forall_pre_prune_prec().set_from_file(val);
+  }
 }
 
 optional<string> Context::Impl::GetOption(const string& key) const {
@@ -541,6 +548,10 @@ void Context::Impl::SetOption(const string& key, const string& val) {
   }
   if (key == ":forall-polytope" || key == "forall_polytope") {
     return config_.mutable_use_polytope_in_forall().set_from_file(
+        ParseBooleanOption(key, val));
+  }
+  if (key == ":forall-pre-prune" || key == "forall_pre_prune") {
+    return config_.mutable_use_forall_pre_prune().set_from_file(
         ParseBooleanOption(key, val));
   }
   if (key == ":local-optimization" || key == "local_optimization") {

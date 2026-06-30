@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/benchmarking.md` — benchmark infrastructure, families, A/B, sweep, cross-solver comparison
 - `docs/soundness-vs-completeness.md` — T-relation definitions, dReal guarantees, worked F1 example
 - `docs/forall-semantics.md` — ∃∀ fragment: syntax, CE-guided contractor, nested-forall crash, QE limits, nested-quantifier project guide
+- `docs/exists_forall_perf.md` — odeexpr_v2 ∃∀ tractability: intractable at pinned δ=0.0005 (existential δ-isolation wall, **SAT-by-construction** via the zero-MLP witness); the `--forall-pre-prune` IBEX `CtcForAll` pre-pruner is sound but its speedup is **encoding-fragile** (large on the first encoding, gone after the 2026-06-30 re-encode) and never cracks δ=0.0005; `--forall-polytope` can *hurt* there
 - `docs/seeding.md` — seed-and-verify (`--seed-samples`): the `AllRelational` gate, the CSE/COBYLA/NNF/outward-box pipeline, COMPLETENESS-only framing
 - `docs/constraint-order-explanation-soundness.md` — **FIXED SOUNDNESS bug** (2026-06-29): a stiff ODE `integral` logically responsible for a conflict was dropped from `used_constraints_` (CAPD diverges → `contractor_ode_lohner::Prune` returned at its inconclusive exit without recording), so the learned theory clause was built from the satisfiable relational remainder → false `unsat` (triggered by `--constraint-order desc`). Fix: the inconclusive exits call `ContractorStatus::AddInconclusiveOde`, and `GenerateExplanation` splices the ODE in as a non-expanding leaf keyed on the emptying `unsat_witness` (minimal-relevant; witness not the broad closure, which regressed a c2e2 SAT instance to TIM). Validated by no-flip + auditor (2819 lemmas, 0 invalid) + corpus A/B (1.01× PAR2). Adversarial tests: `test/dreal/solver/test/constraint_order_soundness_test.cc`
 - `docs/papers/` — foundational Gao et al. literature: companion summaries (δ-decidability/δ-complete/dReal-tool/∃∀) cross-referenced into the docs above, with paper↔code drift flagged (e.g. opensmt+realpaver → CaDiCaL+IBEX+CAPD)
@@ -122,6 +123,19 @@ full-corpus A/B ruled out a global default** — smearsum *collapses* the ODE fa
 constraints. Enable per-project for odeexpr only. Mechanism:
 `docs/architecture.md` §Branching. A/B: `OPTIMIZATION_LOG.md` §odeexpr. Code:
 `src/dreal/solver/brancher_smear.{h,cc}`.
+
+**Forall pre-pruner (`--forall-pre-prune`, default off):** a sound, COMPLETENESS-only IBEX
+`ibex::CtcForAll` proj-intersection pre-pruner (`ContractorIbexForall`) that runs *beside* —
+never instead of — the δ-complete CEGIS `ContractorForall` in the forall fixpoint, shrinking
+the existential box by pure interval contraction (no nested δ-solve). NRA ∃∀ only; single-job
+(throws under `--jobs>1`; no Mt cell). `--forall-pre-prune-prec` (default 0.5) is the
+universal-box bisection precision — near-irrelevant on odeexpr_v2 and capped at the
+universal-box width above which `CtcForAll` degenerates to a single midpoint check; for an
+*unsat* goal it inverts (finer ⇒ stronger refutation). **Encoding-fragile speedup that never
+moves the pinned δ=0.0005** — measured record, the SAT-by-construction finding, and the
+combine-with-polytope-hurts result: `docs/exists_forall_perf.md`. Mechanism + IBEX-lever
+audit: `ibex_docs/AUDIT-QUANTIFIERS.md` Q1. Code:
+`src/dreal/contractor/contractor_ibex_forall.{h,cc}`.
 
 **CAPD ODE tuning:** `--ode-taylor-order` (default 12), `--ode-hull-grid` (4 — per-step sub-slice
 count; lower widens enclosures (never a false-`unsat`). Since the 2026-06 centered-in-time tube

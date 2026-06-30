@@ -385,7 +385,19 @@ the linear-programming pruning the CAV 2018 implementation ran on **CLP** (§5).
 it needs an LP solver linked into the build, and `cmake-build-release` (this repo) does not
 link one — `--polytope` on problems whose linear assertions trigger the LP path crashes with
 `LPSolver method called but no LPSolver has been configured`. Simple forall problems with no
-top-level linear assertions may work; the Ackley-family tests fail with it.
+top-level linear assertions may work; the Ackley-family tests fail with it. (The current
+source build links **SoPlex** — `CMakeLists.txt` `-DLP_LIB=soplex` — so the polytope path is
+live; this caveat is the historical `LP_LIB=none` state.)
+
+**`--forall-pre-prune`** / `(set-option :forall-pre-prune true)` (default off): runs a sound
+`ibex::CtcForAll` **proj-intersection pre-pruner** (`ContractorIbexForall`) *beside* the CEGIS
+decider in the forall fixpoint — pure interval contraction on the existential box, no nested
+δ-solve. It augments, never replaces, the δ-complete `ContractorForall`. `--forall-pre-prune-prec`
+(default 0.5) sets the universal-box bisection precision. COMPLETENESS-only (cannot move a
+verdict). NRA ∃∀ only; single-job. The mechanism and its IBEX-lever rationale are in
+`ibex_docs/AUDIT-QUANTIFIERS.md` Q1; the measured tractability outcome on odeexpr_v2 (sound,
+but speedup is encoding-fragile and never cracks the pinned δ) is in
+`docs/exists_forall_perf.md`.
 
 ---
 

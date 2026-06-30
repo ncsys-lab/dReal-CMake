@@ -177,6 +177,23 @@ void MainProgram::AddOptions() {
   opt_.add("false" /* Default */, false /* Required? */,
            0 /* Number of args expected. */,
            0 /* Delimiter if expecting multiple args. */,
+           "Run the ibex::CtcForAll sound pre-pruner beside the CEGIS forall "
+           "decider (NRA exist-forall; single-job only).\n",
+           "--forall-pre-prune");
+
+  opt_.add(
+      fmt::format("{}", Config::kDefaultForallPrePrunePrec).c_str() /* Default */,
+      false /* Required? */, 1 /* Number of args expected. */,
+      0 /* Delimiter if expecting multiple args. */,
+      fmt::format("Universal-box bisection precision for --forall-pre-prune "
+                  "(default = {}; keep coarse)\n",
+                  Config::kDefaultForallPrePrunePrec)
+          .c_str(),
+      "--forall-pre-prune-prec", positive_double_option_validator);
+
+  opt_.add("false" /* Default */, false /* Required? */,
+           0 /* Number of args expected. */,
+           0 /* Delimiter if expecting multiple args. */,
            "Use worklist fixpoint algorithm in ICP.\n", "--worklist-fixpoint");
 
   opt_.add("false" /* Default */, false /* Required? */,
@@ -472,6 +489,20 @@ void MainProgram::ExtractOptions() {
     config_.mutable_use_polytope_in_forall().set_from_command_line(true);
     DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --forall-polytope = {}",
                     config_.use_polytope_in_forall());
+  }
+
+  if (opt_.isSet("--forall-pre-prune")) {
+    config_.mutable_use_forall_pre_prune().set_from_command_line(true);
+    DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --forall-pre-prune = {}",
+                    config_.use_forall_pre_prune());
+  }
+
+  if (opt_.isSet("--forall-pre-prune-prec")) {
+    double prec{0.0};
+    opt_.get("--forall-pre-prune-prec")->getDouble(prec);
+    config_.mutable_forall_pre_prune_prec().set_from_command_line(prec);
+    DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --forall-pre-prune-prec = {}",
+                    config_.forall_pre_prune_prec());
   }
 
   // --worklist-fixpoint

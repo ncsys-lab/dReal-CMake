@@ -56,6 +56,9 @@ class Contractor {
     IBEX_FWDBWD,
     IBEX_POLYTOPE,
     IBEX_ACID,  // ACID / 3BCID shaving over the HC4 path (ContractorIbexAcid).
+    IBEX_FORALL,  // Sound proj-inter pre-pruner over ibex::CtcForAll, run beside
+                  // the CEGIS FORALL decider (ContractorIbexForall). PITFALL
+                  // forall-vs-forall_t: the ∃∀ NRA quantifier, not `forall_t`.
     FIXPOINT,
     WORKLIST_FIXPOINT,
     FORALL,  // ∃∀ NRA quantifier (ContractorForall, CE-guided). PITFALL forall-vs-forall_t:
@@ -123,6 +126,8 @@ class Contractor {
   friend Contractor make_contractor_ibex_acid(std::vector<Formula> formulas,
                                               const Box& box,
                                               const Config& config);
+  friend Contractor make_contractor_ibex_forall(Formula f, const Box& box,
+                                                const Config& config);
   friend Contractor make_contractor_fixpoint(
       TerminationCondition term_cond,
       const std::vector<Contractor>& contractors, const Config& config);
@@ -210,6 +215,15 @@ Contractor make_contractor_ibex_polytope(std::vector<Formula> formulas,
 /// @see ContractorIbexAcid.
 Contractor make_contractor_ibex_acid(std::vector<Formula> formulas,
                                      const Box& box, const Config& config);
+
+/// Returns a sound proj-intersection pre-pruner over IBEX's ibex::CtcForAll for
+/// the ∀-formula @p f, meant to run *alongside* the CEGIS ContractorForall.
+/// Single-threaded only (ibex::CtcForAll holds a mutable worklist); throws if
+/// number_of_jobs > 1.
+///
+/// @see ContractorIbexForall.
+Contractor make_contractor_ibex_forall(Formula f, const Box& box,
+                                       const Config& config);
 
 /// Returns a fixed-point contractor. The returned contractor applies
 /// the contractors in @p vec sequentially until @p term_cond is met.

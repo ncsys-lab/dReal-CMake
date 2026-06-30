@@ -90,6 +90,18 @@ class Config {
   /// Returns a mutable OptionValue for 'use_polytope_in_forall'.
   OptionValue<bool>& mutable_use_polytope_in_forall();
 
+  /// Returns whether it runs the ibex::CtcForAll pre-pruner beside CEGIS.
+  bool use_forall_pre_prune() const;
+
+  /// Returns a mutable OptionValue for 'use_forall_pre_prune'.
+  OptionValue<bool>& mutable_use_forall_pre_prune();
+
+  /// Returns the universal-box bisection precision for the forall pre-pruner.
+  double forall_pre_prune_prec() const;
+
+  /// Returns a mutable OptionValue for 'forall_pre_prune_prec'.
+  OptionValue<double>& mutable_forall_pre_prune_prec();
+
   /// Returns whether it uses worklist-fixpoint algorithm.
   bool use_worklist_fixpoint() const;
 
@@ -257,6 +269,12 @@ class Config {
   /// @}
 
   static constexpr double kDefaultPrecision{0.001};
+  // Coarse by design: the pre-pruner is a shallow skimmer over the (low-dim)
+  // universal box, not a solver. A fine prec over-bisects and *regresses*
+  // (measured: prec=0.1 timed out mlp2_n1_h1 at δ=0.2 where prec≥0.3 solves in
+  // <1s; too-coarse only loses pruning, never regresses). See
+  // docs/exists_forall_perf.md / AUDIT-QUANTIFIERS.md Q1/Q4.
+  static constexpr double kDefaultForallPrePrunePrec{0.5};
   static constexpr double kDefaultNloptFtolRel{1e-6};
   static constexpr double kDefaultNloptFtolAbs{1e-6};
   static constexpr int kDefaultNloptMaxEval{100};
@@ -306,6 +324,8 @@ class Config {
   OptionValue<bool> visualize_{false};
   OptionValue<bool> use_polytope_{false};
   OptionValue<bool> use_polytope_in_forall_{false};
+  OptionValue<bool> use_forall_pre_prune_{false};
+  OptionValue<double> forall_pre_prune_prec_{kDefaultForallPrePrunePrec};
   OptionValue<bool> use_worklist_fixpoint_{false};
   OptionValue<bool> use_local_optimization_{false};
   OptionValue<bool> dump_theory_literals_{false};
