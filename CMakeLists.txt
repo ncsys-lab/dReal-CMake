@@ -340,7 +340,9 @@ FetchContent_Declare(
         nlopt
         GIT_REPOSITORY https://github.com/stevengj/nlopt
         GIT_TAG v2.9.1)
+set(BUILD_SHARED_LIBS OFF)
 FetchContent_MakeAvailable(nlopt)
+unset(BUILD_SHARED_LIBS)
 
 target_link_libraries(dreal4_cmake PUBLIC nlopt spdlog::spdlog fmt::fmt)
 
