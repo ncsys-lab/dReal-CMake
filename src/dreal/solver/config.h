@@ -34,6 +34,20 @@ enum class ConstraintOrder {
   kDesc,  ///< most-variables first
 };
 
+/// Jacobian-weighted "smear" branch-variable heuristic (IBEX's four
+/// SmearFunction variants). Two binary axes: aggregate over constraints by
+/// sum vs max, and absolute impact |J_ij|·w_j vs relative (normalized by the
+/// per-constraint row-sum NC_i = Σ_k |J_ik|·w_k). Variable choice is a
+/// completeness/perf lever only, never a soundness concern. kNone = the
+/// default largest-first brancher (smear off).
+enum class SmearVariant {
+  kNone,    ///< off: use the configured largest-first brancher
+  kSumRel,  ///< SmearSumRelative: Σ_i |J_ij|·w_j / NC_i (IBEX's go-to)
+  kSum,     ///< SmearSum (Hansen): Σ_i |J_ij|·w_j
+  kMax,     ///< SmearMax (Kearfott): max_i |J_ij|·w_j
+  kMaxRel,  ///< SmearMaxRelative: max_i (|J_ij|·w_j / NC_i)
+};
+
 
 class Config {
  public:
@@ -120,10 +134,10 @@ class Config {
   /// Returns a mutable OptionValue for `constraint_order`.
   OptionValue<ConstraintOrder>& mutable_constraint_order();
 
-  /// Returns whether smear (smearsumrel) branching is enabled.
-  bool use_smear() const;
-  /// Returns a mutable OptionValue for `use_smear`.
-  OptionValue<bool>& mutable_use_smear();
+  /// Returns the smear branch-variable heuristic variant (kNone = off).
+  SmearVariant smear_variant() const;
+  /// Returns a mutable OptionValue for `smear_variant`.
+  OptionValue<SmearVariant>& mutable_smear_variant();
 
   /// Returns the seed-and-verify candidate budget: the COBYLA multi-start count,
   /// and the on/off switch — `> 0` enables the `--seed-samples` pre-pass, `0`
@@ -362,9 +376,9 @@ class Config {
   // ICP fixpoint constraint ordering (default kNone = declaration order).
   OptionValue<ConstraintOrder> constraint_order_{ConstraintOrder::kNone};
 
-  // Smear (smearsumrel) constraint-aware branching (default off; see
+  // Smear constraint-aware branching variant (default kNone = off; see
   // brancher_smear.cc). Picks the split variable, not the split point.
-  OptionValue<bool> use_smear_{false};
+  OptionValue<SmearVariant> smear_variant_{SmearVariant::kNone};
 
   // Seed-and-verify pre-pass: speculative, COMPLETENESS-only, gated to
   // pure-relational (NRA) calls (AllRelational). The count is also the on/off

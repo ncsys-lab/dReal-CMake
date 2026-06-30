@@ -126,9 +126,20 @@ The sequential implementation (`icp_seq.cc`) uses a simple stack. The parallel i
 
 ## Branching
 
-**File:** `src/dreal/solver/brancher.h`
+**File:** `src/dreal/solver/brancher.h`, `src/dreal/solver/brancher_smear.h`
 
-When the ICP loop cannot determine satisfiability, it picks a dimension to bisect the current box. The default strategy is to branch on the variable with the largest interval width among those implicated by undecided formulas.
+When the ICP loop cannot determine satisfiability, it picks a dimension to bisect the current box. The default strategy (`BranchLargestFirst`) branches on the variable with the largest interval width among those implicated by undecided formulas.
+
+**Constraint-aware "smear" branching (`--smear <variant>`).** Opt-in: instead of widest-first, score each variable by its Jacobian-weighted impact over the relational constraints and split the highest. `SmearBrancher` assembles an `ibex::System` from the relational formula evaluators once (skipping `forall`/ODE constraints, whose Jacobian the smear heuristic is not defined for) and, because the `IbexConverter` is built from the `Box`, the Jacobian column `j` maps 1:1 to box dimension `j`. The flag selects one of IBEX's four `SmearFunction` variants along two binary axes — aggregate over constraints by **sum** vs **max**, absolute impact `|J_ij|·diam_j` vs **relative** (normalized by the per-constraint row-sum `NC_i = Σ_k |J_ik|·diam_k`):
+
+| `--smear` value | criterion |
+|---|---|
+| `smearsumrel` | `argmax_j Σ_i |J_ij|·diam_j / NC_i` (IBEX's go-to) |
+| `smearsum` | `argmax_j Σ_i |J_ij|·diam_j` (Hansen) |
+| `smearmax` | `argmax_j max_i |J_ij|·diam_j` (Kearfott) |
+| `smearmaxrel` | `argmax_j max_i (|J_ij|·diam_j / NC_i)` |
+
+(IBEX's fifth smear bisector, `LSmear`, is optimization-only — it reweights constraints by the LP dual of an objective — so it is inapplicable to dReal's feasibility queries.) When the Jacobian is uninformative (no relational constraints, all-zero or infinite entries) it falls back to largest-first, matching IBEX. **Soundness:** the split-variable choice only changes how fast the search converges (node count), never a verdict — a completeness/perf lever. `IcpSeq` only (single-threaded); `--jobs > 1` is rejected at the CLI. On the odeexpr families `smearsum` is the strongest variant; see `OPTIMIZATION_LOG.md` §odeexpr.
 
 ---
 

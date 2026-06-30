@@ -104,8 +104,9 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
   // narrows intervals). When off, the configured brancher (largest-first) is
   // used. Sound either way: variable choice never changes a verdict.
   std::optional<SmearBrancher> smear_brancher;
-  if (config().use_smear()) {
-    smear_brancher.emplace(formula_evaluators, cs->box());
+  if (config().smear_variant() != SmearVariant::kNone) {
+    smear_brancher.emplace(formula_evaluators, cs->box(),
+                           config().smear_variant());
   }
 
   while (!stack.empty()) {

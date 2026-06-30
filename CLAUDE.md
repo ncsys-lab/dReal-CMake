@@ -110,6 +110,15 @@ split-ratio magic + `--explore-order` alternation (split ratio is hardcoded back
 Mechanism + flags: `docs/seeding.md`. Rationale + A/B: `docs/decisions.md` §"Seed-and-verify".
 Code: `src/dreal/solver/seed/seed.{h,cc}`.
 
+**Smear branching (`--smear <variant>`, default off):** constraint-aware split-variable choice
+(Jacobian-weighted) replacing largest-first; one of IBEX's four `SmearFunction` variants —
+`smearsumrel`, `smearsum`, `smearmax`, `smearmaxrel` (required arg; bare `--smear` errors).
+Soundness-free (variable choice never moves a verdict); `IcpSeq`-only, `--jobs>1` rejected. On
+the odeexpr families **`smearsum` is the strongest** (64/72 solved vs 53 off, PAR2 0.03×, 0 flips)
+and `smearsumrel` actually regresses v1 — so prefer `--smear smearsum` there. Mechanism:
+`docs/architecture.md` §Branching. A/B: `OPTIMIZATION_LOG.md` §odeexpr. Code:
+`src/dreal/solver/brancher_smear.{h,cc}`.
+
 **CAPD ODE tuning:** `--ode-taylor-order` (default 12), `--ode-hull-grid` (4 — per-step sub-slice
 count; lower widens enclosures (never a false-`unsat`). Since the 2026-06 centered-in-time tube
 fix (`HULL_COMPLETENESS.md`) the per-slice range is mean-value-in-time, so the default tube sits

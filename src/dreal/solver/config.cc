@@ -95,8 +95,10 @@ OptionValue<ConstraintOrder>& Config::mutable_constraint_order() {
   return constraint_order_;
 }
 
-bool Config::use_smear() const { return use_smear_.get(); }
-OptionValue<bool>& Config::mutable_use_smear() { return use_smear_; }
+SmearVariant Config::smear_variant() const { return smear_variant_.get(); }
+OptionValue<SmearVariant>& Config::mutable_smear_variant() {
+  return smear_variant_;
+}
 
 int Config::seed_samples() const { return seed_samples_.get(); }
 OptionValue<int>& Config::mutable_seed_samples() { return seed_samples_; }

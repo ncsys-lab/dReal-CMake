@@ -32,8 +32,10 @@ using std::unique_ptr;
 using std::vector;
 
 SmearBrancher::SmearBrancher(
-    const vector<FormulaEvaluator>& formula_evaluators, const Box& box)
-    : ibex_converter_{box} {
+    const vector<FormulaEvaluator>& formula_evaluators, const Box& box,
+    const SmearVariant variant)
+    : variant_{variant}, ibex_converter_{box} {
+  DREAL_ASSERT(variant_ != SmearVariant::kNone);
   // Assemble an ibex::System over the box variables and the relational
   // constraints (skip forall / ODE — the smear Jacobian is for plain NRA
   // constraints). Same assembly as ContractorIbexPolytope/Acid; built from the
@@ -79,13 +81,32 @@ int SmearBrancher::operator()(const Box& box, const DynamicBitset& active_set,
   vector<double> w(n, 0.0);
   for (int k = 0; k < n; ++k) w[k] = safe_diam(iv[k], ur);
 
-  // smearsumrel: score_j = Σ_i |J[i][j]|·w[j] / NC_i, NC_i = Σ_k |J[i][k]|·w[k].
+  // IBEX's four SmearFunction variants on two binary axes: the per-constraint
+  // impact is |J[i][k]|·w[k] (absolute) or divided by NC_i = Σ_k |J[i][k]|·w[k]
+  // (relative), and the per-variable score aggregates those impacts over
+  // constraints by sum or by max. Scores are >= 0, so a max aggregation starts
+  // from 0.
+  const bool relative{variant_ == SmearVariant::kSumRel ||
+                      variant_ == SmearVariant::kMaxRel};
+  const bool use_max{variant_ == SmearVariant::kMax ||
+                     variant_ == SmearVariant::kMaxRel};
   vector<double> score(n, 0.0);
   for (int i = 0; i < system_->nb_ctr; ++i) {
-    double nc = 0.0;
-    for (int k = 0; k < n; ++k) nc += J[i][k].mag() * w[k];
-    if (!(nc > 0.0) || !std::isfinite(nc)) continue;  // uninformative row
-    for (int k = 0; k < n; ++k) score[k] += (J[i][k].mag() * w[k]) / nc;
+    double nc = 1.0;
+    if (relative) {
+      nc = 0.0;
+      for (int k = 0; k < n; ++k) nc += J[i][k].mag() * w[k];
+      if (!(nc > 0.0) || !std::isfinite(nc)) continue;  // uninformative row
+    }
+    for (int k = 0; k < n; ++k) {
+      const double impact{J[i][k].mag() * w[k] / nc};
+      if (!std::isfinite(impact)) continue;  // infinite derivative: skip
+      if (use_max) {
+        if (impact > score[k]) score[k] = impact;
+      } else {
+        score[k] += impact;
+      }
+    }
   }
 
   int best{-1};

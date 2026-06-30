@@ -407,7 +407,48 @@ of odeexpr runtime was mechanical (mode switches + exception unwinding), not int
 
 Gaol transcendentals (30–45%) are the **computational floor** — the actual correctly-rounded
 interval math, irreducible without changing the interval library's soundness semantics.
-Branching (`FindMaxDiam`) is ~0.4% — no headroom; a branching-heuristic A/B is ruled out.
+Branching (`FindMaxDiam`) is ~0.4% of leaf time — but that is the *compute cost of the
+heuristic*, not its *value*: the smear A/B below shows the choice of split **variable** reshapes
+the search tree enough to cut total work by **30×+ PAR2** on these families. (The earlier "a
+branching-heuristic A/B is ruled out" read here was wrong — it conflated the two; do not
+disqualify a heuristic by its per-call cost.)
+
+### Smear branching — `--smear` variant sweep (Adopted: `smearsum` is the best variant; 2026-06-29)
+
+**What.** `--smear` was a boolean wired to `SmearSumRelative`. Generalized to a required-arg
+selector over IBEX's four `SmearFunction` variants (`smearsumrel`/`smearsum`/`smearmax`/
+`smearmaxrel`), parameterized in one scoring loop over two axes (sum-vs-max × absolute-vs-
+relative). Code: `brancher_smear.{h,cc}`, `config.{h,cc}` (`SmearVariant`), `dreal_main.cc`;
+unit pins per variant in `brancher_smear_test.cc`. (`LSmear` is optimization-only — needs an
+objective's LP dual — so it is N/A to feasibility queries.)
+
+**A/B** — full `odeexpr_v1` (50) + `odeexpr_v2` (22), pooled `do_sweep.sh`, 300 s cap, CPU PAR2,
+reference = smear off. **Zero SAT/UNSAT flips on any variant** (variable choice cannot move a
+verdict). Results dir `benchmark/results/sweep_20260629_181925/`.
+
+| variant | v1 (50) solved / PAR2 | v2 (22) solved / PAR2 | overall solved | overall PAR2 |
+|---|---|---|---|---|
+| off (default) | 39 / 1.00× | 14 / 1.00× | 53/72 | 1.00× |
+| `smearsumrel` | **37 / 1.18×** | 20 / 0.25× | 57/72 | 0.62× |
+| **`smearsum`** | **42 / 0.73×** | **22 / 0.02×** | **64/72** | **0.03×** |
+| `smearmax` | 42 / 0.73× | 20 / 0.25× | 62/72 | 0.19× |
+| `smearmaxrel` | 39 / 1.00× | 16 / 0.74× | 55/72 | 0.79× |
+
+- **`smearsum` is a near-monotonic win on both families** — solves a strict superset of the
+  default (0 solve-regressions, +11: +3 v1, +8 v2; all 22 of v2), PAR2 0.03×. Its only slowdowns
+  are sub-0.2 s on already-instant SAT instances (median ratio 1.00×). Big wins concentrate on
+  the v2 `aim_tanh_n2/n3 …forall` (QF) cases: many TIM / 60–116 s → <0.2 s.
+- **The previously-wired `smearsumrel` is a poor default** — it *regresses* v1 (37/50 < 39, PAR2
+  1.18×, **worse than off**), breaking `kuramoto__N4` (UNSAT 1.1 s → TIM) and `__N5` (88 s → TIM);
+  it only looked good because earlier spot-checks were on v2. `smearsum` keeps those solves.
+- **`smearmax`** ties `smearsum` on v1 but is weaker on v2; **`smearmaxrel`** barely helps.
+- 8 benchmarks (kuramoto_doe N4–N6, composite_lipschitz i0/i1, decrease_exact, cs5c_sigmoid
+  __decrease, kuramoto__N6) time out under *every* variant — brancher-insensitive.
+
+**Status.** Variant machinery + best variant identified; **default left OFF**. Flipping the
+global default needs a full-corpus sweep first — smear no-ops on the ODE/forall constraints that
+dominate saradc/github/tacas, but their relational portions are untested here. For the odeexpr
+projects, invoke with `--smear smearsum`.
 
 ---
 

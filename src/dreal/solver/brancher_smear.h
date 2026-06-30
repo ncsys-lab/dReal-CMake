@@ -21,6 +21,7 @@
 #include "ibex.h"
 
 #include "dreal/contractor/contractor_ibex_polytope.h"  // ExprCtrDeleter
+#include "dreal/solver/config.h"                         // SmearVariant
 #include "dreal/solver/formula_evaluator.h"
 #include "dreal/util/box.h"
 #include "dreal/util/dynamic_bitset.h"
@@ -29,14 +30,16 @@
 
 namespace dreal {
 
-/// Constraint-aware "smear" brancher (smearsumrel criterion, IBEX's go-to).
+/// Constraint-aware "smear" brancher (IBEX's four SmearFunction variants).
 ///
-/// Picks the split *variable* (not the split point) by the Jacobian-weighted
-/// width  argmax_j Σ_i |J[i][j]|·diam(box[j]) / NC_i ,  with
-/// NC_i = Σ_k |J[i][k]|·diam(box[k])  (each constraint weighs equally). It
-/// assembles an ibex::System from the relational constraints once; because the
-/// IbexConverter is built from the Box, the System's variables are in box-index
-/// order, so Jacobian column j maps 1:1 to box dimension j (no remapping).
+/// Picks the split *variable* (not the split point) by a Jacobian-weighted
+/// score over the relational constraints. The `SmearVariant` selects one of
+/// IBEX's four heuristics along two binary axes — aggregate over constraints
+/// by sum vs max, absolute impact |J[i][j]|·diam(box[j]) vs relative
+/// (normalized by NC_i = Σ_k |J[i][k]|·diam(box[k])). It assembles an
+/// ibex::System from the relational constraints once; because the IbexConverter
+/// is built from the Box, the System's variables are in box-index order, so
+/// Jacobian column j maps 1:1 to box dimension j (no remapping).
 ///
 /// SOUNDNESS: variable choice can only change how fast the search converges
 /// (node count), never a verdict — a completeness/perf lever, never soundness.
@@ -46,9 +49,11 @@ namespace dreal {
 class SmearBrancher {
  public:
   /// Assembles the constraint system from the relational @p formula_evaluators
-  /// over @p box. The split point is the midpoint (Box::bisect default).
+  /// over @p box, scoring variables by @p variant. The split point is the
+  /// midpoint (Box::bisect default). @p variant must not be kNone (the caller
+  /// only constructs a SmearBrancher when smear is enabled).
   SmearBrancher(const std::vector<FormulaEvaluator>& formula_evaluators,
-                const Box& box);
+                const Box& box, SmearVariant variant);
 
   SmearBrancher(const SmearBrancher&) = delete;
   SmearBrancher(SmearBrancher&&) = delete;
@@ -64,6 +69,7 @@ class SmearBrancher {
                  Box* right, const UpwardRounding& ur) const;
 
  private:
+  SmearVariant variant_;
   IbexConverter ibex_converter_;
   std::unique_ptr<ibex::SystemFactory> system_factory_;
   std::unique_ptr<ibex::System> system_;

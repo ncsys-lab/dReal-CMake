@@ -324,10 +324,14 @@ void MainProgram::AddOptions() {
            "ICP fixpoint constraint order: none (declaration), asc (fewest "
            "variables first), desc (most first). (default = none)",
            "--constraint-order", constraint_order_validator);
-  opt_.add("false", false, 0, 0,
-           "Use smear (smearsumrel) constraint-aware branching (Jacobian-weighted "
-           "variable selection) instead of largest-first.\n",
-           "--smear");
+  auto* const smear_validator = new ez::ezOptionValidator(
+      "t", "in", "smearsumrel,smearsum,smearmax,smearmaxrel", false);
+  opt_.add("smearsumrel", false, 1, 0,
+           "Constraint-aware smear branching (Jacobian-weighted variable "
+           "selection) instead of largest-first. One of IBEX's four variants: "
+           "smearsumrel, smearsum, smearmax, smearmaxrel. Omit the flag to use "
+           "largest-first.\n",
+           "--smear", smear_validator);
   // Seed-and-verify pre-pass (off-center NRA SAT instances). Speculative,
   // completeness-only: multi-start COBYLA proposes candidate points and a small
   // sound box around each is verified first by the existing prune+EvaluateBox.
@@ -616,7 +620,14 @@ void MainProgram::ExtractOptions() {
     config_.mutable_constraint_order().set_from_command_line(order);
   }
   if (opt_.isSet("--smear")) {
-    config_.mutable_use_smear().set_from_command_line(true);
+    string v;
+    opt_.get("--smear")->getString(v);
+    const SmearVariant variant = (v == "smearsum")    ? SmearVariant::kSum
+                                 : (v == "smearmax")  ? SmearVariant::kMax
+                                 : (v == "smearmaxrel")
+                                     ? SmearVariant::kMaxRel
+                                     : SmearVariant::kSumRel;
+    config_.mutable_smear_variant().set_from_command_line(variant);
     // SmearBrancher is wired into IcpSeq only (odeexpr is single-threaded).
     if (config_.number_of_jobs() > 1) {
       throw DREAL_RUNTIME_ERROR("--smear is not implemented for parallel ICP (--jobs > 1).");
