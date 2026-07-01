@@ -309,8 +309,27 @@ ostream& PrefixPrinter::VisitNegation(const Formula& f) {
   return os_ << ")";
 }
 
-ostream& PrefixPrinter::VisitForall(const Formula&) {
-  throw runtime_error("Not implemented.");
+ostream& PrefixPrinter::VisitForall(const Formula& f) {
+  // SMT-LIB2 prefix: (forall ((v Real) ...) body). The quantifier domain is folded into the
+  // body (the parser rebuilds `forall(vars, imply(domain, matrix))`), so printing each binder
+  // with its bare sort and unbounded range round-trips: an unbounded binder contributes a
+  // `True` domain, leaving the stored body — which already carries any domain implication —
+  // unchanged.
+  const auto* const fc = to_forall(f);
+  os_ << "(forall (";
+  for (const Variable& v : fc->get_quantified_variables()) {
+    os_ << '(' << v << ' ';
+    switch (v.get_type()) {
+      case Variable::Type::CONTINUOUS: os_ << "Real"; break;
+      case Variable::Type::INTEGER:
+      case Variable::Type::BINARY:     os_ << "Int"; break;
+      case Variable::Type::BOOLEAN:    os_ << "Bool"; break;
+    }
+    os_ << ')';
+  }
+  os_ << ") ";
+  Print(fc->get_quantified_formula());
+  return os_ << ')';
 }
 
 ostream& PrefixPrinter::VisitForallT(const Formula& f) {

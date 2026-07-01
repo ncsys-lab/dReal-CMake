@@ -236,6 +236,19 @@ TEST_F(PrefixPrinterTest, Negation) {
   EXPECT_EQ(ToPrefix(!(x_ <= y_)), "(not (<= x y))");
 }
 
+TEST_F(PrefixPrinterTest, FormulaForall) {
+  // Universal (bound) vars print with their sort and an *unbounded* binder — the `[lb,ub]`
+  // domain is input sugar the parser folds into the body, so a FormulaForall retains no
+  // separate domain (docs/forall-semantics.md §2.2). This round-trips: an unbounded binder
+  // re-desugars to `domain = true`. Previously VisitForall threw "Not implemented.".
+  EXPECT_EQ(ToPrefix(forall(Variables{y_}, x_ >= y_)),
+            "(forall ((y Real)) (>= x y))");
+  EXPECT_EQ(ToPrefix(forall(Variables{x_, y_}, x_ + y_ <= z_)),
+            "(forall ((x Real)(y Real)) (<= (+ x y) z))");
+  EXPECT_EQ(ToPrefix(forall(Variables{i1_}, i1_ >= 1)),
+            "(forall ((i1 Int)) (>= i1 1))");
+}
+
 TEST_F(PrefixPrinterTest, FormulaForallT) {
   // (forall_t 1 [0 time_2] (>= tau_2_t 0))
   EXPECT_EQ(ToPrefix(forallT(flow2, 0, t2, x1 >= 0)), "(forall_t 2 [0 t2] (>= x1 0))");

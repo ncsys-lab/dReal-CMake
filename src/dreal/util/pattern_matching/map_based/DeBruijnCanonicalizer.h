@@ -30,6 +30,13 @@ namespace dreal
         // std::unordered_map<T, std::map<DeBruijnIndices, DeBruijnEquivalenceClass>> structure_to_indices_to_concrete;
         std::unordered_map<T, DeBruijnEquivalenceClass> structure_to_concrete;
 
+        // Bound (universal) variables currently in scope while canonicalizing a `forall` atom.
+        // They are NOT free solver variables, so they are excluded from the canonical variable
+        // sequence — otherwise they reach `attempt_substitution`'s `box[v]` domain check, which
+        // silently inserts the (non-solver) bound variable into the Box's shared var->idx map.
+        mutable std::vector<Variable> bound_scope_;
+        bool is_bound(const Variable& v) const;
+
         std::tuple<T, DeBruijnIndices, std::vector<Variable>>
         canonicalize_atom(const T& atom) const;
 

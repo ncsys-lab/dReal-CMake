@@ -53,6 +53,13 @@ namespace dreal
         canon_var_seq.emplace_back(v);
     }
 
+    template <typename T>
+    bool DeBruijnCanonicalizer<T>::is_bound(const Variable& v) const {
+        for (const auto& b : bound_scope_)
+            if (b.equal_to(v)) return true;
+        return false;
+    }
+
 #define INSERT_DECL(name) \
 template <typename T> \
 void DeBruijnCanonicalizer<T>::name ( \
@@ -60,7 +67,11 @@ void DeBruijnCanonicalizer<T>::name ( \
     std::vector<Variable>& canon_var_seq \
 ) const
 
-    INSERT_DECL(VisitVariable) { add_variable_to_seq(get_variable(e), canon_var_seq); }
+    INSERT_DECL(VisitVariable) {
+        const Variable& v = get_variable(e);
+        if (is_bound(v)) return;  // bound (universal) variable — excluded from canonical sequence
+        add_variable_to_seq(v, canon_var_seq);
+    }
 
     INSERT_DECL(VisitConstant) { DREAL_ASSERT(e.GetVariables().empty()); }
     INSERT_DECL(VisitRealConstant) { DREAL_ASSERT(e.GetVariables().empty()); }
@@ -141,7 +152,11 @@ void DeBruijnCanonicalizer<T>::name ( \
     INSERT_DECL(VisitFalse) { DREAL_ASSERT(f.GetFreeVariables().empty()); }
     INSERT_DECL(VisitTrue) { DREAL_ASSERT(f.GetFreeVariables().empty()); }
 
-    INSERT_DECL(VisitVariable) { add_variable_to_seq(get_variable(f), canon_var_seq); }
+    INSERT_DECL(VisitVariable) {
+        const Variable& v = get_variable(f);
+        if (is_bound(v)) return;  // bound (universal) variable — excluded from canonical sequence
+        add_variable_to_seq(v, canon_var_seq);
+    }
 
     INSERT_DECL(VisitEqualTo) { insert_binary(f, canon_var_seq); }
     INSERT_DECL(VisitNotEqualTo) { insert_binary(f, canon_var_seq); }
@@ -154,12 +169,18 @@ void DeBruijnCanonicalizer<T>::name ( \
     INSERT_DECL(VisitNegation) { RECURSEF(get_operand(f)); }
 
     INSERT_DECL(VisitForall) {
-        // todo: not sure if this is right... investigate later.
-        // throw DREAL_RUNTIME_ERROR("DeBruin Canonicalization not implemented for quantifiers yet.");
         const auto& a = to_forall(f);
+        // Bound (universal) variables are not free solver variables. Push them onto the bound
+        // scope so `VisitVariable` skips their occurrences in the body — they must never enter
+        // the canonical variable sequence / `concrete_vars`, or they reach the `Box` domain
+        // check on a variable that has no Box entry (corrupts the Box's shared var->idx map).
+        // The free (existential) variables of the body still flow through normally and are
+        // matched by the usual domain-preserving bijection.
+        const size_t scope_base = bound_scope_.size();
         for (const auto& v : a->get_quantified_variables())
-            RECURSE(v);
+            bound_scope_.emplace_back(v);
         RECURSEF(a->get_quantified_formula());
+        bound_scope_.resize(scope_base);
     }
 
     INSERT_DECL(VisitForallT) {
@@ -190,6 +211,7 @@ void DeBruijnCanonicalizer<T>::name ( \
 
     template <typename T>
     std::tuple<T, typename DeBruijnCanonicalizer<T>::DeBruijnIndices, std::vector<Variable>> DeBruijnCanonicalizer<T>::canonicalize_atom(const T& atom) const {
+        bound_scope_.clear();  // defensive: balanced push/pop leaves it empty, but a prior throw may not
         std::vector<Variable> canonical_variable_sequence;
         canonical_variable_sequence.reserve(GetVars(atom).size() * 2);
 

@@ -83,7 +83,7 @@ class PrefixPrinter {
   std::ostream& VisitConjunction(const Formula& f);
   std::ostream& VisitDisjunction(const Formula& f);
   std::ostream& VisitNegation(const Formula& f);
-  static std::ostream& VisitForall(const Formula& f);
+  std::ostream& VisitForall(const Formula& f);
   std::ostream& VisitForallT(const Formula& f);
   std::ostream& VisitIntegral(const Formula& f);
 

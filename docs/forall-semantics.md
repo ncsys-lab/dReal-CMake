@@ -91,6 +91,17 @@ Multiple universally-quantified variables are listed in the same binder:
 At the `forall` production, the body is wrapped as `domain ⟹ body` via `imply(domain, body)`.
 Variables declared without bounds get `[-∞, +∞]` and the domain contribution drops to `true`.
 
+**The `[lb, ub]` binder domain is input sugar, not retained.** After this desugaring a
+`FormulaForall` holds only its quantified `Variables` and the fused body `imply(domain, matrix)`
+(`symbolic_formula_cell.h:335`, members `vars_` + `f_`); there is no separate per-variable domain.
+Consequences: (a) printing a `forall` back out — e.g. the auditor's `ToPrefix`
+(`prefix_printer.cc::VisitForall`) — emits the **desugared** `(forall ((y Real)) <imply-form>)`
+with an *unbounded* binder and the domain folded into the body; this round-trips exactly, because
+an unbounded binder re-desugars to `domain = true`, leaving the stored body unchanged. The
+`[lb, ub]` in-binder form cannot be reconstructed from a `FormulaForall` and is not meant to be.
+(b) The pattern-matcher likewise sees only the free (existential) variables — the bound ones are
+excluded from De Bruijn canonicalization (`docs/pattern-matching.md`).
+
 **Practical requirement**: always supply bounds on forall variables. Without bounds the CE
 search ranges over (-∞, +∞). If a solution with no counterexamples can be found quickly
 (e.g., `x = 0` trivially satisfies `∀y. x·y ≤ 1`), the solver may still terminate. But

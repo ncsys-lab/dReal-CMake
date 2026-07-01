@@ -147,3 +147,55 @@ narrow/point hazard. COMPLETENESS-only throughout; soundness is never at stake.
   measured harm from too-fine was the first encoding's prec=0.1 δ=0.2 regression).
 - **Off by default**; NRA ∃∀ only; runs under `--jobs>1` via a per-worker
   `ContractorIbexForallMt` cell (one `ibex::CtcForAll` per thread).
+
+## Lemma pattern-matching + quantifiers (scope, 2026-07-01)
+
+Scoping question: can the CAV26 lemma pattern-matcher (`docs/pattern-matching.md`) be made to
+work with quantifiers, given that ∃∀ queries *do* emit theory lemmas (dumped to
+`/tmp/dreal_audit/`)? Reframing finding: **the lemmas these queries produce are already ground
+(quantifier-free), and the matcher already fires on them.** `ContractorForall` discharges the
+`∀` via a nested CE-search `Context` (`contractor_forall.h`) that solves over the weights `c`
+*and* the inputs `x` all as free variables at `inner_delta`; the dumped lemmas are `QF_NRA_ODE`
+clauses over `J_*/ch*/x_*` (some tagged `AddLearnedClausePattern`), no `forall` syntax. The only
+genuinely quantified object is the outer opaque atom `b(∀y.φ)`, added to explanations verbatim
+via `AddUsedConstraint(f_)` (`contractor_forall.h:241`).
+
+**(1) Usefulness / perf.** The dominant cost is the existential δ-isolation wall documented above
+— lemma reuse is a constant factor on per-node CE cost, cannot reduce node count, and **cannot
+cross δ=0.0005**. Off-pin (moderate δ, cross-instance reuse of the recurring `both_descend`
+template under weight-variable renaming) there *may* be a constant-factor win, but it is
+**unmeasured** and the matcher already fires — measure (`--drpm-max-size 0` A/B at δ=0.2–0.5)
+before building anything further.
+
+**(2) Soundness.** Renaming-soundness (a T-valid lemma stays T-valid under a sort- and
+domain-preserving free-variable bijection — the existing `BOX_MISS` gate) is the CAV26 basis.
+Quantifiers add: (a) ground inner lemmas need **no new theory** — the `∀` is discharged before
+any lemma exists; (b) true forall-atom matching would need **two-level matching** (free `x` by
+the bijection, bound `y` by α-equivalence), which the current canonicalizer conflated (see fix
+below); (c) δ-**monotonicity** — a lemma is reusable only at `δ' ≤ δ_learned`, else it can block a
+δ'-model → SOUNDNESS (asserts φ T-unsatisfiable on a T-satisfiable φ — false unsat). This last
+**cannot misfire today**: the outer and inner `PredicateNormalizer` stores are physically
+separate (`context_impl.h` holds `pn_` by value; the nested CE solver is a full `Context` with
+its own `pn_`), each at a constant δ. So the δ guard is deferred (no live hazard for this family;
+only the exotic mid-session `(set-option :precision)` *raise* would need it, a pre-existing
+NRA concern unrelated to forall).
+
+**(3) Difficulty / what was done.** True cross-α forall-atom matching = M and low-payoff (ground
+lemmas dominate, one template per instance) — deferred. Two concrete fixes *were* made:
+- **Bound-var canonicalization UB fix** (`DeBruijnCanonicalizer.cc`, `VisitForall`/`VisitVariable`
+  + a `bound_scope_` member): the old `VisitForall` appended a `forall`'s **bound** variable to
+  the canonical sequence, so it reached `attempt_substitution`'s `box[y]` check on a variable
+  with no Box entry — and `Box::operator[](const Variable&) const` silently inserts `y↦0` into
+  the *shared* `var_to_idx_` map (latent index corruption), and the self-match carried a spurious
+  `(y,y)` pair. Bound vars are now excluded from the canonical sequence (they are not free solver
+  variables); free vars still match by the usual bijection. Regression test:
+  `pattern_matching_test.cc::ForallBoundVarNoLeak`. `forallT`/`integral` are unaffected — their
+  variables are genuine Box variables (the `ForallTExpressions` test *expects* them renameable).
+- **Auditor forall printing** (`prefix_printer.cc::VisitForall`, made non-static): the auditor
+  threw `runtime_error("Not implemented.")` whenever it printed a `forall`-bearing learned lemma,
+  crashing every ∃∀ solve run under the (default-on) theory audit — 5 forall unit tests were
+  failing on this before the fix. It now emits SMT-LIB2 `(forall ((v Real)...) body)`. Per §2.2,
+  the parser fuses each `[lb,ub]` binder domain into the body via `imply(domain, body)`, so
+  `FormulaForall` retains no separate domain; the printer emits the faithful **desugared** form
+  (unbounded binder + domain folded in the body) which round-trips exactly — verified: a
+  generated audit file re-parses through `dreal4` and returns the correct `unsat`.

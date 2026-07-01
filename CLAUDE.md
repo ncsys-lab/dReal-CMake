@@ -87,8 +87,8 @@ count going up is the tell.
 and runs the suite; `DREAL_ASSERT_ROUNDING` only fires in Debug. Run it before merges, alongside
 `./copy_lint.sh` (incremental clang-tidy copy + UB/perf gate).
 
-**Known flaky tests (ignore — unrelated to solver correctness):** a clean run is "585/588 with
-only these failing":
+**Known flaky tests (ignore — unrelated to solver correctness):** a clean run has only these
+failing (the suite total drifts upward as tests are added):
 - `IfThenElseEliminatorTest.NestedITEs` and `IfThenElseEliminatorTest.ITEsInForall` — process-global ITE counter causes auxiliary-variable name drift across test registration order
 - `Timer.Test1` — timing-threshold assertion fails under load/scheduling jitter
 

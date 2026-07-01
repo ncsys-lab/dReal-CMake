@@ -36,6 +36,10 @@ The traversal is structural (visitor pattern over the AST). Each variable, when 
 
 The canonicalization cache (`canonicalization_cache`) stores the mapping `original_formula → (canonical_formula, index_vector, variable_sequence)` to avoid recomputing it for formulas that appear multiple times.
 
+### Quantified (`forall`) literals
+
+For a `∀y. φ(x, y)` atom, the **bound (universal) variables `y` are excluded from the canonical variable sequence** (`VisitForall` pushes them onto a `bound_scope_` that `VisitVariable` skips). They are not free solver variables and have no `Box` entry, so admitting them would drive the domain check (`substitutions_map::attempt_substitution` → `box[y]`) to silently insert a non-solver variable into the `Box`'s shared index map. Only the free (existential) `x` are canonicalized and matched by the domain-preserving bijection; the bound `y` ride along inside the atom's structure and match by exact structural equality — there is **no cross-α-renaming of bound variables** (a lower-payoff extension deferred; see `docs/exists_forall_perf.md` §"Lemma pattern-matching + quantifiers"). `forall_t`/`integral` are unaffected — their variables are genuine `Box` variables.
+
 ---
 
 ## Substitution Tree

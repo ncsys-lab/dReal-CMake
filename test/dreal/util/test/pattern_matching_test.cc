@@ -183,6 +183,25 @@ namespace dreal
             test_matches_and_misses(pattern, matches, misses);
         }
 
+        TEST_F(PatternMatchingTest, ForallBoundVarNoLeak) {
+            // Regression: a `forall`'s bound (universal) variable must NOT enter the canonical
+            // variable sequence / substitution map. Before the fix, VisitForall appended the
+            // bound `y1` to `concrete_vars`, so it reached `attempt_substitution`, which does
+            // `box[y1]` — and `Box::operator[](const Variable&) const` silently inserts `y1->0`
+            // into the *shared* var->idx map for a variable that is not a solver variable
+            // (latent box-index corruption). The self-match then carried a spurious (y1, y1)
+            // pair. Only the free variable `x1` may appear in the substitution.
+            DeBruijnCanonicalizer<Formula> trie;
+            uint64_t random_state = 0;
+            const Formula fa = forall(Variables{y1}, x1 + y1 >= 0);  // free {x1}, bound {y1}
+            trie.insert(fa);
+            const auto [results, stats] = trie.find_matches(fa, Box{}, true, random_state);
+            ASSERT_EQ(results.size(), 1);
+            ASSERT_TRUE(results[0].second.has_value());
+            // Exactly one pair (free x1); was 2 with the bound-var leak.
+            EXPECT_EQ(results[0].second->size(), 1);
+        }
+
         TEST_F(PatternMatchingTest, IntegralExpressions) {
             auto pattern = integral(t0, t1, {x1, x2}, {y1, y2}, flow2);
 
