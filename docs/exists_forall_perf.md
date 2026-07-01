@@ -113,6 +113,26 @@ tight δ), and it cannot turn these SAT instances into the unsats a separation p
 that is an encoder-side question (exclude the trivial zero-MLP witness / target the ¬≼
 direction), not a solver lever.
 
+**Flat NRA corpus (2026-06-30 differential net, `benchmark/forall_differential.sh`):** across
+the 24 `exist_forall_*` / `ea_*` / `github_issue_18*` / `cgd8d_*` / `minimize_02` instances at
+δ=0.001, under {jobs 1,2,4} × {±pre-prune} × {±polytope}, **zero verdict flips** — the soundness
+property holds corpus-wide and across the forall+parallel combination. The same "can hurt"
+fragility shows here too: `--forall-pre-prune` slows `exist_forall_10` from <90 s to **>300 s**
+(does not finish) and `exist_forall_zenna_01` into the 90–300 s range, both **preserving the
+`delta-sat` verdict**. Off-by-default; a runtime concern, never a soundness one.
+
+**H1 CE-domain fix — the perf cliff and the narrow-conditional resolution (2026-06-30 A/B).**
+The forall CE search formerly ε-shrank the *universal domain* (`domain^{-ε}`), a silent
+completeness bug on narrow/point domains (`forall-semantics.md` §4.8). Making the domain **exact**
+(full CAV-2018) is correct but blows up the search on wide-domain ∃∀: on `mlp2_n1_h1 dh3` at
+δ=0.5, base→exact went **18 s → 171 s (9.4×)** and a sibling `dh3` **6.6 s → >300 s (timeout)`**,
+**verdicts unchanged**. At δ≤0.1 the family is intractable for *both* (the existential wall), so
+this cost is invisible at the pinned δ=0.0005 but real in the δ=0.5 tractability-probing regime.
+Resolution (owner's call): keep the domain exact **only for narrow variables** (binder width
+`< 3ε`, where the shrink empties/degenerates the domain — the actual hazard); wide variables keep
+the fast ε-shrink. This restores δ=0.5 perf (`dh3` back to **18.6 s ≈ baseline**) while fixing the
+narrow/point hazard. COMPLETENESS-only throughout; soundness is never at stake.
+
 - **No verdict flips** observed across all runs — sound, as argued (proj-inter contracts
   only against real universal points; the implication guard is preserved by the recursive
   `∨`→`CtcUnion` build). Unit test + mutation:

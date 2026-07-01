@@ -37,6 +37,7 @@
 #include "dreal/util/if_then_else_eliminator.h"
 #include "dreal/util/interrupt.h"
 #include "dreal/util/logging.h"
+#include "dreal/util/nnfizer.h"
 #include "dreal/util/rounded_interval.h"
 #include "dreal/util/rounding.h"
 
@@ -52,6 +53,104 @@ using std::unordered_set;
 using std::vector;
 
 namespace {
+// Returns true if @p f contains a `Formula::Forall` (the ∃∀ NRA quantifier,
+// `Kind::FORALL`) anywhere in its boolean structure. Note: this is the NRA
+// `forall`, NOT the ODE-time `forall_t` (`FormulaKind::ForallT`), which is a
+// distinct, supported construct and is intentionally not matched here.
+bool HasForall(const Formula& f) {
+  if (is_forall(f)) {
+    return true;
+  }
+  if (is_conjunction(f) || is_disjunction(f)) {
+    for (const Formula& op : get_operands(f)) {
+      if (HasForall(op)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (is_negation(f)) {
+    return HasForall(get_operand(f));
+  }
+  return false;
+}
+
+// dReal's ∃∀ machinery (ContractorForall / ForallFormulaEvaluator) supports a
+// `forall` only as a top-level POSITIVE literal with a quantifier-free body.
+// Any other occurrence — negated (`¬∀`, which the SAT layer can also produce by
+// assigning a forall-Boolean to false), nested (`∀∀`), or buried under a
+// sign-flipping disjunction — is unsupported and would otherwise crash with an
+// opaque error deep in contractor construction (the `ibex_converter` /
+// `DeltaStrengthen` VisitForall throws). Reject it here, early and clearly. @p f
+// is one top-level conjunct (Context::Impl::Assert has already split conjunctions).
+void RejectUnsupportedForall(const Formula& f) {
+  if (is_forall(f)) {
+    if (HasForall(get_quantified_formula(f))) {
+      throw DREAL_RUNTIME_ERROR(
+          "dReal only supports a top-level positive forall (exists-forall); a "
+          "nested forall is unsupported: {}",
+          f);
+    }
+    return;
+  }
+  if (HasForall(f)) {
+    throw DREAL_RUNTIME_ERROR(
+        "dReal only supports a top-level positive forall (exists-forall); this "
+        "negated/nested/disjoined forall is unsupported: {}",
+        f);
+  }
+}
+
+// Point-quantifier elimination. A positive top-level `forall` whose binder pins
+// a universal variable y to a single point c (lb == ub) is degenerate there:
+// dReal soundly over-approximates the strict domain-negation `(y>c) ∨ (y<c)`
+// with closed intervals, which cannot refute it at the measure-zero boundary, so
+// the forall would be reported vacuously consistent (a false `delta-sat` — a
+// COMPLETENESS gap, never a false `unsat`). We remove the point quantifier by
+// substituting `y := c` into the matrix; an all-point forall reduces to its
+// quantifier-free body. @p f is a positive top-level forall (already validated).
+// Returns @p f unchanged when no universal variable is point-pinned.
+Formula EliminatePointUniversals(const Formula& f) {
+  const Variables& qvars{get_quantified_variables(f)};
+  const Formula& matrix{get_quantified_formula(f)};
+  // The binder bounds are top-level conjuncts of NNF(¬matrix); absorb the ones
+  // that constrain only universal variables into a universal box.
+  Box ubox{vector<Variable>{qvars.begin(), qvars.end()}};
+  const Formula neg{Nnfizer{}.Convert(!matrix, true)};
+  const auto absorb = [&ubox, &qvars](const Formula& c) {
+    if (c.GetFreeVariables().IsSubsetOf(qvars)) {
+      FilterAssertion(c, &ubox);
+    }
+  };
+  if (is_conjunction(neg)) {
+    for (const Formula& c : get_operands(neg)) {
+      absorb(c);
+    }
+  } else {
+    absorb(neg);
+  }
+  // Substitute every point-pinned universal variable; collect the survivors.
+  Formula result{matrix};
+  Variables surviving;
+  bool any_eliminated{false};
+  for (const Variable& y : qvars) {
+    const Box::Interval& iv{ubox[y]};
+    if (iv.lb() == iv.ub()) {
+      result = result.Substitute(y, Expression{iv.lb()});
+      any_eliminated = true;
+    } else {
+      surviving.insert(y);
+    }
+  }
+  if (!any_eliminated) {
+    return f;
+  }
+  if (surviving.empty()) {
+    return result;  // all universals point-pinned → quantifier-free body
+  }
+  return forall(surviving, result);  // partial elimination
+}
+
 // It is possible that a solution box has a dimension whose diameter
 // is larger than delta when the given constraints are not tight.
 // This function tighten the box @p box so that every dimension has a
@@ -131,6 +230,18 @@ void Context::Impl::Assert(const Formula& f) {
   if (is_conjunction(f)) {  // because otherwise FilterAssertion may miss some box updates!
     for (const auto& operand : get_operands(f)) Assert(operand);
     return;
+  }
+  // Reject an unsupported `forall` occurrence early and clearly, before it
+  // reaches (and crashes) contractor construction.
+  RejectUnsupportedForall(f);
+  // Eliminate any point-pinned universal quantifier and re-assert the simplified
+  // form (which may now be quantifier-free or a smaller forall).
+  if (is_forall(f)) {
+    const Formula eliminated{EliminatePointUniversals(f)};
+    if (!eliminated.EqualTo(f)) {
+      Assert(eliminated);
+      return;
+    }
   }
   // if (true) {
   if (!FilterAssertion(f, &box()).filtered) {

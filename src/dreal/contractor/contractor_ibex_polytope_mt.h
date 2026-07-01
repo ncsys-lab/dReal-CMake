@@ -15,8 +15,6 @@
 */
 #pragma once
 
-#include <memory>
-#include <mutex>
 #include <ostream>
 #include <vector>
 
@@ -26,6 +24,7 @@
 #include "dreal/solver/config.h"
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/box.h"
+#include "dreal/util/per_thread.h"
 
 namespace dreal {
 
@@ -68,9 +67,8 @@ class ContractorIbexPolytopeMt : public ContractorCell {
   const std::vector<Formula> formulas_;
   const Config config_;
 
-  // ctc_ready_[i] is 1 indicates that ctcs_[i] is ready to be used.
-  mutable std::vector<int> ctc_ready_;
-  mutable std::vector<std::unique_ptr<ContractorIbexPolytope>> ctcs_;
+  // One ContractorIbexPolytope per worker thread (the base is not thread-safe).
+  mutable PerThread<ContractorIbexPolytope> ctcs_;
 };
 
 }  // namespace dreal

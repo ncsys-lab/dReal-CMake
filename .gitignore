@@ -467,6 +467,7 @@ pip-selfcheck.json
 # source dir src/dreal/smt2/ or the test fixtures under test/dreal/test/smt2/.
 /smt2/
 gcc_build
+gcc_build_debug
 past_compilations
 benchmark/results/
 dreal_popl27

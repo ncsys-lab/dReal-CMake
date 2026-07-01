@@ -16,11 +16,11 @@
 #include "dreal/solver/forall_formula_evaluator.h"
 
 #include <limits>
+#include <memory>
 #include <set>
 #include <utility>
 
-#include "ThreadPool/ThreadPool.h"
-
+#include "dreal/contractor/forall_counterexample_query.h"
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
@@ -66,36 +66,33 @@ vector<RelationalFormulaEvaluator> BuildFormulaEvaluators(const Formula& f) {
 }  // namespace
 
 Context& ForallFormulaEvaluator::GetContext() const {
-  thread_local const int kThreadId{ThreadPool::get_thread_id()};
-  DREAL_ASSERT(0 <= kThreadId &&
-               kThreadId <= static_cast<int>(contexts_.size()));
-  return contexts_[kThreadId];
+  return contexts_.GetOrCreate([this]() {
+    Config config;  // number_of_jobs defaults to 1: the nested CE solve is IcpSeq.
+    config.mutable_precision() = delta_;
+    auto context = std::make_unique<Context>(config);
+    for (const Variable& exist_var : formula().GetFreeVariables()) {
+      context->DeclareVariable(exist_var);
+    }
+    for (const Variable& forall_var : get_quantified_variables(formula())) {
+      context->DeclareVariable(forall_var);
+    }
+    context->Assert(StrengthenForallCounterexampleQuery(
+        get_quantified_formula(formula()),
+        get_quantified_variables(formula()), epsilon_));
+    return context;
+  });
 }
 
 ForallFormulaEvaluator::ForallFormulaEvaluator(Formula f, const double epsilon,
                                                const double delta,
                                                const int number_of_jobs)
     : FormulaEvaluatorCell{std::move(f)},
-      evaluators_{BuildFormulaEvaluators(formula())} {
+      evaluators_{BuildFormulaEvaluators(formula())},
+      epsilon_{epsilon},
+      delta_{delta},
+      contexts_{number_of_jobs} {
   DREAL_ASSERT(is_forall(formula()));
   DREAL_LOG_DEBUG("ForallFormulaEvaluator({})", formula());
-
-  Config config;
-  config.mutable_precision() = delta;
-  contexts_.reserve(number_of_jobs);
-  for (int i = 0; i < number_of_jobs; ++i) {
-    DREAL_ASSERT(config.number_of_jobs() == 1);
-    contexts_.emplace_back(config);
-    Context& context{contexts_[i]};
-    for (const Variable& exist_var : formula().GetFreeVariables()) {
-      context.DeclareVariable(exist_var);
-    }
-    for (const Variable& forall_var : get_quantified_variables(formula())) {
-      context.DeclareVariable(forall_var);
-    }
-    context.Assert(
-        DeltaStrengthen(!get_quantified_formula(formula()), epsilon));
-  }
 }
 
 FormulaEvaluationResult ForallFormulaEvaluator::operator()(

@@ -218,10 +218,11 @@ Contractor make_contractor_ibex_acid(std::vector<Formula> formulas,
 
 /// Returns a sound proj-intersection pre-pruner over IBEX's ibex::CtcForAll for
 /// the ∀-formula @p f, meant to run *alongside* the CEGIS ContractorForall.
-/// Single-threaded only (ibex::CtcForAll holds a mutable worklist); throws if
-/// number_of_jobs > 1.
+/// Under --jobs>1 it returns a ContractorIbexForallMt that builds one
+/// ibex::CtcForAll per worker thread (the base holds a mutable worklist and is
+/// not thread-safe to share).
 ///
-/// @see ContractorIbexForall.
+/// @see ContractorIbexForall, ContractorIbexForallMt.
 Contractor make_contractor_ibex_forall(Formula f, const Box& box,
                                        const Config& config);
 

@@ -15,15 +15,14 @@
 */
 #pragma once
 
-#include <memory>
 #include <ostream>
-#include <vector>
 
 #include "dreal/contractor/contractor_cell.h"
 #include "dreal/contractor/contractor_ibex_fwdbwd.h"
 #include "dreal/contractor/contractor_status.h"
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/box.h"
+#include "dreal/util/per_thread.h"
 
 namespace dreal {
 
@@ -68,9 +67,8 @@ class ContractorIbexFwdbwdMt : public ContractorCell {
   bool is_dummy_{false};
   const Config config_;
 
-  // ctc_ready_[i] is 1 indicates that ctcs_[i] is ready to be used.
-  mutable std::vector<int> ctc_ready_;
-  mutable std::vector<std::unique_ptr<ContractorIbexFwdbwd>> ctcs_;
+  // One ContractorIbexFwdbwd per worker thread (the base is not thread-safe).
+  mutable PerThread<ContractorIbexFwdbwd> ctcs_;
 };
 
 }  // namespace dreal

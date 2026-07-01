@@ -25,6 +25,7 @@
 #include "dreal/solver/relational_formula_evaluator.h"
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/box.h"
+#include "dreal/util/per_thread.h"
 
 namespace dreal {
 
@@ -83,10 +84,12 @@ class ForallFormulaEvaluator : public FormulaEvaluatorCell {
   Context& GetContext() const;
 
   std::vector<RelationalFormulaEvaluator> evaluators_;
+  const double epsilon_;
+  const double delta_;
 
-  // To make this class thread-safe, it includes a vector of Contexts and each
-  // thread owns a unique Context instance.
-  mutable std::vector<Context> contexts_;
+  // One nested counterexample-search Context per worker thread (the base Context
+  // is not thread-safe), built lazily on first use by GetContext.
+  mutable PerThread<Context> contexts_;
 };
 
 }  // namespace dreal

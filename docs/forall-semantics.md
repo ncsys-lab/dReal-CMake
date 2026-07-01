@@ -121,9 +121,9 @@ The Tseitin CNFizer (`tseitin_cnfizer.cc:126`) distributes `∀` over CNF clause
     = (∀y. clause₁(x,y)) ∧ ... ∧ (∀y. clauseₙ(x,y))
 ```
 
-Clauses that do not mention any `y` variable are emitted without the quantifier. If there is
-more than one quantified clause, Tseitin introduces a fresh Boolean variable `forallN` as their
-conjunction representative and records the relationship in `map_`.
+Clauses that do not mention any `y` variable are emitted without the quantifier. If distribution
+yields more than one clause total, Tseitin introduces a fresh Boolean variable `forallN`
+representing their conjunction and records the relationship in `map_`.
 
 **Effect on the body structure**: each `ContractorForall` sees a single clause as its
 quantified formula, not the original conjunction. Multiple forall constraints map to
@@ -164,8 +164,8 @@ Algorithm:
 ### 4.1 Three δ levels — and two regimes
 
 The CE search is governed by three precisions in the strict order
-`inner_delta < epsilon < delta`, enforced by `DREAL_ASSERT` (the `ContractorForall` ctor
-`@pre`, `contractor_forall.h:75, 86–89`). They map onto the CAV 2018 paper's
+`inner_delta < epsilon < delta`, enforced by four `DREAL_ASSERT`s (`contractor_forall.h:91–94`;
+the `@pre` is at `:78`). They map onto the CAV 2018 paper's
 `δ' < ε < δ` — the **double-sided error control** (§3.2) — exactly:
 
 | Paper symbol | Code name | Role |
@@ -177,23 +177,34 @@ The CE search is governed by three precisions in the strict order
 **Two regimes for the same constraint.** The `forall` constraint is handled by two
 components that pick *different* values inside this ordering:
 
-| Component | `epsilon` | `inner_delta` | Site |
-|---|---|---|---|
-| **`ContractorForall`** (prunes the box) | `delta * 0.5` | `epsilon * 0.5` (= `delta/4`) | `theory_solver.cc:188–190` |
-| **`ForallFormulaEvaluator`** (branching oracle, §5) | `0.99 * delta` | `0.99 * epsilon` (= `0.9801·delta`) | `theory_solver.cc:287–289` |
+| Component | `epsilon` | `inner_delta` | Role | Site |
+|---|---|---|---|---|
+| **`ContractorForall`** | `delta * 0.5` | `epsilon * 0.5` (= `delta/4`) | in-loop **pruner** (the `Prune` step) | `theory_solver.cc:189–191` |
+| **`ForallFormulaEvaluator`** (§5) | `0.99 * delta` | `0.99 * epsilon` (= `0.9801·delta`) | in-loop **δ-SAT accept + branch** test (the `EvaluateBox` step) | `theory_solver.cc:320–322` |
 
-The evaluator's `(0.99δ, 0.9801δ)` is the CAV 2018 experimental choice verbatim (§5:
-`ε = 0.99δ`, `δ' = 0.98δ`); the contractor is deliberately more conservative
-(`δ/2, δ/4`). Both satisfy `δ' < ε < δ`, so both are δ-complete instantiations (§4.5) —
-the paper proves completeness for *any* point in that open region, not a specific one.
-(The doc-comment at `contractor_forall.h:57` writes "`Solve(strengthen(¬φ, ε), δ) where
-ε > δ`"; the `δ` there is the *inner-solve* precision `δ'`, so it reads `ε > δ'` —
-consistent with the ordering, the symbol is just overloaded.)
+**Both run *inside* the ICP branch-and-prune loop, on every box** — the contractor in the
+`Prune` step (`icp_seq.cc:131`), the evaluator in the `EvaluateBox` step immediately after
+(`icp_seq.cc:146` / `icp_parallel.cc:134`). Neither is a pre-solve or a post-solve /
+pre-print phase; the evaluator is *not* a final model re-check — the box it first accepts
+*is* the returned δ-SAT model (§5).
+
+The evaluator's `ε = 0.99δ` is the CAV 2018 experimental value verbatim (paper §5, p. 229:
+"`ε = 0.99δ` … `δ' = 0.98δ`"); its `inner_delta` applies the same `0.99` ratio twice
+(`0.9801·δ`, the paper's `0.98δ` up to that rounding). The contractor is deliberately
+**tighter** (`δ/2, δ/4`) — a dReal choice, *not* the paper's experimental constants. Both
+satisfy `δ' < ε < δ`, so both are δ-complete instantiations (§4.5) — the paper proves
+completeness for *any* point in that open region. The direction of the difference is
+deliberate: a **larger** `ε` strengthens the CE query more, so a counterexample must
+violate by a bigger margin to be found — the evaluator (`0.99δ`) is therefore the more
+**lenient** of the two (it accepts a box as satisfying `∀y` unless a near-full-`δ` violation
+exists), while the contractor (`δ/2`) prunes on any half-`δ` violation. (The class doc-comment at
+`contractor_forall.h:56–60` states the ordering directly: `Solve(domain ∧ strengthen(¬body,
+ε), inner_delta)` with `inner_delta < ε < precision`.)
 
 The CE-search context is built once at contractor construction
-(`context_for_counterexample_`) with `precision = inner_delta` and `strengthen(¬φ,
-epsilon)` asserted (`contractor_forall.h:82–83, 96–118`). On each `Prune` it re-sets the
-existential intervals and calls `CheckSat`.
+(`context_for_counterexample_`) with `precision = inner_delta` (`contractor_forall.h:101–102`),
+the strengthened query built at `:85–88` and asserted conjunct-by-conjunct at `:116–124`. On
+each `Prune` it re-sets the existential intervals and calls `CheckSat`.
 
 ### 4.2 Stacking alternation
 
@@ -214,8 +225,8 @@ to narrow `B`.
 
 ### 4.4 Multithreaded variant
 
-`ContractorForallMt` (`contractor_forall.h:261`) wraps `ContractorForall` in a
-thread-local allocation pattern, creating one `ContractorForall` instance per thread.
+`ContractorForallMt` (`contractor_forall.h`) wraps `ContractorForall` with `PerThread<T>`
+(`util/per_thread.h`, §4.8), creating one `ContractorForall` instance per worker thread.
 The inner CE-search context forces `number_of_jobs = 1` regardless of the outer parallelism
 setting.
 
@@ -246,15 +257,15 @@ CE search is itself a δ-decision (it can only certify `φ⁻ᵟ'`, never φ exa
 strengthening it can return a **spurious counterexample**: a point `b` with
 `⋀ᵢ fᵢ(a, b) ≤ δ'` instead of the genuine `< 0` (CAV 2018 §3.2). A spurious CE does not
 actually violate the clause, so `Contract(φ(x, b), B)` prunes nothing — the fixpoint loop
-(`Prune`, `contractor_forall.h:196–235`) stalls after one iteration. The outer
+(`Prune`, `contractor_forall.h:197–242`) stalls after one iteration. The outer
 branch-and-prune is then left to terminate on **branching alone**, and can report
 `delta-sat` with a box `‖B‖ ≤ δ` that contains *no* δ-solution (a missed refutation).
 
 The fix (CAV 2018 §3.2, Eqs 2–3) is to strengthen the CE query by `ε` and solve it at
 `δ'`, with **`δ' < ε`** (so a returned CE clears the strengthening and is genuine) and
 **`ε < δ`** (so the strengthening stays inside the user's band). That is precisely the
-`inner_delta < epsilon < delta` invariant of §4.1, and the reason for
-`DeltaStrengthen(¬φ, epsilon)` at `contractor_forall.h:82–83`.
+`inner_delta < epsilon < delta` invariant of §4.1, and the reason for the ε-strengthened CE
+query (`StrengthenForallCounterexampleQuery`, `contractor_forall.h:85–88`; body-only, §4.8).
 
 ### 4.7 Soundness vs. completeness of `forall` failure modes
 
@@ -275,25 +286,88 @@ a true ∃∀-solution — it is a sound over-approximation no matter how the CE
 bad CE only ever costs progress (refutation power), i.e. completeness. The double-sided
 error control of §4.6 is therefore a **completeness safeguard**, not a soundness one.
 
+### 4.8 2026-06 hardening (matrix-only strengthening, point-elimination, rejection, per-thread)
+
+A soundness/robustness audit of `forall` and its interaction with parallel ICP and the
+`--forall-pre-prune` pre-pruner produced four changes. All preserve soundness; corpus verdicts
+are unchanged (23/24 forall instances; `ea_abs` is a pre-existing timeout) and the only
+intended behavior changes are stronger *refutation* (completeness), never a new false `unsat`.
+
+- **Narrow-domain-conditional CE strengthening (completeness fix).** The CE query was built as
+  `DeltaStrengthen(¬(domain → body), ε) = DeltaStrengthen(domain ∧ ¬body, ε)`, which
+  ε-tightens the **universal-domain** bound atoms too (`VisitConjunction` strengthens every
+  conjunct). A universal domain narrower than ~2ε was searched as the empty set, so a real
+  counterexample was missed and the forall was reported consistent (false `delta-sat`; never
+  false `unsat`). The fix keeps the domain bounds **exact** — but only for **narrow** universal
+  variables (binder width `< 3ε`, where the ε-shrink would empty/degenerate the domain); **wide**
+  variables keep the old, faster ε-shrink. Rationale: keeping *every* domain exact (full
+  CAV-2018) is correct but **9–45× slower at moderate δ** on wide-domain ∃∀ families (odeexpr_v2,
+  `exists_forall_perf.md`) for **no verdict change**, because the exact domain enlarges the CE
+  search; the residual wide-domain shell gap is bounded, pre-existing, and never a soundness
+  issue. Shared helper `StrengthenForallCounterexampleQuery`
+  (`contractor/forall_counterexample_query.{h,cc}`), used by **both** the contractor and the
+  evaluator so the two cannot drift. COMPLETENESS-only. (The `width==0` point case is handled by
+  point-quantifier elimination, next bullet.)
+
+- **Point-quantifier elimination.** Even with exact bounds, a universal variable pinned to a
+  single point `c` (lb == ub) cannot be refuted: dReal soundly over-approximates the strict
+  domain-negation `(y > c) ∨ (y < c)` with **closed** intervals, so neither disjunct empties at
+  the measure-zero boundary. `Context::Assert` now substitutes `y := c` into the matrix and
+  drops the quantifier (an all-point forall reduces to its quantifier-free body) —
+  `EliminatePointUniversals` (`solver/context_impl.cc`). COMPLETENESS-only.
+
+- **Unsupported-forall rejection.** A negated / nested / sign-flipped `forall` (the SAT layer
+  can flip a forall-Boolean to false under a disjunction) previously crashed with an opaque
+  error deep in contractor construction (the `ibex_converter` / `DeltaStrengthen` VisitForall
+  throws). `Context::Assert` now rejects it early and clearly — `HasForall` /
+  `RejectUnsupportedForall` (`solver/context_impl.cc`): *"dReal only supports a top-level
+  positive forall (exists-forall); …"*.
+
+- **Per-thread unification.** The five hand-rolled per-worker dispatchers (`ContractorForallMt`,
+  `ContractorIbex{Fwdbwd,Polytope,Forall}Mt`, `ForallFormulaEvaluator`) — two with an off-by-one
+  `<=` thread-id assert, three with no bounds check at all (a latent heap OOB if parallelism is
+  ever nested) — were collapsed onto one `PerThread<T>` (`util/per_thread.h`) with a correct,
+  always-on out-of-range **throw**.
+
+Nets: `contractor_ibex_forall_adversarial_test.cc` (pre-pruner ⊆ + witness survival),
+`forall_parallel_matrix_test.cc` (jobs × pre-prune verdict equality, incl. the CEGIS-only
+parallel path), `forall_narrow_domain_test.cc`, `forall_unsupported_rejection_test.cc`,
+`per_thread_test.cc`; plus the standing `benchmark/forall_differential.sh` (zero verdict flips
+across jobs × pre-prune × polytope) and `tsan_gate.sh` (ThreadSanitizer over forall+parallel).
+
 ---
 
 ## 5. Formula Evaluator
 
-`ForallFormulaEvaluator` (`forall_formula_evaluator.cc`) is the ICP branching oracle. It runs
-the same CE search as the contractor but returns a `FormulaEvaluationResult`:
+`ForallFormulaEvaluator` (`forall_formula_evaluator.cc`) is the ICP loop's **δ-SAT
+acceptance + branching** test — run on *every* box the loop pops, right after pruning
+(`icp_seq.cc:146` / `icp_parallel.cc:134` → `EvaluateBox`, `icp.cc:31`). It runs the same
+CE search as the contractor and returns a `FormulaEvaluationResult`
+(`forall_formula_evaluator.cc:98–132`):
 
-- **CE found** → `UNSAT` with a diameter indicating how badly the constraint is violated
-  (used by ICP to pick bisection candidates)
-- **No CE** → `VALID`
+- **CE found** → `Type::UNKNOWN`, error interval `[0, maxᵢ|eᵢ(x, b)|]` (how badly the CE
+  violates). `EvaluateBox` compares that diameter to `precision`: `> δ` ⇒ mark this
+  formula's variables as branching candidates; `≤ δ` ⇒ the box is δ-close enough on this
+  constraint, no candidate added.
+- **No CE** → `Type::VALID`, `[0, 0]` (the whole box satisfies `∀y`).
 
-The evaluator holds one `Context` per thread-job and dispatches via `thread_local
-kThreadId` (`forall_formula_evaluator.cc:68–73`). Its CE search is *structurally* the same
-as the contractor's — assert `DeltaStrengthen(¬φ, epsilon)`, set the existential intervals,
-`CheckSat` (`forall_formula_evaluator.cc:84, 96, 101–107`) — but it runs at a **different
+It **never** returns `UNSAT` — a found CE means "not yet decided, measure/branch," not
+"infeasible" (an `UNSAT` from an evaluator empties the box, `icp.cc:39–47`; only the
+relational leaf evaluators do that). When every constraint's evaluator returns `VALID` or a
+sub-`δ` `UNKNOWN` so that no branching candidate remains, the loop **accepts the current box
+as the δ-SAT model** and returns (`icp_seq.cc:157–161`). That acceptance step is where the
+evaluator's leniency (§4.1, `ε = 0.99δ`) matters: it declares `∀y. φ` satisfied on the box
+unless a near-full-`δ` counterexample survives the strengthened search.
+
+The evaluator holds one `Context` per worker thread via `PerThread<Context>` (built lazily on
+first use; §4.8). Its CE search is *structurally* the same
+as the contractor's — assert `domain ∧ DeltaStrengthen(¬body, epsilon)` (the shared
+`StrengthenForallCounterexampleQuery`, §4.8), set the existential intervals,
+`CheckSat` (`forall_formula_evaluator.cc:79–81, 101–104`) — but it runs at a **different
 precision regime**: `epsilon = 0.99·delta`, `inner = 0.9801·delta`
-(`theory_solver.cc:287–289`), the CAV 2018 experimental values, *not* the contractor's
-`δ/2, δ/4` (§4.1). It is not "initialized identically" to the contractor — only the CE
-query structure matches, not the precisions.
+(`theory_solver.cc:320–322`), the CAV 2018 experimental values (paper §5, p. 229), *not*
+the contractor's `δ/2, δ/4` (§4.1). It is not "initialized identically" to the contractor —
+only the CE query structure matches, not the precisions.
 
 ---
 
@@ -312,8 +386,11 @@ Formula VisitForall(const Formula&, const double) const {
 ```
 
 `DeltaStrengthen(!body, epsilon)` is called on the negated body during `ContractorForall`
-construction. If the body contains a `forall` node, this throws immediately. There is no
-graceful degradation — the solver aborts.
+construction. If the body contains a `forall` node, this would throw deep in construction.
+**As of the 2026-06 hardening (§4.8) this is caught earlier and reported clearly** at
+`Context::Assert` (`RejectUnsupportedForall`) — a nested, negated, or sign-flipped `forall`
+is rejected with an actionable message instead of an opaque deep crash. The fragment is still
+unsupported; only the failure mode improved.
 
 **Implication for nested-quantifier projects**: any ∃∀∃ or ∀∃∀ formula requires
 transformation before it can be fed to dReal (see §8).
@@ -324,7 +401,9 @@ dReal does not implement quantifier elimination (QE). There is no Cylindrical Al
 Decomposition (CAD) or virtual term substitution path. The CE-guided loop is a complete
 procedure for the ∃∀ fragment over bounded domains (in the delta-completeness sense), but it
 produces a delta-SAT witness for `x`, not a QE certificate. Returning an explicit description
-of the set of `x` satisfying `∀y.φ(x,y)` is not supported.
+of the set of `x` satisfying `∀y.φ(x,y)` is not supported. (One narrow, mechanical exception:
+a universal variable pinned to a single point by its binder is eliminated by substitution —
+point-quantifier elimination, §4.8 — but this is not general QE.)
 
 ### 6.3 Single quantifier alternation
 
@@ -352,8 +431,12 @@ simultaneously.
 
 `DeltaStrengthen(f, ε)` tightens `e ≥ 0` to `e ≥ ε` and `e > 0` to `e > ε`. After negation,
 `¬(e ≥ 0)` → `e < 0` → strengthened to `e < -ε` → `e ≤ -ε - ε'`. This ensures the CE is a
-genuine δ-violating point and not a boundary artifact. The strengthening amount is
-`epsilon = delta/2`.
+genuine δ-violating point and not a boundary artifact. The strengthening amount is `ε = δ/2`
+in the contractor and `ε = 0.99δ` in the evaluator (§4.1). **Note (§4.8):** the matrix *body*
+is always strengthened; the universal-*domain* bound atoms are strengthened (ε-shrunk) only
+for **wide** universal variables (binder width `≥ 3ε`) and kept **exact** for **narrow** ones —
+shrinking a narrow domain emptied the searched region and missed counterexamples. So the
+strengthening applies to all body literals but only to wide-variable binder bounds.
 
 ### 6.7 Performance
 
@@ -364,7 +447,7 @@ available to the inner solve (each `Prune` only sets the existential intervals, 
 derived constraints). Expect roughly 10–100× overhead per forall constraint compared to a
 purely existential formula of the same complexity.
 
-**`--local-optimization`** (`dreal_main.cc:152`): enables `CounterexampleRefiner`
+**`--local-optimization`** (`dreal_main.cc:515–519`): enables `CounterexampleRefiner`
 (`counterexample_refiner.{h,cc}`), which sharpens each CE before pruning by running a
 **local optimization** that pushes the CE to *further* violate the clause — it reframes the
 violated atom `e₁ ◦ e₂` as an objective (`minimize e₁ − e₂`) plus the clause atoms as
@@ -374,14 +457,20 @@ cutting the number of fixpoint iterations (CAV 2018 §3.3, Fig. 1). The optimize
 `LN_COBYLA` (Constrained Optimization BY Linear Approximations)
 (`counterexample_refiner.cc:68–75`) — the exact pair the CAV 2018 implementation used (§5;
 its experiments set `1e-6` tolerances, a `1e-3 s` timeout, and 100 max evaluations, and
-report speed-ups on 20 of 23 global-optimization instances, up to ~250×). When the query
-has no exist∧forall coupling the refiner is a no-op and returns the raw CE (`opt_` stays
-null, `counterexample_refiner.cc:59–63`).
+report speed-ups on 20 of 23 global-optimization instances, up to ~250×). The refiner is a
+no-op — returns the raw CE, `opt_` stays null — only when the strengthened query reduces
+*entirely* to binder-bound atoms that `FilterAssertion` absorbs (`formulas.empty()`,
+`counterexample_refiner.cc:59–63`). With constraints present but no exist∧forall coupling it
+still runs the optimizer over the constraints, just without an objective
+(`counterexample_refiner.cc:79, 88–90`).
 
-**`--polytope`** / `(set-option :polytope true)`: routes the CE-search inner context
-through IBEX polytope (LP-based) contractors, which can prune the forall domain more
-aggressively. Controlled by `use_polytope_in_forall` (`contractor_forall.h:98`). This is
-the linear-programming pruning the CAV 2018 implementation ran on **CLP** (§5). **Caveat**:
+**`--polytope`** / `(set-option :polytope true)`: routes the **contractor's** CE-search inner
+context through IBEX polytope (LP-based) contractors, which can prune the forall domain more
+aggressively. Controlled by `use_polytope_in_forall` (`contractor_forall.h:103–104`). Note the
+asymmetry: only the `ContractorForall` inner context reads this flag; the
+`ForallFormulaEvaluator`'s CE context is built from a fresh default `Config` (only `precision`
+overridden, `forall_formula_evaluator.cc:70–72`), so `--polytope` never reaches the evaluator's
+CE search. This is the linear-programming pruning the CAV 2018 implementation ran on **CLP** (§5). **Caveat**:
 it needs an LP solver linked into the build, and `cmake-build-release` (this repo) does not
 link one — `--polytope` on problems whose linear assertions trigger the LP path crashes with
 `LPSolver method called but no LPSolver has been configured`. Simple forall problems with no

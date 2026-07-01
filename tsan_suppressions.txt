@@ -1,0 +1,21 @@
+# ThreadSanitizer suppressions for the forall + parallel-ICP gate (tsan_gate.sh).
+#
+# Only genuinely-benign THIRD-PARTY reports belong here. dReal's own code is NOT
+# suppressed — a race in IcpParallel / PerThread / the forall machinery must fail
+# the gate. Each entry below is a construct ThreadSanitizer cannot model, not a
+# real race.
+
+# libcds (the lock-free Treiber stack `global_stack` shared by IcpParallel
+# workers) uses hazard-pointer / epoch-based reclamation. Its inter-thread
+# ordering is established by atomics TSan does not understand, so it reports
+# false races on the reclaimed nodes. The container is correct by construction.
+race:cds::
+race:libcds
+
+# gaol / ibex interval arithmetic reads and writes the per-thread FPU rounding
+# mode register (fesetround/fegetround). dReal establishes FE_UPWARD once per
+# worker phase (UpwardRoundingScope) on each worker's OWN thread; the register is
+# thread-local hardware state, not shared memory, so any TSan report here is
+# spurious.
+called_from_lib:libibex
+called_from_lib:libgaol

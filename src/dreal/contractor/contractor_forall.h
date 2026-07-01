@@ -22,11 +22,10 @@
 #include <utility>
 #include <vector>
 
-#include "ThreadPool/ThreadPool.h"
-
 #include "dreal/contractor/contractor.h"
 #include "dreal/contractor/contractor_cell.h"
 #include "dreal/contractor/counterexample_refiner.h"
+#include "dreal/contractor/forall_counterexample_query.h"
 #include "dreal/contractor/generic_contractor_generator.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/box.h"
@@ -36,13 +35,9 @@
 #include "dreal/util/logging.h"
 #include "dreal/util/nnfizer.h"
 #include "dreal/util/optional.h"
+#include "dreal/util/per_thread.h"
 
 namespace dreal {
-
-/// Add Doc.
-Box RefineCounterexample(const Formula& query,
-                         const Variables& quantified_variables, Box b,
-                         double precision);
 
 /// Contractor for the ∃∀ NRA `forall` quantifier (`Formula::Forall`, `Kind::FORALL`).
 ///
@@ -60,7 +55,9 @@ Box RefineCounterexample(const Formula& query,
 ///
 /// Approach: Find a counterexample (a₁, ..., aₙ, b₁, ..., bₘ) such
 /// that ¬φ(a₁, ..., aₙ, b₁, ..., bₘ) holds while (a₁, ..., aₙ) ∈ B.
-/// We do this by computing Solve(strengthen(¬φ, ε), δ) where ε > δ.
+/// We do this by computing Solve(domain ∧ strengthen(¬body, ε), inner_delta),
+/// strengthening only the matrix body and keeping the universal-domain bounds
+/// exact (see forall_counterexample_query.h), with inner_delta < ε < precision.
 ///
 ///  - Case 1: No CE found.
 ///            This means that any point in B satisfies the quantified
@@ -86,7 +83,9 @@ class ContractorForall : public ContractorCell {
         f_{std::move(f)},
         quantified_variables_{get_quantified_variables(f_)},
         strengthend_negated_nested_f_{Nnfizer{}.Convert(
-            DeltaStrengthen(!get_quantified_formula(f_), epsilon), true)},
+            StrengthenForallCounterexampleQuery(get_quantified_formula(f_),
+                                                quantified_variables_, epsilon),
+            true)},
         contractor_{config /* This one will be updated anyway. */},
         context_for_counterexample_{config} {
     DREAL_ASSERT(epsilon > 0.0);
@@ -261,7 +260,6 @@ class ContractorForall : public ContractorCell {
   Contractor contractor_;
   // Context to do `Solve(¬φ', δ₂)`.
   mutable ContextType context_for_counterexample_;
-  const bool use_local_optimization_{false};
 
   std::unique_ptr<CounterexampleRefiner> refiner_;
 };
@@ -280,8 +278,7 @@ class ContractorForallMt : public ContractorCell {
         f_{std::move(f)},
         epsilon_{epsilon},
         inner_delta_{inner_delta},
-        ctc_ready_(config.number_of_jobs(), 0),
-        ctcs_(ctc_ready_.size()) {
+        ctcs_(config.number_of_jobs()) {
     ContractorForall<ContextType>* const ctc{GetCtcOrCreate(box)};
     DREAL_ASSERT(ctc);
     // Build input.
@@ -314,30 +311,20 @@ class ContractorForallMt : public ContractorCell {
 
  private:
   ContractorForall<ContextType>* GetCtcOrCreate(const Box& box) const {
-    thread_local const int kThreadId{ThreadPool::get_thread_id()};
-    DREAL_ASSERT(kThreadId == ThreadPool::get_thread_id());
-    DREAL_ASSERT(0 <= kThreadId &&
-                 kThreadId <= static_cast<int>(ctc_ready_.size()));
-    if (ctc_ready_[kThreadId]) {
-      return ctcs_[kThreadId].get();
-    }
-    Config inner_config{config()};
-    inner_config.mutable_number_of_jobs() = 1;  // FORCE SEQ ICP in INNER LOOP
-    auto ctc_unique_ptr = std::make_unique<ContractorForall<ContextType>>(
-        f_, box, epsilon_, inner_delta_, inner_config);
-    ContractorForall<ContextType>* ctc{ctc_unique_ptr.get()};
-    DREAL_ASSERT(ctc);
-    ctcs_[kThreadId] = std::move(ctc_unique_ptr);
-    ctc_ready_[kThreadId] = 1;
-    return ctc;
+    return &ctcs_.GetOrCreate([&]() {
+      Config inner_config{config()};
+      inner_config.mutable_number_of_jobs() = 1;  // FORCE SEQ ICP in INNER LOOP
+      return std::make_unique<ContractorForall<ContextType>>(
+          f_, box, epsilon_, inner_delta_, inner_config);
+    });
   }
 
   const Formula f_;
   const double epsilon_{};
   const double inner_delta_{};
 
-  mutable std::vector<int> ctc_ready_;
-  mutable std::vector<std::unique_ptr<ContractorForall<ContextType>>> ctcs_;
+  // One ContractorForall per worker thread (each holds a nested CE solver).
+  mutable PerThread<ContractorForall<ContextType>> ctcs_;
 };
 
 template <typename ContextType>

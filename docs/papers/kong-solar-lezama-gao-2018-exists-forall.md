@@ -54,17 +54,17 @@ over the reals would introduce.
 | Paper concept | Where it lives in this project |
 |---|---|
 | CE-guided $\forall$-clause pruning (Alg. 2) | `src/dreal/contractor/contractor_forall.h` — the `ContractorForall::Prune` CE loop; `docs/forall-semantics.md` §4 |
-| Double-sided error control $\delta' < \varepsilon < \delta$ | The **three $\delta$ levels** in `theory_solver.cc:187–193`: `delta` (outer) $>$ `epsilon` $=\delta/2$ (strengthen $\neg\varphi$) $>$ `inner_delta` $=\varepsilon/2$ (CE-search precision); `forall-semantics.md` §4.1. **The code pins a specific instantiation of the paper's general $\delta' < \varepsilon < \delta$.** |
-| CE query = $\delta$-decision on the strengthened negation | `forall_formula_evaluator.cc` (the ICP branching oracle runs the same CE search); §4.2/§6.6 `DeltaStrengthen(\neg\varphi, \varepsilon)` |
+| Double-sided error control $\delta' < \varepsilon < \delta$ | The **three $\delta$ levels**, pinned at **two** sites. Pruner (`theory_solver.cc:189–191`): `delta` $>$ `epsilon` $=\delta/2$ $>$ `inner_delta` $=\varepsilon/2$. Accept/branch evaluator (`theory_solver.cc:320–322`): `epsilon` $=0.99\delta$, `inner_delta` $=0.99\varepsilon\approx0.98\delta$ — **the paper's own experimental constants** (§5, p. 229). Both land inside the proven-complete $\delta' < \varepsilon < \delta$ region; `forall-semantics.md` §4.1. |
+| CE query = $\delta$-decision on the strengthened negation | `forall_formula_evaluator.cc` (the ICP **δ-SAT accept/branch test** runs the same CE search on every box); §4.2/§6.6 `DeltaStrengthen(\neg\varphi, \varepsilon)` |
 | Locally-optimized counterexamples (§3.3) | `--local-optimization` $\to$ `CounterexampleRefiner` (`forall-semantics.md` §6.7) |
 | CE midpoint instantiation + box-hull over disjuncts | `forall-semantics.md` §4.3 (`safe_mid` pinning) |
 | Lyapunov / global-optimization applications | `forall-semantics.md` §8 ($\exists V.\, \forall x \in D.\, \ldots$), §9 (global min via $\exists\forall$) |
 
 ## Open Proof Targets
 
-- Verify the code's pinned $\varepsilon = \delta/2$, $\text{inner} = \varepsilon/2$ satisfies the
-  paper's $\delta' < \varepsilon < \delta$ for the actual `Solve` weakening used — i.e. confirm
-  the implementation's instantiation lands inside the proven-complete region.
+- ~~Verify the code's pinned error params land inside the proven-complete $\delta' < \varepsilon
+  < \delta$ region.~~ **Resolved (2026-07):** pruner $\delta/4 < \delta/2 < \delta$ ✓; evaluator
+  $0.9801\delta < 0.99\delta < \delta$ ✓ (the latter = the paper's experimental values).
 - Reproduce a small Lyapunov-synthesis instance (§5) on `gcc_build/dreal4` and confirm
   `delta-sat` with a witness $V$; check the certificate against $\varphi^{-\delta}$.
 
@@ -85,6 +85,10 @@ over the reals would introduce.
     the paper simply assumes $\mathrm{CNF}^\forall$ input.
   - **`--polytope` LP footgun:** the polytope CE-search path crashes when no LP solver is linked
     (`forall-semantics.md` §6.7) — a build-packaging detail, outside the paper.
-  - **Pinned error parameters:** the paper proves completeness for any $\delta' < \varepsilon <
-    \delta$; the code fixes $\varepsilon = \delta/2$, $\text{inner} = \varepsilon/2$. A valid
-    instantiation, but a concrete choice the paper leaves open.
+  - **Pinned error parameters (two sites):** the paper proves completeness for any $\delta' <
+    \varepsilon < \delta$ but its *experiments* (§5, p. 229) used $\varepsilon = 0.99\delta$,
+    $\delta' = 0.98\delta$. dReal's **accept/branch evaluator** uses exactly that
+    ($0.99\delta$, $0.9801\delta$); its **pruner** is a tighter dReal choice
+    ($\varepsilon = \delta/2$, $\text{inner} = \varepsilon/2$). Both are valid instantiations;
+    the pruner's tighter $\varepsilon$ makes it prune more aggressively than the evaluator
+    accepts (`forall-semantics.md` §4.1, §5).

@@ -17,8 +17,6 @@
 
 #include <utility>
 
-#include "ThreadPool/ThreadPool.h"
-
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
 #include "dreal/util/timer.h"
@@ -36,8 +34,7 @@ ContractorIbexPolytopeMt::ContractorIbexPolytopeMt(vector<Formula> formulas,
                      DynamicBitset(box.size()), config},
       formulas_{std::move(formulas)},
       config_{config},
-      ctc_ready_(config_.number_of_jobs(), 0),
-      ctcs_(ctc_ready_.size()) {
+      ctcs_(config_.number_of_jobs()) {
   DREAL_LOG_DEBUG("ContractorIbexPolytopeMt::ContractorIbexPolytopeMt");
   ContractorIbexPolytope* const ctc{GetCtcOrCreate(box)};
   DREAL_ASSERT(ctc);
@@ -49,17 +46,8 @@ ContractorIbexPolytopeMt::ContractorIbexPolytopeMt(vector<Formula> formulas,
 
 ContractorIbexPolytope* ContractorIbexPolytopeMt::GetCtcOrCreate(
     const Box& box) const {
-  thread_local const int kThreadId{ThreadPool::get_thread_id()};
-  if (ctc_ready_[kThreadId]) {
-    return ctcs_[kThreadId].get();
-  }
-  auto ctc_unique_ptr =
-      make_unique<ContractorIbexPolytope>(formulas_, box, config_);
-  ContractorIbexPolytope* ctc = ctc_unique_ptr.get();
-  DREAL_ASSERT(ctc);
-  ctcs_[kThreadId] = std::move(ctc_unique_ptr);
-  ctc_ready_[kThreadId] = 1;
-  return ctc;
+  return &ctcs_.GetOrCreate(
+      [&]() { return make_unique<ContractorIbexPolytope>(formulas_, box, config_); });
 }
 
 void ContractorIbexPolytopeMt::Prune(ContractorStatus* cs, const UpwardRounding& ur) const {
