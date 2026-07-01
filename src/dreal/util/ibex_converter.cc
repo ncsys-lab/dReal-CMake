@@ -392,7 +392,7 @@ const ExprCtr* IbexConverter::VisitConjunction(const Formula&, const bool) {
 }
 
 const ExprCtr* IbexConverter::VisitDisjunction(const Formula&, const bool) {
-  throw DREAL_RUNTIME_ERROR("IbexConverter: A conjunction is detected.");
+  throw DREAL_RUNTIME_ERROR("IbexConverter: A disjunction is detected.");
 }
 
 const ExprCtr* IbexConverter::VisitNegation(const Formula& f,

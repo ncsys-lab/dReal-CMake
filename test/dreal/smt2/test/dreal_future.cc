@@ -1,6 +1,9 @@
-// Aspirational (not regression) specifications for the FUTURE semantics of
-// negated ODE constraints in QF_NRA_ODE — the design roadmap behind BUG-002
-// (simulink-to-dreal_bug_reports.md §BUG-002).
+// Aspirational (not regression) specifications for FUTURE dReal semantics along
+// two independent roadmaps:
+//   • negated ODE constraints in QF_NRA_ODE — the BUG-002 roadmap
+//     (simulink-to-dreal_bug_reports.md §BUG-002), Design Axes 1–2 below;
+//   • negated NRA `forall` — the FEAT-001 roadmap
+//     (ode_expressivity_energy/docs/dreal-bugs.md §FEAT-001), Design Axis 3 below.
 //
 // WHAT BUG-002 ACTUALLY IS. When an `(integral …)` or `(forall_t …)` assertion
 // is wrapped in `(not …)`, dReal silently DROPS the constraint and the state
@@ -101,9 +104,39 @@
 //     (= x_t 60.6531) ∧ ¬integral              | unsat (δ!)  | delta-sat
 //     posForallT(holds) ∧ ¬integral ∧ x_t>95   | delta-sat   | unsat
 //
-// Reference flow everywhere below: d/dt[x] = -0.5·x, x_0=100, T=1.
+// Reference flow for Axes 1–2: d/dt[x] = -0.5·x, x_0=100, T=1.
 //   true endpoint  = 100·e^−0.5 ≈ 60.6531
 //   trajectory range over [0,1] = [60.65, 100], monotone decreasing.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// DESIGN AXIS 3 — negated NRA `forall`: existential semantics (FEAT-001).
+// A pure-NRA quantifier roadmap, UNRELATED to the ODE axes above; it shares this
+// file only for its aspirational role. Group E below.
+//
+//   (forall ((x Real [lb,ub])) φ)        ≡  ∀x∈[lb,ub]. φ(x)
+//   (not (forall ((x Real [lb,ub])) φ))  ≡  ∃x∈[lb,ub]. ¬φ(x)      [a witness exists]
+//
+// dReal has no ∃ node, but a top-level free variable IS an existential — so a
+// negated forall is dischargeable by promoting its bound vars to fresh free box
+// vars over [lb,ub] and asserting ¬φ (the binder domain becomes a conjunct:
+// ¬(domain→matrix) = domain ∧ ¬matrix). The framework's blocked antecedent
+// refutation ∃p̄.(φ(p̄) ∨ ¬∀x̄.d) is then a native NRA SAT query. Implementation-
+// wise this INVERTS the CE-search the CEGIS ContractorForall already runs
+// (contractor_forall.h context_for_counterexample_): a counterexample found ⇒
+// ∃x̄.¬d sat (the ¬∀ literal holds); none found ⇒ prune the box to empty.
+//
+// CURRENT STATE differs from Axes 1–2. A negated/disjoined/nested forall is NOT
+// silently mis-solved — it is HARD-REJECTED up front by RejectUnsupportedForall
+// (solver/context_impl.cc). So removing a skip below yields a THROW, not a wrong
+// verdict: the gap here is "can't answer yet," not "answers wrong."
+//
+// SOUNDNESS: dReal `unsat` on the negation ⟺ the universal holds — no false
+// `unsat`. A future ∃-implementation only affects COMPLETENESS (refutation power).
+//
+// BOUNDARY (stays rejected even after FEAT-001): a POSITIVE forall whose body
+// contains a forall is genuine ∀∃ alternation — the bound var cannot be both a
+// CEGIS-universal and an existential, and ∃ cannot be hoisted past the outer ∀.
+// Pinned by NegForall_UnderPositiveForall_StaysRejected.
 
 #include "dreal/smt2/driver.h"
 
@@ -486,6 +519,85 @@ TEST(Bug002NegatedOde, Mixed_BothNegated_DesignGap) {
       "  (not (forall_t 1 [0 time] (<= x_t 150)))\n"
       "  (not (= [x_t] (integral 0. time [x_0] flow_1)))\n"
       "))\n"
+      "(check-sat)\n"));
+}
+
+// =============================================================================
+// Group E — negated NRA forall, existential semantics (Axis 3 / FEAT-001).
+// Bodies embed the committed reproducers docs/dreal-bugs/bug001_*.smt2 (in the
+// ode_expressivity_energy project). Controls (not skipped) pass on today's build;
+// the GTEST_SKIP cases encode desired verdicts the current build instead HARD-
+// REJECTS (throws) — remove a skip to watch RunSmt2String throw.
+// =============================================================================
+
+// CONTROL (passes today): the ∃(free J)∀(bound x) idiom dReal already lifts to a
+// ContractorForall. J∈[-1,1], ∀x∈[-1,1]. -J²-x²≤0 (always true) ⇒ delta-sat.
+// Pins the positive polarity that the negated cases invert.
+TEST(NegatedNraForall, PosForall_Baseline_DeltaSat) {
+  const std::string out{RunSmt2String(
+      "(set-option :precision 0.000500000000000000)\n"
+      "(declare-const J Real)\n"
+      "(assert (>= J -1))\n"
+      "(assert (<= J 1))\n"
+      "(assert (forall ((x Real [-1, 1])) (<= (+ (* -1 (* J J)) (* -1 (* x x))) 0)))\n"
+      "(check-sat)\n")};
+  EXPECT_TRUE(HasDeltaSat(out)) << "got: " << out;
+}
+
+// ASPIRATIONAL (Axis-3 ∃): ¬∀x∈[-1,1]. -x²≤0 ≡ ∃x. x²<0 — no witness ⇒ desired
+// unsat. Flagship refutable. CURRENT: hard-rejected (throws). A delta-sat here
+// would be COMPLETENESS (missed refutation / false delta-sat).
+TEST(NegatedNraForall, NegForall_InvariantHolds_Unsat) {
+  GTEST_SKIP() << "ASPIRATIONAL (FEAT-001, Axis-3 ∃): desired unsat (no x with "
+                  "x²<0), current REJECTED (throws). Remove skip to exercise.";
+  const std::string out{RunSmt2String(
+      "(set-option :precision 0.000500000000000000)\n"
+      "(assert (not (forall ((x Real [-1, 1])) (<= (* -1 (* x x)) 0))))\n"
+      "(check-sat)\n")};
+  EXPECT_TRUE(HasUnsat(out)) << "got: " << out;
+}
+
+// ASPIRATIONAL (Axis-3 ∃): ¬∀x∈[-1,1]. x≤0.5 ≡ ∃x∈[-1,1]. x>0.5 — witnessed at
+// x≈1 ⇒ desired delta-sat. Guards a future ∃-impl against OVER-refuting; an unsat
+// here would be SOUNDNESS (false unsat). CURRENT: hard-rejected (throws).
+TEST(NegatedNraForall, NegForall_InvariantViolated_DeltaSat) {
+  GTEST_SKIP() << "ASPIRATIONAL (FEAT-001, Axis-3 ∃): desired delta-sat (∃x "
+                  "x>0.5 witnessed), current REJECTED (throws). Remove skip.";
+  const std::string out{RunSmt2String(
+      "(set-option :precision 0.000500000000000000)\n"
+      "(assert (not (forall ((x Real [-1, 1])) (<= x 0.5))))\n"
+      "(check-sat)\n")};
+  EXPECT_TRUE(HasDeltaSat(out)) << "got: " << out;
+}
+
+// ASPIRATIONAL (Axis-3 ∃): the real P2 antecedent refutation
+// ∃J∈[-1,1]. (¬mem(J) ∨ ¬∀x. d), mem = 2J∈[-2,2], d = -J²-x²≤0. Both disjuncts
+// are unsatisfiable within J∈[-1,1] ⇒ desired unsat (antecedent valid). The
+// framework's actual blocked query. CURRENT: hard-rejected (throws).
+TEST(NegatedNraForall, NegForall_NestedAntecedent_Unsat) {
+  GTEST_SKIP() << "ASPIRATIONAL (FEAT-001, Axis-3 ∃): desired unsat (P2 "
+                  "antecedent valid), current REJECTED (throws). Remove skip.";
+  const std::string out{RunSmt2String(
+      "(set-option :precision 0.000500000000000000)\n"
+      "(declare-const J Real)\n"
+      "(assert (>= J -1))\n"
+      "(assert (<= J 1))\n"
+      "(assert (or (< (* 2 J) -2)\n"
+      "            (> (* 2 J) 2)\n"
+      "            (not (forall ((x Real [-1, 1])) (<= (+ (* -1 (* J J)) (* -1 (* x x))) 0)))))\n"
+      "(check-sat)\n")};
+  EXPECT_TRUE(HasUnsat(out)) << "got: " << out;
+}
+
+// CONTROL (throws today, must STAY rejected after FEAT-001): a positive forall
+// whose body holds a negated forall is genuine ∀∃ alternation — ∃ cannot be
+// hoisted past the outer ∀. Pins the FEAT-001 boundary.
+TEST(NegatedNraForall, NegForall_UnderPositiveForall_StaysRejected) {
+  EXPECT_ANY_THROW(RunSmt2String(
+      "(set-option :precision 0.000500000000000000)\n"
+      "(assert (forall ((a Real [-1, 1]))\n"
+      "          (and (>= a -2)\n"
+      "               (not (forall ((b Real [-1, 1])) (<= (* a b) 2))))))\n"
       "(check-sat)\n"));
 }
 

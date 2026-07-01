@@ -609,12 +609,12 @@ variable_sort_list: /* empty list */ { $$ = std::pair<Variables, Formula>(Variab
 
 variable_sort: '(' SYMBOL sort ')' {
             NearestRoundingScope g;
-            const Variable v = driver.RegisterVariable($2, $3);
+            const Variable v = driver.RegisterQuantifiedVariable($2, $3);
             const double inf = std::numeric_limits<double>::infinity();
             $$ = std::tuple<Variable, double, double>(v, -inf, inf);
         }
         |       '(' SYMBOL sort '[' term ',' term ']' ')' {
-            const Variable v = driver.RegisterVariable($2, $3);
+            const Variable v = driver.RegisterQuantifiedVariable($2, $3);
             const double lb = $5.expression().Evaluate(); // already guarded
             const double ub = $7.expression().Evaluate();
             $$ = std::tuple<Variable, double, double>(v, lb, ub);

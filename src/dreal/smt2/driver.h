@@ -15,6 +15,7 @@
 */
 #include <istream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "dreal/symbolic/odes/OdeFlow.h"
@@ -95,6 +96,12 @@ class Smt2Driver {
   /// Register a variable with name @p name and sort @p s in the scope. Note
   /// that it does not declare the variable in the context.
   Variable RegisterVariable(const std::string& name, Sort sort);
+
+  /// Register a `forall`-bound variable. Same as RegisterVariable, but throws if
+  /// @p name collides with a top-level declared (model) variable — that shadow
+  /// leaves the outer variable unconstrained and silently mis-solves the query
+  /// (QUIRK-001). Benign shadowing (no top-level variable of that name) is fine.
+  Variable RegisterQuantifiedVariable(const std::string& name, Sort sort);
 
   /// Declare a variable with name @p name and sort @p sort.
   Variable DeclareVariable(const std::string& name, Sort sort);
@@ -186,6 +193,12 @@ class Smt2Driver {
 
   /** Scoped map from a string to a corresponding Variable. */
   ScopedUnorderedMap<std::string, Variable> scope_;
+
+  /** Names of top-level declared (model) variables — those passed through
+   * DeclareVariable. Used to reject a `forall` binder that shadows one
+   * (QUIRK-001). Monotonic: never shrinks (a declared name that later leaves
+   * scope still triggers the guard, which is the fail-loud choice). */
+  std::unordered_set<std::string> model_variable_names_;
 
   /** Scoped map from a string to a corresponding Variable. */
   ScopedUnorderedMap<std::string, FunctionDefinition> function_definition_map_;

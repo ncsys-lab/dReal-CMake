@@ -332,7 +332,22 @@ intended behavior changes are stronger *refutation* (completeness), never a new 
   error deep in contractor construction (the `ibex_converter` / `DeltaStrengthen` VisitForall
   throws). `Context::Assert` now rejects it early and clearly — `HasForall` /
   `RejectUnsupportedForall` (`solver/context_impl.cc`): *"dReal only supports a top-level
-  positive forall (exists-forall); …"*.
+  positive forall (exists-forall); …"*. The rejection is a fail-loud throw (an uncaught
+  `runtime_error` aborts the process with the actionable message); dReal does not emit an
+  SMT-LIB `(error …)` for it, by design. A future roadmap to actually *solve* the negated-forall
+  fragment `∃p̄.(φ ∨ ¬∀x̄.d)` is specified in §8, with executable aspirational specs in
+  `test/dreal/smt2/test/dreal_future.cc` (Group E, `NegatedNraForall`).
+
+- **Forall-binder shadow rejection (QUIRK-001, ode_expressivity_energy).** A `forall`-bound
+  variable whose name collides with a top-level declared (model) variable was silently
+  mis-solved: the two same-named `Variable`s are distinct, the top-level one is left
+  unconstrained (full real line) and driven to an absurd value, so a query whose intended reading
+  is `unsat` returned a spurious `delta-sat` (a COMPLETENESS-direction hazard — a framework reads
+  it as "no proof"). The SMT2 driver now tracks model-variable names (`DeclareVariable`) and the
+  `forall` binder registers through `RegisterQuantifiedVariable`, which throws on such a collision
+  (`smt2/driver.{h,cc}`, routed from the two `variable_sort` productions in `parser.yy`). Benign
+  shadowing (no top-level variable of that name — e.g. `forall` over `forall`) is untouched. Net:
+  `smt2/test/forall_binder_shadow_test.cc`.
 
 - **Per-thread unification.** The five hand-rolled per-worker dispatchers (`ContractorForallMt`,
   `ContractorIbex{Fwdbwd,Polytope,Forall}Mt`, `ForallFormulaEvaluator`) — two with an off-by-one
@@ -573,6 +588,25 @@ hard limits are:
 external preprocessing — e.g., skolemization to reduce `∃∀∃` to `∃∀` at the cost of
 introducing Skolem function terms, or iterative CEGIS loops that call dReal as a subroutine
 for the inner ∃∀ check.
+
+**Roadmap — negated forall `¬∀ = ∃` (FEAT-001, ode_expressivity_energy).** One near-term
+extension is tractable and distinct from the deeper alternations above. A *negated* universal
+`¬∀x∈[lb,ub].φ` is logically `∃x∈[lb,ub].¬φ`, and since a top-level free variable already *is* an
+existential in dReal, the fragment `∃p̄.(φ(p̄) ∨ ¬∀x̄.d)` — exactly what `verification.prove`
+emits when refuting a containment antecedent — can be discharged by promoting each negated
+forall's bound vars to fresh free box vars over `[lb,ub]` and asserting `¬φ` (the binder domain
+becomes a conjunct: `¬(domain→matrix) = domain ∧ ¬matrix`). It then reduces to a native NRA SAT
+query. The implementation would **invert** the CE-search the CEGIS `ContractorForall` already
+runs (`context_for_counterexample_`): a counterexample found ⇒ the `¬∀` literal is δ-sat; none
+found ⇒ prune the box to empty — reusing that machinery rather than adding a parallel copy.
+Sound: dReal `unsat` on the negation ⟺ the universal holds (no false `unsat`; only COMPLETENESS
+is affected). The design challenge is **polarity** — predicate abstraction lets the SAT layer
+query the *same* forall atom both positively (CEGIS-universal `x̄`) and negatively (existential
+`x̄`), so the bound var cannot be a fixed box dimension; the clean realization is polarity-keyed
+theory-solver handling. **Boundary:** a *positive* forall whose body contains a forall stays
+rejected — genuine `∀∃` alternation, where `∃` cannot be hoisted past the outer `∀`. Today the
+whole fragment is hard-rejected (§4.8); the desired verdicts are pinned as aspirational
+`GTEST_SKIP` specs in `test/dreal/smt2/test/dreal_future.cc` (Group E, `NegatedNraForall`).
 
 ### 8.1 Lyapunov synthesis — the canonical ∃∀ application
 

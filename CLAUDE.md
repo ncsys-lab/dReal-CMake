@@ -234,6 +234,11 @@ subscript (BUG-005 scrambled-model class). Full rules: `docs/rounding.md`.
 `substitutions_map` forward/backward naming had a soundness bug — fixed. Take care around strict
 vs. non-strict inequalities in contractors and the SAT interval logic.
 
+**`forall`-binder shadow guard (QUIRK-001):** a `forall`-bound var whose name collides with a
+top-level declared (model) var was silently mis-solved (the unconstrained outer var → spurious
+`delta-sat`). The SMT2 driver now throws via `RegisterQuantifiedVariable` on such a collision.
+Details: `docs/forall-semantics.md` §4.8.
+
 **ODE feed faithfulness** (`to_capd_string` precision): constants render at 17 sig figs;
 `std::to_string`'s 6-digit truncation was a false-`unsat` soundness bug. Details:
 `docs/decisions.md` "ODE feed faithfulness" and `docs/ode-integration.md` §Soundness.

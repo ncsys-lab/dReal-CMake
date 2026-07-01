@@ -329,9 +329,22 @@ Variable Smt2Driver::RegisterVariable(const string& name, const Sort sort) {
   return v;
 }
 
+Variable Smt2Driver::RegisterQuantifiedVariable(const string& name,
+                                                const Sort sort) {
+  if (model_variable_names_.count(name) != 0) {
+    throw DREAL_RUNTIME_ERROR(
+        "forall-bound variable '{}' shadows a top-level declared variable of "
+        "the same name. The outer '{}' would be left unconstrained and the "
+        "query silently mis-solved; rename one of them.",
+        name, name);
+  }
+  return RegisterVariable(name, sort);
+}
+
 Variable Smt2Driver::DeclareVariable(const string& name, const Sort sort) {
   Variable v{RegisterVariable(name, sort)};
   context_.DeclareVariable(v);
+  model_variable_names_.insert(name);
   return v;
 }
 
@@ -339,6 +352,7 @@ void Smt2Driver::DeclareVariable(const string& name, const Sort sort,
                                  const Term& lb, const Term& ub) {
   const Variable v{RegisterVariable(name, sort)};
   context_.DeclareVariable(v, lb.expression(), ub.expression());
+  model_variable_names_.insert(name);
 }
 
 void Smt2Driver::DefineFun(const string& name,
