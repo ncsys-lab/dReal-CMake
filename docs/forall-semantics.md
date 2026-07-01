@@ -500,6 +500,23 @@ The mechanism and its IBEX-lever rationale are in
 but speedup is encoding-fragile and never cracks the pinned δ) is in
 `docs/exists_forall_perf.md`.
 
+> **`--forall-pre-prune-prec` is NOT a fourth δ — false friends.** It is easy to read
+> "precision" and file it alongside the `δ' < ε < δ` chain of §4.1. It is a completely
+> unrelated quantity, on a different component:
+>
+> | | `δ' < ε < δ` (§4.1) | `--forall-pre-prune-prec` |
+> |---|---|---|
+> | **Component** | the always-on δ-complete CEGIS decider (`ContractorForall` / `ForallFormulaEvaluator`) | the opt-in `ibex::CtcForAll` pre-pruner (`ContractorIbexForall`), only with `--forall-pre-prune` |
+> | **What it is** | slacks on constraint *values* `fᵢ` (how much to strengthen `¬body` / weaken the nested solve) | a bisection *width threshold* on the universal-domain box `y` (`ibex_CtcForAll.cpp:46`: bisect while `y.max_diam() > prec`) |
+> | **Units** | a slack on function values `fᵢ` | a width on `y`-intervals (same units as the ∀-variable) |
+> | **Mechanism** | nested δ-SAT counterexample search with ε-strengthening; prunes via a CE pinned to a real `y`-midpoint (§4.3) | pure forward-backward interval contraction, applied per `y`-slice and intersected; no search, no nested solve, no strengthening |
+> | **Refutes by asking** | "does a robust *violating point* exist in `y`?" | "over each *slice* of `y`, what `x` can I interval-eliminate?" |
+> | **Effect of "finer"** | smaller `δ` ⇒ more-complete, slower *decision* | smaller `prec` ⇒ more/narrower `y`-slices ⇒ stronger contraction, slower; once `prec ≥ y.max_diam()` bisection never fires and `CtcForAll` degenerates to one whole-box check |
+> | **Class** | correctness + completeness of the decision procedure | COMPLETENESS-only speed heuristic; sound either way (never a false `unsat`) |
+>
+> The two run side-by-side in the same forall fixpoint (`theory_solver.cc:196–205`); `prec`
+> tunes only the pre-pruner and never touches the `δ' < ε < δ` decider.
+
 ---
 
 ## 7. Relationship to `forall_t` — the canonical disambiguation (`forall-vs-forall_t`)
