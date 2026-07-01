@@ -509,10 +509,20 @@ but speedup is encoding-fragile and never cracks the pinned δ) is in
 > | **Component** | the always-on δ-complete CEGIS decider (`ContractorForall` / `ForallFormulaEvaluator`) | the opt-in `ibex::CtcForAll` pre-pruner (`ContractorIbexForall`), only with `--forall-pre-prune` |
 > | **What it is** | slacks on constraint *values* `fᵢ` (how much to strengthen `¬body` / weaken the nested solve) | a bisection *width threshold* on the universal-domain box `y` (`ibex_CtcForAll.cpp:46`: bisect while `y.max_diam() > prec`) |
 > | **Units** | a slack on function values `fᵢ` | a width on `y`-intervals (same units as the ∀-variable) |
-> | **Mechanism** | nested δ-SAT counterexample search with ε-strengthening; prunes via a CE pinned to a real `y`-midpoint (§4.3) | pure forward-backward interval contraction, applied per `y`-slice and intersected; no search, no nested solve, no strengthening |
+> | **Mechanism** | nested δ-SAT counterexample search with ε-strengthening; prunes via *one searched* CE pinned to a real `y`-midpoint (§4.3) | bisect `y` into slices, contract `x` (forward-backward) against the constraint with `y` pinned to *each slice's* midpoint, intersect — a systematic *grid* of `y`-midpoints (`ibex_CtcForAll.cpp:39`); no search, no nested solve, no strengthening |
 > | **Refutes by asking** | "does a robust *violating point* exist in `y`?" | "over each *slice* of `y`, what `x` can I interval-eliminate?" |
 > | **Effect of "finer"** | smaller `δ` ⇒ more-complete, slower *decision* | smaller `prec` ⇒ more/narrower `y`-slices ⇒ stronger contraction, slower; once `prec ≥ y.max_diam()` bisection never fires and `CtcForAll` degenerates to one whole-box check |
 > | **Class** | correctness + completeness of the decision procedure | COMPLETENESS-only speed heuristic; sound either way (never a false `unsat`) |
+>
+> **What a value like `0.5` means concretely.** `prec` is absolute, in the ∀-variable's own
+> units, so "coarse" vs "fine" is *relative to the domain width* `W` — `0.5` is not intrinsically
+> either. Bisection halts once every universal dimension is `≤ prec`, so a single ∀-variable of
+> width `W` is cut into `≈ W/prec` slices (each between `prec/2` and `prec` wide), and across `m`
+> universal variables the slice count is the **product** `≈ ∏ⱼ Wⱼ/prec` — exponential in `m`.
+> Thus `0.5` is ~2 slices on a width-1 domain (near-degenerate — why the flag is near-irrelevant
+> on odeexpr_v2's narrow ∀-domains), ~128 on `[−32, 32]`, and ~128×128 for two such variables.
+> Once `prec ≥ W` the `max_diam > prec` guard never fires: no bisection, and `x` is contracted
+> against the single `mid(y_init)` (the degenerate whole-box check).
 >
 > The two run side-by-side in the same forall fixpoint (`theory_solver.cc:196–205`); `prec`
 > tunes only the pre-pruner and never touches the `δ' < ε < δ` decider.
