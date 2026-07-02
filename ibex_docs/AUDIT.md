@@ -1,5 +1,13 @@
 # AUDIT.md — where dReal could leverage IBEX better
 
+> ⚠ **PARTLY STALE (verified 2026-07-02)** — written pre-commit `fa3b74bd7`. IBEX now builds
+> `-DLP_LIB=soplex` (`CMakeLists.txt:204`), so the "revive the polytope hull / `LP_LIB=none` /
+> dormant" opportunities below (D2, tier-6, etc.) are **already done**: `--polytope`, `--acid`,
+> `--3bcid`, `--forall-polytope` are all **live** opt-in contractors (default off; `--acid`/`--3bcid`
+> throw under `--jobs>1`). Only the default run is HC4-only; **Newton** is the sole genuinely-absent
+> contractor. Full correction + source anchors: [`README.md`](README.md) top banner. Ground truth is
+> source + `CMakeLists.txt`, not this audit.
+
 The payoff of the crawl: prioritized, header-grounded opportunities for dReal to
 use IBEX more, each cross-referenced to current usage
 ([`dreal-ibex-usage.md`](dreal-ibex-usage.md)) and the nearest fork patch.

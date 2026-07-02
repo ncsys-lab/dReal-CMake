@@ -1,5 +1,10 @@
 # `CtcKuhnTucker` / `CtcKuhnTuckerLP` — first-order (KKT) contractors (NLP only)
 
+> ⚠ **Stale `LP_LIB=none` blocker note** (pre-`fa3b74bd7`) — corrected 2026-07-02: IBEX now builds
+> `-DLP_LIB=soplex` (`CMakeLists.txt:204`), so the "requires `-DLP_LIB`, which dReal's build does not
+> provide" reasoning below no longer holds (this contractor is still not wired into dReal, but the LP
+> half of the blocker is gone). See [`README.md`](../../README.md) top banner.
+
 Optimization-only contractors that prune a box using the **Karush-Kuhn-Tucker**
 first-order conditions of an NLP. Not refutation contractors — they are a
 *capability extension* path (rigorous optimization-modulo-theories), not a

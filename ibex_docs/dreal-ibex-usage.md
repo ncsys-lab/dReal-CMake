@@ -1,5 +1,12 @@
 # dReal's current IBEX usage — the audit's reference point
 
+> ⚠ **STALE on polytope/ACID/LP status (verified 2026-07-02)** — written pre-commit `fa3b74bd7`.
+> IBEX now builds `-DLP_LIB=soplex` (`CMakeLists.txt:204`), so "polytope path is dormant / built with
+> no LP solver / `LP_LIB=none`" is **wrong**: `--polytope`, `--acid`, `--3bcid`, `--forall-polytope`
+> are all **live** opt-in contractors (default off; `--acid`/`--3bcid` throw under `--jobs>1`). Only
+> the default run is HC4-only; **Newton** is the sole genuinely-absent contractor. Full correction +
+> anchors: [`README.md`](README.md) top banner. Trust source + `CMakeLists.txt`, not this page.
+
 What dReal actually binds against in `ncsys-lab/ibex-lib@dreal-perf-patches` (the
 fork; not stock IBEX). Every `AUDIT.md` finding is framed as a gap relative to
 this. Verified by grepping `src/dreal/` and reading the contractor-binding layer.
@@ -17,30 +24,31 @@ this. Verified by grepping `src/dreal/` and reading the contractor-binding layer
 | **Interval arithmetic** | `ibex::Interval` (34×), `ibex::IntervalVector` (4×) | throughout `src/dreal/` | the rigorous interval type underlying every Box/contraction |
 | **Symbolic functions** | `ibex::Function`, `ExprNode` (37×), `ExprCtr` (28×), `ExprSymbol` (11×), `ExprConstant`, `Array`, `cleanup` | `generic_contractor_generator.cc`, `contractor_ibex_fwdbwd.cc` | builds the DAG for each theory atom, then contracts it |
 | **HC4 forward-backward** | `ibex::Function::backward(...)` | `contractor/contractor_ibex_fwdbwd.cc` (+ `_mt`) | **the contraction hot loop** — the patched path; the only *always-on* IBEX contractor |
-| **Polytope hull** *(opt-in, dormant)* | `ibex::CtcPolytopeHull`, `ibex::LinearizerXTaylor` (5×), `ibex::System`, `ibex::SystemFactory`, `ibex::NumConstraint` | `contractor/contractor_ibex_polytope.cc` (+ `_mt`) | LP relaxation; **`--polytope`-gated, default OFF**, and built with no LP solver — see below |
+| **Polytope hull** *(opt-in, live)* | `ibex::CtcPolytopeHull`, `ibex::LinearizerXTaylor` (5×), `ibex::System`, `ibex::SystemFactory`, `ibex::NumConstraint` | `contractor/contractor_ibex_polytope.cc` (+ `_mt`) | LP relaxation; **`--polytope`-gated, default OFF**; LP backend **linked** (`LP_LIB=soplex`) — see below |
 
 **The polytope config is fixed at the library defaults**
 (`contractor_ibex_polytope.cc:108`):
 `LinearizerXTaylor(system, RELAX, RANDOM_OPP, HANSEN)` → `CtcPolytopeHull(lr)`.
 No corner-policy / slope-formula tuning is exposed.
 
-### The polytope path is dormant by default — a finding, not a "use"
+### The polytope path is off by default — but live opt-in (corrected 2026-07-02)
 
-Two facts together mean **HC4 is, by default, dReal's only active IBEX
-contractor**:
+**HC4 is dReal's only *default* IBEX contractor**, but `--polytope` (and the
+shaving contractors `--acid`/`--3bcid`) are functional escape hatches:
 - `config.use_polytope_` and `use_polytope_in_forall_` default to **`false`**
-  (`config.h:240-241`); the `--polytope` / `--forall-polytope` flags
-  (`dreal_main.cc:166,171`) must be passed to wire `ContractorIbexPolytope` into
-  `generic_contractor_generator.cc`.
-- dReal builds IBEX with **`-DLP_LIB=none`** (`CMakeLists.txt:202`, comment:
-  *"dReal does not exercise IBEX's LP-based contractors"*).
+  (`config.h:325-326`); the `--polytope` / `--forall-polytope` flags
+  (`dreal_main.cc:169,175`) must be passed to wire `ContractorIbexPolytope` into
+  `generic_contractor_generator.cc:61-122`.
+- **Since commit `fa3b74bd7`, dReal builds IBEX with `-DLP_LIB=soplex`**
+  (`CMakeLists.txt:204`; vendored SoPlex 4.0.2, `libsoplex.a` linked at `:213`).
 
-But `CtcPolytopeHull`'s own header says it *"can only be used if ibex is installed
-with a LP solver (`-DLP_LIB`)"*. So passing `--polytope` against the shipped
-`LP_LIB=none` build is **unverified to even function** (likely throws / no-ops at
-the LP call). Net: the X-Taylor/polytope relaxation is *present in source but not
-exercised*. Whether to revive it (build IBEX with Soplex/CLP and benchmark the LP
-relaxation) is itself an audit question — see [AUDIT.md](AUDIT.md) tier D.
+`CtcPolytopeHull`'s header requires *"ibex installed with a LP solver
+(`-DLP_LIB`)"* — which is now satisfied. So passing `--polytope` **runs the real
+2n-LP-solve relaxation** (no longer throws / no-ops). Perf on the main NRA path is
+unmeasured; the ∃∀ variant `--forall-polytope` measured *mixed* (helps some
+encodings, hurts others: `exists_forall_perf.md:195-197`). *(This section formerly
+claimed `LP_LIB=none` / "dormant / unverified to even function" — that was
+pre-`fa3b74bd7` and is wrong now.)*
 
 ## What dReal hand-rolls instead of using IBEX's version
 

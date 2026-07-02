@@ -1,5 +1,25 @@
 # `ibex_docs/` — IBEX API reference + leverage audit for dReal
 
+> ⚠ **CORRECTION (verified 2026-07-02 against `CMakeLists.txt` + the built binary — trust this over
+> the body).** This audit was written when IBEX was built `-DLP_LIB=none`. That is no longer true.
+> Since commit `fa3b74bd7`, IBEX is built **`-DLP_LIB=soplex`** (`CMakeLists.txt:204`; `libsoplex.a`
+> linked at `:213`). So every "polytope is dormant / `LP_LIB=none` / crashes if forced" and
+> "ACID/3BCID never run" statement below is **STALE**. Current reality:
+> - `--polytope` (default **off**) is **live** — real LP-relaxation hull via `ibex::CtcPolytopeHull`
+>   + `LinearizerXTaylor`, constructed at `generic_contractor_generator.cc:61-122`
+>   (`dreal_main.cc:169,472`).
+> - `--acid` / `--3bcid` (default **off**, mutually exclusive; **throw** under `--jobs>1`,
+>   `contractor.cc:214`) are **live** shaving contractors — `ibex::CtcAcid`/`Ctc3BCid` over the HC4
+>   path (`dreal_main.cc:364-367,674-681`; `contractor_ibex_acid.cc:107-115`).
+> - `--forall-polytope` (`use_polytope_in_forall`) is **live** too — functional, with *mixed*
+>   measured perf (helps some encodings, hurts others: `exists_forall_perf.md:195-197`).
+> - **Newton** is the one contractor genuinely absent (no flag, no construction site).
+> Only the **default** run is HC4-only; the three above are live opt-in escape hatches. Treat the
+> "dormant"/"revive"/"LP_LIB=none" language throughout `ibex_docs/` as pre-`fa3b74bd7` history.
+> (Note: stale twins of this claim also survive in *source comments* —
+> `contractor_ibex_acid.h:43`, `contractor_ibex_acid.cc:134`, `contractor_ibex_polytope.cc:131-132`
+> — and in `DEPENDENCIES.md`; the `.md` reference docs are corrected, the source comments are not.)
+
 A navigable, agent-readable summary of IBEX's API, built to answer one recurring
 question fast: **"does IBEX offer X, and does dReal already use it?"** — so the
 next person doesn't re-read the docs + 216 headers to find a lever (the way the
@@ -20,19 +40,20 @@ signature/default here is confirmed against a header, not inferred from a name.
 | **[classes/contractors/COMPARISON.md](classes/contractors/COMPARISON.md)** | **The contractor catalog** — every IBEX contractor (all 23, by category) in one strengths/weaknesses table with defaults + ordered recommendations. The "single biggest lever" surface. |
 | **[ARCHITECTURE-COMPARISON.md](ARCHITECTURE-COMPARISON.md)** | **IbexSolve vs dReal's `CheckSat`/ICP**, side-by-side with file:line — answers "is dReal leaving performance on the table by reimplementing the search loop?" (verdict: no at the loop level; the lever is the atomic contractors, one level down). |
 | **[AUDIT-QUANTIFIERS.md](AUDIT-QUANTIFIERS.md)** | **Second audit — nested quantifiers.** For ∃∀ / `∀∃∃∀` queries over high-dim transcendental constraints: how IBEX's *composable* `CtcForAll`/`CtcExist` pre-prune dReal's CEGIS and provide a sound skeleton for the deeper alternations dReal currently crashes on. |
-| **[dreal-ibex-usage.md](dreal-ibex-usage.md)** | **The baseline** — exactly what dReal binds today (HC4 is the only *active* IBEX contractor; polytope is dormant) + the 12 fork patches as "dReal's IBEX divergence". The audit's reference point. |
+| **[dreal-ibex-usage.md](dreal-ibex-usage.md)** | **The baseline** — what dReal binds today (HC4 is the only contractor run *by default*; `--polytope`/`--acid`/`--3bcid` are live opt-in — see correction banner) + the 12 fork patches as "dReal's IBEX divergence". The audit's reference point. |
 | [index/all-classes.md](index/all-classes.md) | Auto-harvested one-line stub for all 216 fork classes (name + brief + header link) — the catch-all. |
 
 ## The one-paragraph orientation
 
 dReal binds a **thin slice** of IBEX: `Interval`/`IntervalVector` arithmetic,
-`Function::backward` (HC4 — the contraction hot loop), and a `--polytope`-gated,
-`LP_LIB=none`-dormant `CtcPolytopeHull`. It **hand-rolls** its own
-fixpoint/compose/∃∀ layer (inside DPLL(T)) and **ignores** IBEX's solver, optimizer,
-separators, sets, parser, and bisectors by design. The fork's 12 patches already
-spent the HC4 micro-optimization budget (rounding, exceptions, gradient). So the
-unused leverage is **algorithmic** — the shaving/Newton contractors IBEX ships and
-dReal doesn't run. See [AUDIT.md](AUDIT.md).
+`Function::backward` (HC4 — the contraction hot loop, the only contractor run by
+default), plus three **live opt-in** contractors — `--polytope` (`CtcPolytopeHull` +
+`LinearizerXTaylor`, LP-relaxation hull, now that `LP_LIB=soplex` is linked) and
+`--acid`/`--3bcid` (`CtcAcid`/`Ctc3BCid` shaving on the HC4 path). It **hand-rolls**
+its own fixpoint/compose/∃∀ layer (inside DPLL(T)) and **ignores** IBEX's solver,
+optimizer, separators, sets, parser, and bisectors by design. The fork's 12 patches
+already spent the HC4 micro-optimization budget (rounding, exceptions, gradient). The
+one contractor IBEX ships and dReal has no path to is **Newton**. See [AUDIT.md](AUDIT.md).
 
 ## The tree
 

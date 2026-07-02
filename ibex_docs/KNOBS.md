@@ -1,5 +1,12 @@
 # KNOBS.md — the complete IBEX tuning surface, audited
 
+> ⚠ **STALE on the LP/polytope rows (verified 2026-07-02)** — written pre-commit `fa3b74bd7`. The
+> `LP_LIB` row (default now **soplex**, not none, `CMakeLists.txt:204`) and the "§4 dormant polytope
+> path" are superseded: `--polytope`, `--acid`, `--3bcid`, `--forall-polytope` are **live** opt-in
+> contractors (default off; `--acid`/`--3bcid` throw under `--jobs>1`). Only the default run is
+> HC4-only. Full correction + anchors: [`README.md`](README.md) top banner. Trust source +
+> `CMakeLists.txt` over this table.
+
 Every IBEX-side tunable that affects dReal's contraction, its option menu, the
 IBEX default, and **dReal's current status**. Audit-by-construction: if a knob
 isn't here, it isn't being left on the table. Defaults are confirmed against the

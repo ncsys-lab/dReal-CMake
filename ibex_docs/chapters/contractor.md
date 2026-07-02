@@ -1,5 +1,10 @@
 # Chapter: Contractors (the audit goldmine)
 
+> ⚠ **Stale LP/polytope status** (pre-`fa3b74bd7`) — corrected 2026-07-02: IBEX now builds
+> `-DLP_LIB=soplex`, so `--polytope`/`--acid`/`--3bcid`/`--forall-polytope` are **live** opt-in
+> (default off); the "opt-in, dormant, built `LP_LIB=none`" cells are wrong. See
+> [`README.md`](../README.md) top banner.
+
 Source: [`contractor.rst.txt`](../../../ibex-docs/_sources/contractor.rst.txt) ·
 upstream HTML `contractor.html`. **This is the richest chapter for dReal** — it
 defines the contractor catalog and the composition operators ("contractor

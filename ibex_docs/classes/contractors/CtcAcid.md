@@ -1,4 +1,10 @@
-# `CtcAcid` — adaptive 3BCID shaving (audit A, headline)
+# `CtcAcid` — adaptive 3BCID shaving (audit A — now IMPLEMENTED as `--acid`)
+
+> ⚠ **Corrected 2026-07-02:** this is no longer an unrealized "opportunity." ACID is **implemented and
+> live** as `--acid` (and 3BCID as `--3bcid`), constructing `ibex::CtcAcid`/`ibex::Ctc3BCid` over the
+> HC4 path at `contractor_ibex_acid.cc:107-115` (flags `dreal_main.cc:364-367,674-681`; default off,
+> mutually exclusive, and they **throw** under `--jobs>1`). Any "dReal doesn't run this / should
+> adopt it" framing below predates the implementation. See [`README.md`](../../README.md) top banner.
 
 Header: [`ibex_CtcAcid.h`](../../../../ibex-fork/src/contractor/ibex_CtcAcid.h)
 (`contractor/`). `class CtcAcid : public Ctc3BCid`. The **adaptive** version of

@@ -1,5 +1,13 @@
 # AUDIT (second section) — leveraging IBEX for nested-quantifier queries
 
+> ⚠ **PARTLY STALE on the LP/polytope claims (verified 2026-07-02)** — written pre-commit
+> `fa3b74bd7`. `--forall-polytope` (`use_polytope_in_forall`) is **no longer "broken by `LP_LIB=none`"
+> / crashing**: IBEX now builds `-DLP_LIB=soplex` (`CMakeLists.txt:204`, `dreal_main.cc:487-491`), so
+> the Q7/D2 "revive polytope-in-forall" item is **done** and the flag is functional (measured *mixed*
+> — helps some encodings, hurts others: `exists_forall_perf.md:195-197`). The quantifier cost-law /
+> pre-prune / nested-crash findings are unaffected and still hold. Full correction:
+> [`README.md`](README.md) top banner.
+
 A focused companion to [`AUDIT.md`](AUDIT.md), for an upcoming workload of **∃∀
 and deeper (`∀∃∃∀`) queries over high-dimensional, highly-nonlinear, transcendental
 constraints — no ODEs, no Boolean structure.** Background (do not overfit):

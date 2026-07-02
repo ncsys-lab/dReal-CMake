@@ -1,5 +1,10 @@
 # Bisectors (`Bsc` family) — IBEX's branching strategies
 
+> ⚠ **Stale `LP_LIB=none` aside** (pre-`fa3b74bd7`) — corrected 2026-07-02: the LSmear row's "not
+> usable in dReal's build, ships `LP_LIB=none`, polytope path dormant" reasoning is superseded — IBEX
+> builds `-DLP_LIB=soplex` now (`CMakeLists.txt:204`); an LP backend **is** linked. (LSmear is still
+> not wired into dReal, but not for lack of an LP solver.) See [`README.md`](../../README.md) banner.
+
 Headers in [`bisector/`](../../../../ibex-fork/src/bisector/). A **bisector** is the
 operator an IBEX strategy (the [`Solver`](../../chapters/solver.md) /
 [`Optimizer`](../../chapters/optim.md)) calls at each *choice point*: given a box, it

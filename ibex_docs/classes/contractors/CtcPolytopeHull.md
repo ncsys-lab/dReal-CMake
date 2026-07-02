@@ -1,4 +1,4 @@
-# `CtcPolytopeHull` — LP-relaxation hull contractor (dormant in dReal)
+# `CtcPolytopeHull` — LP-relaxation hull contractor (opt-in `--polytope` in dReal)
 
 Header:
 [`ibex_CtcPolytopeHull.h`](../../../../ibex-fork/src/contractor/ibex_CtcPolytopeHull.h)
@@ -7,11 +7,14 @@ polytope and runs **2n LP solves** (min & max each variable) to contract to the
 relaxation's hull. Header warning: *"can only be used if ibex is installed with a
 LP solver (`-DLP_LIB`)."*
 
-> **dReal status:** **present but dormant.** `--polytope` is **off by default**
-> and dReal builds IBEX with `-DLP_LIB=none` — so this contractor is effectively
-> inactive (and likely non-functional if forced on, lacking an LP backend). See
-> [`../../dreal-ibex-usage.md`](../../dreal-ibex-usage.md). Reviving it is an
-> audit-D question.
+> **dReal status (corrected 2026-07-02):** **live opt-in.** `--polytope` is **off by
+> default** but functional when set — since commit `fa3b74bd7` dReal builds IBEX with
+> **`-DLP_LIB=soplex`** (`CMakeLists.txt:204`, `libsoplex.a` linked), so the 2n LP solves
+> run. Constructed at `generic_contractor_generator.cc:61-122` (`dreal_main.cc:169,472`).
+> Perf is unmeasured on the main NRA path; `--forall-polytope` (the ∃∀ variant) measured
+> *mixed* (`exists_forall_perf.md:195-197`). *(Earlier text here said "dormant / `LP_LIB=none`
+> / non-functional if forced" — that was pre-`fa3b74bd7` and is wrong now; see
+> [`README.md`](../../README.md) top banner.)*
 
 ## Constructors (verbatim)
 

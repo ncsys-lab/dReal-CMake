@@ -41,7 +41,7 @@ Once a patch merges upstream, drop it; when all land, swap `GIT_REPOSITORY` back
 
 ### Source-build invocation (from `CMakeLists.txt`)
 
-`ExternalProject_Add(ibex_external)` configures with `-DINTERVAL_LIB=gaol -DLP_LIB=none -DBUILD_TESTING=0 -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON`. arm64 native macOS is supported by mainline `971f8eb0` (March 2025) — no Rosetta needed. Linux source-build under clang-18 / GCC 13 needs the parser-fix patch from the fork, which is why the source pin is to the fork rather than mainline.
+`ExternalProject_Add(ibex_external)` configures with `-DINTERVAL_LIB=gaol -DLP_LIB=soplex -DBUILD_TESTING=0 -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON` (`CMakeLists.txt:204`; `LP_LIB=soplex` since commit `fa3b74bd7` — vendored SoPlex 4.0.2, `libsoplex.a` linked, which is what makes the `--polytope`/`--forall-polytope`/X-Newton LP path functional; it was `none` before that commit). arm64 native macOS is supported by mainline `971f8eb0` (March 2025) — no Rosetta needed. Linux source-build under clang-18 / GCC 13 needs the parser-fix patch from the fork, which is why the source pin is to the fork rather than mainline.
 
 The `IBEX_GIT_REPOSITORY` CMake cache variable defaults to `https://github.com/ncsys-lab/ibex-lib.git`. Override with `-DIBEX_GIT_REPOSITORY=file:///path/to/ibex-fork` for local-dev iteration against an unpushed working tree, or `-DIBEX_GIT_TAG=<sha>` for testing alternate revisions.
 

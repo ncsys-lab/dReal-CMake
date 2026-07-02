@@ -1,5 +1,9 @@
 # `System` (+ `NumConstraint`) — a constraint set with one shared arg list
 
+> ⚠ **Stale "(dormant) polytope path" aside** (pre-`fa3b74bd7`) — corrected 2026-07-02: the polytope
+> path is **live** via `--polytope` (`LP_LIB=soplex` now, `CMakeLists.txt:204`), and `CtcAcid` is
+> live via `--acid`. See [`README.md`](../../README.md) top banner.
+
 Header: [`ibex_System.h`](../../../../ibex-fork/src/system/ibex_System.h)
 (`system/`). A set of [`NumConstraint`](#numconstraint)s sharing one argument
 list, optionally a goal + initial box. Many IBEX algorithms *require* a `System`

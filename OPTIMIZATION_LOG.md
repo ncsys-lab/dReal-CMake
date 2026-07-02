@@ -364,6 +364,10 @@ CAPD code that **never runs here** — none can help or backfire.
 - **`--polytope`: not usable in this build.** \*The 16 "solved" are trivial pre-contractor
   instances; the rest exit 255 with `LPSolver method called but no LPSolver has been configured`
   — IBEX was built without an LP backend (`-DLP_LIB` unset). Would need an LP-enabled IBEX first.
+  > ⚠ **SUPERSEDED (2026-07-02):** the LP backend was since added — IBEX now builds `-DLP_LIB=soplex`
+  > (`CMakeLists.txt:204`, commit `fa3b74bd7`), so `--polytope` no longer errors on the "no LPSolver
+  > configured" path. This A/B is historical (pre-`fa3b74bd7`); the polytope path is now functional
+  > and would need re-measuring on odeexpr. Left as-recorded per the snapshot convention.
 - **`--local-optimization`: provably inert** (exist-forall-only; odeexpr is quantifier-free).
 
 **The odeexpr hotspots — three mechanical overheads, all addressed.** Self-sample showed ~half

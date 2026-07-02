@@ -1,5 +1,14 @@
 # Contractor comparison — every IBEX `Ctc*` in the fork, with dReal recommendations
 
+> ⚠ **STALE "dReal status" cells (verified 2026-07-02)** — written pre-commit `fa3b74bd7`. Rows
+> marking `CtcPolytopeHull`/`CtcLinearRelax`/`CtcKuhnTuckerLP`/`CtcAcid`/`Ctc3BCid` as "dormant /
+> not used / `LP_LIB=none` / revive-only" are **wrong now**: IBEX builds `-DLP_LIB=soplex`
+> (`CMakeLists.txt:204`), and `--polytope`, `--acid`, `--3bcid`, `--forall-polytope` are all **live**
+> opt-in contractors (default off; `--acid`/`--3bcid` throw under `--jobs>1`). **Newton** is the sole
+> genuinely-absent contractor. The occurrence-count/HC4-optimality rows (e.g. the `CtcFwdBwd` "optimal
+> when each var occurs once") are correct and unaffected. Full correction: [`README.md`](../../README.md)
+> top banner. Trust source + `CMakeLists.txt` over these status cells.
+
 Master table for all 25 contractor classes in
 [`ibex-fork/src/contractor/`](../../../../ibex-fork/src/contractor/) (plus the
 `qinter` kernel in `combinatorial/`). Defaults are copied from the headers /

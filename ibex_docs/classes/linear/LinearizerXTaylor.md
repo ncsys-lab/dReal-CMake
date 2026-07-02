@@ -1,5 +1,10 @@
 # `LinearizerXTaylor` — corner-based interval Taylor relaxation
 
+> ⚠ **Stale "dormant" status** (pre-`fa3b74bd7`) — corrected 2026-07-02: the polytope path this
+> linearizer feeds is **live** via `--polytope` now that IBEX builds `-DLP_LIB=soplex`
+> (`CMakeLists.txt:204`). The "`--polytope` off, `LP_LIB=none`, knobs unexposed/unexplored" note below
+> is superseded. See [`README.md`](../../README.md) top banner.
+
 Header:
 [`ibex_LinearizerXTaylor.h`](../../../../ibex-fork/src/numeric/ibex_LinearizerXTaylor.h)
 (`numeric/`). `class LinearizerXTaylor : public Linearizer`. The linear relaxation

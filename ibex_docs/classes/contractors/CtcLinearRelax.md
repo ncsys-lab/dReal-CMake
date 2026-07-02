@@ -1,4 +1,9 @@
-# `CtcLinearRelax` — turnkey X-Taylor LP relaxation (dormant in dReal)
+# `CtcLinearRelax` — turnkey X-Taylor LP relaxation (LP backend now linked)
+
+> ⚠ **Stale "dormant / `LP_LIB=none`" status** (pre-`fa3b74bd7`) — corrected 2026-07-02: IBEX builds
+> `-DLP_LIB=soplex` now (`CMakeLists.txt:204`), so the LP backend the `2n` Simplex calls need **is**
+> linked. The `--polytope` path this relates to is live opt-in. See [`README.md`](../../README.md)
+> top banner.
 
 Header:
 [`ibex_CtcLinearRelax.h`](../../../../ibex-fork/src/contractor/ibex_CtcLinearRelax.h)
@@ -7,9 +12,11 @@ subclass of [`CtcPolytopeHull`](./CtcPolytopeHull.md) that builds its own
 `LinearizerXTaylor` over an `ExtendedSystem` — i.e. the polytope-hull contractor
 pre-wired with the X-Taylor relaxation, no `Linearizer` to pass.
 
-> **dReal status:** **not used / dormant.** Same blocker as `CtcPolytopeHull`:
-> dReal builds IBEX with `-DLP_LIB=none`, so the `2n` Simplex calls have no LP
-> backend. See [`../../dreal-ibex-usage.md`](../../dreal-ibex-usage.md).
+> **dReal status (corrected 2026-07-02):** **not wired into dReal**, but the LP
+> blocker is gone — dReal builds IBEX with `-DLP_LIB=soplex` now (`CMakeLists.txt:204`,
+> commit `fa3b74bd7`), so the `2n` Simplex calls **have** an LP backend. (dReal reaches
+> the polytope relaxation via `--polytope`/`CtcPolytopeHull` directly, not this turnkey
+> wrapper.) See [`../../dreal-ibex-usage.md`](../../dreal-ibex-usage.md).
 
 ## Constructor (verbatim)
 
