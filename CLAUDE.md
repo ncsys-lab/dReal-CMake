@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `docs/architecture.md` — layers, ICP loop, Box, explanations, ODE/PM pointers
 - `docs/contractors.md` — contractor types, composition, caching
+- `docs/writing-fast-dreal-formulas.md` — **standalone guide for external SMT-LIB2 generators**: high-level ICP + how to structure formulas for speed (variable-occurrence/dependency-problem master rule, factored≫expanded measured, bound-every-real, `let`/aux tradeoff, ODE & ∀ tips, `--polytope`/`--acid` escape hatches). Cites source, not the stale `ibex_docs` audit
 - `docs/decisions.md` — topic-keyed ADRs (ODE backend, per-slice tube, feed faithfulness, underflow, backward narrowing)
 - `docs/ode-integration.md` — CAPD ODE contractor mechanism, soundness invariants, input formats
 - `docs/pattern-matching.md` — DeBruijn canonicalization, substitution_tree, symmetry filtering (CAV26)
