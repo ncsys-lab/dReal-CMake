@@ -513,7 +513,7 @@ verdict). NRA ∃∀ only; runs under `--jobs>1` via a per-worker `ContractorIbe
 The mechanism and its IBEX-lever rationale are in
 `ibex_docs/AUDIT-QUANTIFIERS.md` Q1; the measured tractability outcome on odeexpr_v2 (sound,
 but speedup is encoding-fragile and never cracks the pinned δ) is in
-`docs/exists_forall_perf.md`.
+`exists_forall_perf.md`.
 
 > **`--forall-pre-prune-prec` is NOT a fourth δ — false friends.** It is easy to read
 > "precision" and file it alongside the `δ' < ε < δ` chain of §4.1. It is a completely

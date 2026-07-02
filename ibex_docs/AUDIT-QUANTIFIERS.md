@@ -84,7 +84,7 @@ extend the shapes it can attack.
   encoding-fragile:** on the *first* `odeexpr_v2` encoding it gave ~40–100× at δ=0.2–0.35 on
   `mlp2_n1_h1`, but a same-day re-encoding made those cases 0 s at baseline (no headroom
   left) and pre-prune rescued none of the still-hard cases — full record in
-  `docs/exists_forall_perf.md`. **No rescue at the pinned δ=0.0005** under any encoding (the
+  `exists_forall_perf.md`. **No rescue at the pinned δ=0.0005** under any encoding (the
   existential-isolation wall, as predicted). Lessons for Q3–Q7: (a) re-validate per
   workload, the benefit does not carry; (b) `prec` (Q4) is near-irrelevant once it's
   ≥ ~half the universal-box width — and *inverts* for an unsat goal (finer ⇒ stronger

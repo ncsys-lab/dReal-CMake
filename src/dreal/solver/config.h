@@ -273,7 +273,7 @@ class Config {
   // universal box, not a solver. A fine prec over-bisects and *regresses*
   // (measured: prec=0.1 timed out mlp2_n1_h1 at δ=0.2 where prec≥0.3 solves in
   // <1s; too-coarse only loses pruning, never regresses). See
-  // docs/exists_forall_perf.md / AUDIT-QUANTIFIERS.md Q1/Q4.
+  // exists_forall_perf.md / AUDIT-QUANTIFIERS.md Q1/Q4.
   static constexpr double kDefaultForallPrePrunePrec{0.5};
   static constexpr double kDefaultNloptFtolRel{1e-6};
   static constexpr double kDefaultNloptFtolAbs{1e-6};

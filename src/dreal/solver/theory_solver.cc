@@ -197,7 +197,7 @@ optional<Contractor> TheorySolver::BuildContractor(
           // A cheap, sound proj-intersection skim (ibex::CtcForAll) ahead of the
           // expensive δ-complete CEGIS decider in the same fixpoint. Pure
           // contraction (no nested δ-solve); COMPLETENESS-only, never a false
-          // unsat. See docs/exists_forall_perf.md / ibex_docs/AUDIT-QUANTIFIERS.md.
+          // unsat. See exists_forall_perf.md / ibex_docs/AUDIT-QUANTIFIERS.md.
           forall_ctcs.push_back(make_contractor_ibex_forall(f, box, config_));
         }
         forall_ctcs.push_back(ctc);
