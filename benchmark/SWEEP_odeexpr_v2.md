@@ -12,6 +12,11 @@ Everything below is a **COMPLETENESS** story (missed refutation / non-terminatio
 produced or could produce a false `unsat` — dReal stays sound throughout; the failure mode is
 "never reaches the UNSAT it might be entitled to," never "asserts a wrong verdict."
 
+> **Update 2026-07-02:** the *encoding*-side lever (worklog avenue #1, symbolic rewrite of the descent
+> body) was also tested — SymPy-verified `sig2tanh`/`factor`/`expand`/`horner`/`simplify` forms — and is
+> **null for UNSAT** (0/set) with no robust speedup (factor net-reduces solved count; simplify hangs on
+> N2). Full record: `exists_forall_perf.md` §2026-07-02.
+
 ---
 
 ## TL;DR
@@ -227,7 +232,4 @@ Job set: `python3 benchmark/select.py --family odeexpr_v2 --all` (50 rows; dict-
 | ∃∀ `--jobs 4` probe (2 × 21) | `sweep_20260701_202417` |
 | ∃∀ kitchen-sink (3 × 21) | `sweep_20260701_205036` |
 | forall/ secondary (5 × 25) | `sweep_20260701_210350` |
-
-Note: the repo-root worklog `exists_forall_perf.md` and the CLAUDE.md odeexpr_v2 correction header
-still say "50 + 50"; the set is now **25 + 25** (regenerated 2026-07-01, second same-day regen).
-Update those for count-accuracy.
+| rewrite probe (v0/sig2tanh/factor × 22) | scratchpad `odeexpr_v2_rewrite/sweep` |

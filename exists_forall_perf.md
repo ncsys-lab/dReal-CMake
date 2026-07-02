@@ -125,6 +125,34 @@ compute-in-wall and cracked nothing). If (1)/(2) stall, the honest escalation
 is encoder-side (a different proof route — QE over a polynomial over-approximation — or accepting
 specific instances as open); that is an owner's call, surfaced not pre-empted.
 
+### 2026-07-02 — avenue #1 (symbolic rewrite) empirically tested and REJECTED
+
+A SymPy parse→transform→emit pre-pass (scratchpad `odeexpr_v2_rewrite/`; frontend modeled on
+`nraode_to_nra/unroller`, **every variant lambdify-verified equivalent before solving** — machine-checked
+transformation, not a weakened check) tested whether a better-conditioned expression form cracks the
+wall. **Result: null for the UNSAT goal, and no robust win otherwise** (all COMPLETENESS — no form
+could produce a false `unsat`).
+
+- **0 UNSAT** across the `exists_forall/` set for every provably-equivalent form — `sig2tanh` (the
+  inflated sigmoid `−1+2(1+e^{−2x})⁻¹` collapsed to a native `tanh` node, removing genuine exp/pow
+  widening), `expand`, `factor`, `horner`, `simplify`, and combos. On the smallest hard `both_descend`
+  (n1) all 8 forms still timeout at 120 s, and the graded ICP metric is **invariant**: prune-to-empty
+  and interval-≥-precision events are each ~0.50 per loop-head for *every* form. No rewrite shifts the
+  contraction balance — the multiplicative `poly·tanh(poly)` dependency is untouched by syntactic form.
+- **`sig2tanh` is exactly verdict-neutral** (8/8/14 sat/·/timeout = baseline). IBEX images `tanh([a,b])`
+  as tightly as the sigmoid composition; the looseness was never the transcendental *image*. So even
+  the narrow "recognize the sigmoid identity in the converter" rewrite is pointless.
+- The apparent `factor`/`simplify` speedup is an **N1-delta-sat artifact, not a pre-pass**: `factor`
+  helps exactly one small file (`average_descends` n1 dh3, 18.9→3.5 s) but **net-reduces** the solved
+  count (16× expression blowup on N2 pushes `both_descend` n2 dh1 from delta-sat/25.9 s into timeout);
+  `simplify` (the biggest apparent win, n1 dh3 →1.9 s) is **uncomputable** on the N2 bodies (>45 s hang
+  — the forbidden `sp.simplify` of `ode_expressivity/docs/sympy-notes.md`). Neither touches UNSAT.
+
+Bottom line: avenue #1 is dead for this coupling; the honest escalation (affine #2 / encoder-side)
+stands. Note a dReal-side symbolic pre-pass would also inherit the *build-side* SymPy-blowup wall the
+sibling `ode_expressivity` project already documents (`docs/optimize_lazy_expand.md`,
+`docs/sympy-notes.md`).
+
 ---
 
 ## Solver mechanism & soundness (encoding-independent — still current)
