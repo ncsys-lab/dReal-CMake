@@ -131,8 +131,8 @@ void ContractorIbexAcid::Prune(ContractorStatus* cs,
   // CtcAcid/CtcHC4 run gaol interval arithmetic (HC4Revise + 3B shaving), sound
   // only under FE_UPWARD. The mode is established once per ICP phase by the
   // caller's UpwardRoundingScope and witnessed by `ur` (no per-call
-  // fesetround). Unlike the no-op polytope contractor, this Prune genuinely
-  // depends on the mode — a wrong ambient mode here would be a false `unsat`.
+  // fesetround). This Prune genuinely depends on the mode — a wrong ambient
+  // mode here would be a false `unsat`.
   (void)ur;
   DREAL_ASSERT_ROUNDING(FE_UPWARD);
 

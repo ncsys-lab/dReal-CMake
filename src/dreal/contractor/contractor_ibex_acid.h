@@ -40,9 +40,9 @@ namespace dreal {
 /// dReal otherwise runs HC4 only. This is a COMPLETENESS lever — stronger
 /// contraction = fewer search nodes, never a soundness change.
 ///
-/// Unlike the (currently no-op, LP_LIB=none) polytope contractor, Prune here
-/// runs REAL gaol interval arithmetic (HC4Revise + shaving), so the FE_UPWARD
-/// rounding mode is genuinely load-bearing.
+/// Prune runs real gaol interval arithmetic (HC4Revise + shaving), so the
+/// FE_UPWARD rounding mode is load-bearing — a wrong ambient mode is a silent
+/// false `unsat`.
 class ContractorIbexAcid : public ContractorCell {
  public:
   /// Constructs an ACID/3BCID contractor over @p formulas and @p box.

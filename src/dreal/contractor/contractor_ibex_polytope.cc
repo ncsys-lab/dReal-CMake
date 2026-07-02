@@ -127,9 +127,10 @@ void ContractorIbexPolytope::Prune(ContractorStatus* cs, const UpwardRounding& u
   // FE_UPWARD. That mode is established once per ICP phase by the caller's
   // UpwardRoundingScope and proven here by the `ur` token (no per-call
   // fesetround). The assert verifies the inherited phase mode in Debug.
-  // (Currently moot: IBEX is built with LP_LIB=none, so contract() below is a
-  // no-op — hence no dedicated regression test would be meaningful. The token
-  // still makes Prune correct-by-construction if an LP backend is enabled.)
+  // Since IBEX is built with LP_LIB=soplex (CMakeLists.txt), contract() below
+  // runs the real 2n-LP-solve relaxation over gaol interval arithmetic, so this
+  // token is load-bearing: a wrong ambient mode would loosen/tighten the linear
+  // relaxation unsoundly (a silent false `unsat`), same failure mode as HC4.
   (void)ur;
   DREAL_ASSERT_ROUNDING(FE_UPWARD);
 
