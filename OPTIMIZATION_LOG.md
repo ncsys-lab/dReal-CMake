@@ -473,6 +473,42 @@ badly enough to OOM saradc. On pure-NRA odeexpr the Jacobian is complete, so it 
 out** by the sweep above. Enable `--smear smearsum` **per-project for odeexpr_v1/v2 only**; never
 on the ODE families.
 
+### Forall-body-aware smear — `--smear` now scores ∃∀ existential vars (2026-07-03)
+
+**What.** `SmearBrancher` previously skipped `forall` constraints entirely, so on the `odeexpr_v2`
+`exists_forall` subfamily it was **inert** at the outer existential level: the existential params
+are bounded only by single-var bounds (folded into the box by `FilterAssertion`), leaving zero
+relational rows → `is_dummy` → largest-first. (Smear was already active in the *nested* CEGIS
+counterexample search, whose instantiated body is plain NRA — but that never moved a verdict on
+this family.) Now the brancher adds each finite-domain `forall`'s body leaves as Jacobian rows:
+universal vars become extra columns pinned at their binder intervals (recovered like
+`ContractorIbexForall`), and only existential columns are scored. Inert wherever no `Formula::Forall`
+survives (odeexpr_v1, flat families byte-identical) and ODE/`forall_t` still skipped. Code:
+`brancher_smear.{h,cc}`; unit pin `brancher_smear_forall_test.cc`.
+
+**A/B — `exists_forall` (33 files, δ=0.001, 60 s CPU cap, patched binary). 0 SAT/UNSAT flips.**
+
+| variant | solved / 33 | PAR2 (to=120) |
+|---|---|---|
+| off (largest-first) | 7 | 3155.0 |
+| **`smearsum`** | **9** | **2955.5** |
+| **`smearsumrel`** | **9** | **2955.4** |
+| `smearmax` | 8 | 3048.3 |
+| `smearmaxrel` | 8 | 3048.0 |
+
+- **Inertness confirmed, then broken.** The *old* binary's `--smear smearsum` solved **7/33 —
+  exactly `off`'s 7** — proving it was inert on this family (skipped `forall` → largest-first at the
+  outer level). Forall-aware smearsum solves **9/33**.
+- **A completeness/speed win, not an UNSAT-wall crack.** +2 delta-sat solves over largest-first
+  (`n1 average_descends dh3`, `n1 both_descend dh3` — TIM → 11 s / 26 s) plus a ~2.8× on an
+  already-solved `sign_agreement`. Branching cannot tighten enclosures, so it produces **0 new ∃∀
+  UNSAT** (the enclosure-looseness wall in `exists_forall_perf.md` is untouched).
+- **Variant ranking changed vs v1.** Here the *aggregation* axis dominates: `smearsum` ≈ `smearsumrel`
+  (tied 9, PAR2 within noise) both beat `smearmax` ≈ `smearmaxrel` (8) — the lone gap is
+  `both_descend dh3`, which only the sum-variants crack. Unlike v1, **`smearsumrel` does not regress
+  here**, so the "prefer smearsum, avoid smearsumrel" caveat is v1-specific. `smearsum` remains a safe
+  default (tied-best coverage). Thin margin — the 9-vs-8 hinges on one benchmark.
+
 ---
 
 ## Open avenues (deferred — post-timer-fix)

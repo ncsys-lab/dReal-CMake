@@ -16,14 +16,18 @@
 #include "dreal/solver/brancher_smear.h"
 
 #include <cmath>
+#include <optional>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include <dreal/util/rounded_interval.h>
 
-#include "dreal/solver/brancher.h"  // BranchLargestFirst
+#include "dreal/solver/brancher.h"          // BranchLargestFirst
+#include "dreal/solver/filter_assertion.h"  // FilterAssertion (∀ domain recovery)
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/assert.h"
-#include "dreal/util/logging.h"
+#include "dreal/util/nnfizer.h"
 
 namespace dreal {
 
@@ -31,21 +35,96 @@ using std::make_unique;
 using std::unique_ptr;
 using std::vector;
 
+namespace {
+// Recover a forall's universal (∀-bound) binder box by absorbing the simple
+// bounds of the NNF of ¬body = (binder domain ∧ ¬inner); the binder bounds are
+// always top-level conjuncts there. Mirrors ContractorIbexForall's y_init.
+// Returns nullopt if any universal dimension is unbounded — its Jacobian column
+// would evaluate to an infinite interval, so the forall contributes no rows.
+std::optional<Box> RecoverUniversalBox(const Formula& f) {
+  vector<Variable> universal_vec;
+  for (const Variable& v : get_quantified_variables(f)) {
+    universal_vec.push_back(v);
+  }
+  if (universal_vec.empty()) return std::nullopt;
+  Box ubox{universal_vec};
+  const Formula neg_body{Nnfizer{}.Convert(!get_quantified_formula(f), true)};
+  if (is_conjunction(neg_body)) {
+    for (const Formula& g : get_operands(neg_body)) {
+      if (is_relational(g)) FilterAssertion(g, &ubox);
+    }
+  } else if (is_relational(neg_body)) {
+    FilterAssertion(neg_body, &ubox);
+  }
+  for (int i = 0; i < ubox.size(); ++i) {
+    if (!std::isfinite(ubox[i].lb()) || !std::isfinite(ubox[i].ub())) {
+      return std::nullopt;
+    }
+  }
+  return ubox;
+}
+
+// The joint ibex variable ordering: box (existential) variables, then the
+// finite-domain universal variables of each plain (non-ODE) forall. Universal
+// vars are DEDUPLICATED by id: CNF splits one source forall into several
+// clauses that share the same ∀-bound variable, so appending per-forall would
+// register duplicate ibex symbols (an ibex-fatal aliasing -> SIGBUS).
+vector<Variable> ComputeJointVars(const vector<FormulaEvaluator>& fes,
+                                  const Box& box) {
+  vector<Variable> joint{box.variables()};
+  std::unordered_set<Variable::Id> seen;
+  for (const Variable& v : joint) seen.insert(v.get_id());
+  for (const FormulaEvaluator& fe : fes) {
+    const Formula& f = fe.formula();
+    if (!is_forall(f) || f.include_ode()) continue;
+    if (RecoverUniversalBox(f)) {
+      for (const Variable& v : get_quantified_variables(f)) {
+        if (seen.insert(v.get_id()).second) joint.push_back(v);
+      }
+    }
+  }
+  return joint;
+}
+}  // namespace
+
 SmearBrancher::SmearBrancher(
     const vector<FormulaEvaluator>& formula_evaluators, const Box& box,
     const SmearVariant variant)
-    : variant_{variant}, ibex_converter_{box} {
+    : variant_{variant},
+      joint_vars_{ComputeJointVars(formula_evaluators, box)},
+      ibex_converter_{joint_vars_},
+      // Paren-init: ibex::IntervalVector(int n) sizes the vector; brace-init
+      // would hit its initializer_list ctor and make a size-1 vector of value n.
+      universal_iv_(static_cast<int>(joint_vars_.size())) {
   DREAL_ASSERT(variant_ != SmearVariant::kNone);
-  // Assemble an ibex::System over the box variables and the relational
-  // constraints (skip forall / ODE — the smear Jacobian is for plain NRA
-  // constraints). Same assembly as ContractorIbexPolytope/Acid; built from the
-  // box so the System's variable order == box-index order.
+  // Assemble one ibex::System over the joint variables: plain NRA constraints
+  // (box vars only) plus the body leaves of each finite-domain forall (box +
+  // universal vars). ODE constraints are skipped (IbexConverter throws on them).
+  // Built from joint_vars_, so column k == box dimension k for k < box.size().
   system_factory_ = make_unique<ibex::SystemFactory>();
   system_factory_->add_var(ibex_converter_.variables());
+  // Map each joint variable's id to its column (universal vars keyed here so a
+  // forall's binder intervals land in the right column regardless of order).
+  std::unordered_map<Variable::Id, int> col_of;
+  for (int i = 0; i < static_cast<int>(joint_vars_.size()); ++i) {
+    col_of.emplace(joint_vars_[i].get_id(), i);
+  }
   int n_ctr = 0;
   for (const FormulaEvaluator& fe : formula_evaluators) {
     const Formula& f = fe.formula();
-    if (is_forall(f) || f.include_ode()) continue;
+    if (f.include_ode()) continue;
+    if (is_forall(f)) {
+      const std::optional<Box> ubox{RecoverUniversalBox(f)};
+      if (!ubox) continue;  // unbounded ∀ domain -> no rows (matches skip above)
+      // Pin this forall's universal vars at their binder intervals (shared vars
+      // across CNF-split clauses map to the same column — idempotent).
+      for (int i = 0; i < ubox->size(); ++i) {
+        universal_iv_[col_of.at(ubox->variable(i).get_id())] = (*ubox)[i];
+      }
+      n_ctr += AddForallLeaves(Nnfizer{}.Convert(get_quantified_formula(f), true),
+                               box);
+      continue;
+    }
     unique_ptr<const ibex::ExprCtr, ExprCtrDeleter> expr_ctr{
         ibex_converter_.Convert(f)};
     if (expr_ctr) {
@@ -63,6 +142,31 @@ SmearBrancher::SmearBrancher(
   if (system_->nb_ctr == 0) is_dummy_ = true;
 }
 
+int SmearBrancher::AddForallLeaves(const Formula& f, const Box& box) {
+  if (is_conjunction(f) || is_disjunction(f)) {
+    int added = 0;
+    for (const Formula& g : get_operands(f)) added += AddForallLeaves(g, box);
+    return added;
+  }
+  if (!is_relational(f)) return 0;  // residual Boolean/True — not a leaf.
+  // Universal-only atoms (binder domain, antecedent) have zero existential
+  // columns; drop them to keep the System small.
+  bool touches_box = false;
+  for (const Variable& v : f.GetFreeVariables()) {
+    if (box.has_variable(v)) {
+      touches_box = true;
+      break;
+    }
+  }
+  if (!touches_box) return 0;
+  unique_ptr<const ibex::ExprCtr, ExprCtrDeleter> expr_ctr{
+      ibex_converter_.Convert(f)};
+  if (!expr_ctr) return 0;
+  system_factory_->add_ctr(*expr_ctr);
+  expr_ctrs_.push_back(std::move(expr_ctr));
+  return 1;
+}
+
 int SmearBrancher::operator()(const Box& box, const DynamicBitset& active_set,
                               Box* const left, Box* const right,
                               const UpwardRounding& ur) const {
@@ -74,9 +178,13 @@ int SmearBrancher::operator()(const Box& box, const DynamicBitset& active_set,
 
   const Box::IntervalVector& iv{box.interval_vector()};
   const int n{static_cast<int>(box.size())};
-  // Interval Jacobian (nb_ctr x n); column k aligns 1:1 with box dimension k
-  // (the converter was built from the box). gaol AD -> needs FE_UPWARD (ur).
-  const ibex::IntervalMatrix J{system_->f_ctrs.jacobian(iv)};
+  // Joint eval vector: box (existential) intervals in [0,n), universal binder
+  // intervals (from universal_iv_) in [n, joint_dim). Interval Jacobian is
+  // nb_ctr x joint_dim; only columns k < n (box dims) are scored below. gaol
+  // AD -> needs FE_UPWARD (ur). With no forall, joint_dim == n and jv == iv.
+  ibex::IntervalVector jv{universal_iv_};
+  for (int k = 0; k < n; ++k) jv[k] = iv[k];
+  const ibex::IntervalMatrix J{system_->f_ctrs.jacobian(jv)};
 
   vector<double> w(n, 0.0);
   for (int k = 0; k < n; ++k) w[k] = safe_diam(iv[k], ur);

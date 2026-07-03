@@ -118,10 +118,16 @@ Code: `src/dreal/solver/seed/seed.{h,cc}`.
 Soundness-free (variable choice never moves a verdict). Works in both `IcpSeq` and `IcpParallel`
 (`--jobs>1` builds one `SmearBrancher` per worker — the brancher is not thread-safe to share). On
 the odeexpr families **`smearsum` is the strongest** (64/72 solved vs 53 off, PAR2 0.03×, 0 flips)
-and `smearsumrel` actually regresses v1 — so prefer `--smear smearsum` there. **NRA-only: the
-full-corpus A/B ruled out a global default** — smearsum *collapses* the ODE families (saradc
-20→1 solved with OOMs; overall 2.03× worse) because the smear Jacobian skips ODE/`forall_t`
-constraints. Enable per-project for odeexpr only. Mechanism:
+and `smearsumrel` actually regresses v1 — so prefer `--smear smearsum` there. **Forall-body-aware
+(2026-07-03):** the Jacobian now includes each `forall` body's existential columns (universal vars
+pinned at their binder intervals), so smear is constraint-aware for the ∃∀ `exists_forall`
+subfamily's *outer* existential branching (previously inert there → largest-first). Completeness/speed
+only — +2 delta-sat solves, `smearsum`≈`smearsumrel` best (here `smearsumrel` does **not** regress),
+but branching can't crack the ∃∀ UNSAT enclosure wall. **NRA-only: the full-corpus A/B ruled out a
+global default** — smearsum *collapses* the ODE families (saradc 20→1 solved with OOMs; overall
+2.03× worse) because the smear Jacobian still skips ODE/`forall_t` (`Kind::ODE_LOHNER`) constraints
+(distinct from the ∃∀ `forall`, which it now handles — grep `forall-vs-forall_t`). Enable
+per-project for odeexpr only. Mechanism:
 `docs/architecture.md` §Branching. A/B: `OPTIMIZATION_LOG.md` §odeexpr. Code:
 `src/dreal/solver/brancher_smear.{h,cc}`.
 

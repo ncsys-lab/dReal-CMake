@@ -45,6 +45,12 @@ Full sweep tables + reproduction dirs: **`benchmark/SWEEP_odeexpr_v2.md`**. The 
 - **17 configurations tested, all 0 ∃∀ UNSAT:** every `--precision` 0.005→1.0; `--forall-pre-prune`
   (±`-prec 0.1`); `--forall-polytope`; `--polytope`; `--acid`; `--3bcid`; `--local-optimization`;
   `--smear smearsum`; `--jobs 4` (±pre-prune); kitchen-sink (pre-prune+polytope+acid, ±finer δ).
+  (**`--smear` caveat, 2026-07-03:** that sweep predates forall-body-aware smear — the old
+  `SmearBrancher` skipped `forall`, so `--smear smearsum` was *inert* here, byte-identical to
+  largest-first at the outer level (both solve 7/33). The now-forall-aware smear is COMPLETENESS-live
+  — +2 delta-sat solves, `smearsum`≈`smearsumrel` best; `OPTIMIZATION_LOG.md` §"Forall-body-aware
+  smear" — but it still yields **0 ∃∀ UNSAT**: branching reshapes search order, not enclosure
+  tightness, so it cannot touch the wall below.)
   δ-coarser only buys more (inconclusive) delta-sat; δ-finer only adds timeouts. The contraction
   flags **engage but are insufficient**: they change per-file CPU (e.g. `--forall-polytope` halves
   one delta-sat's time and quadruples another's; `--forall-pre-prune` pushes an n2 delta-sat into
@@ -119,9 +125,11 @@ crack the wall is the evidence that the cheap wins are exhausted and the remaini
 
 **Not worth further investment:** more compute (`--jobs` proven null for the goal — not
 compute-bound), precision tuning (coarser δ only buys inconclusive delta-sat; finer only adds
-timeouts), local-opt/smear/acid/3bcid/general-polytope (**verdict-null** — they shift CPU but no
+timeouts), local-opt/acid/3bcid/general-polytope (**verdict-null** — they shift CPU but no
 verdict; ceiling set by avenues 1–3), and longer timeouts (`--jobs 4` already delivered ≈4×
-compute-in-wall and cracked nothing). If (1)/(2) stall, the honest escalation
+compute-in-wall and cracked nothing). `--smear` is **UNSAT-null too** (branching can't tighten
+enclosures) but, unlike these, is a COMPLETENESS win worth keeping (+2 delta-sat; §2026-07-03 caveat
+above) — just not a route to the UNSAT wall. If (1)/(2) stall, the honest escalation
 is encoder-side (a different proof route — QE over a polynomial over-approximation — or accepting
 specific instances as open); that is an owner's call, surfaced not pre-empted.
 
