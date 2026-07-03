@@ -21,6 +21,7 @@
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
 #include "dreal/util/math.h"
+#include "dreal/util/rounding.h"
 #include "dreal/util/stat.h"
 #include "dreal/util/timer.h"
 
@@ -118,9 +119,20 @@ ContractorIbexPolytope::ContractorIbexPolytope(vector<Formula> formulas,
   }
 }
 
-void ContractorIbexPolytope::Prune(ContractorStatus* cs) const {
+void ContractorIbexPolytope::Prune(ContractorStatus* cs, const UpwardRounding& ur) const {
   thread_local ContractorIbexPolytopeStat stat{DREAL_LOG_INFO_ENABLED};
   DREAL_ASSERT(!is_dummy_ && ctc_);
+
+  // CtcPolytopeHull runs gaol interval arithmetic, which is sound only under
+  // FE_UPWARD. That mode is established once per ICP phase by the caller's
+  // UpwardRoundingScope and proven here by the `ur` token (no per-call
+  // fesetround). The assert verifies the inherited phase mode in Debug.
+  // (Currently moot: IBEX is built with LP_LIB=none, so contract() below is a
+  // no-op — hence no dedicated regression test would be meaningful. The token
+  // still makes Prune correct-by-construction if an LP backend is enabled.)
+  (void)ur;
+  DREAL_ASSERT_ROUNDING(FE_UPWARD);
+
   Box::IntervalVector& iv{cs->mutable_box().mutable_interval_vector()};
   DREAL_LOG_TRACE("ContractorIbexPolytope::Prune");
 
@@ -140,9 +152,9 @@ void ContractorIbexPolytope::Prune(ContractorStatus* cs) const {
     }
   }
 
-  stat.timer_pruning_.resume();
+  if (stat.enabled()) stat.timer_pruning_.resume();
   ctc_->contract(iv);
-  stat.timer_pruning_.pause();
+  if (stat.enabled()) stat.timer_pruning_.pause();
   if (stat.enabled()) {
     stat.num_pruning_++;
   }

@@ -10,7 +10,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <dreal/util/rounding_mode_guard.h>
+#include <dreal/util/rounding.h>
 
 #include "dreal/symbolic/symbolic_environment.h"
 #include "dreal/symbolic/symbolic_expression_cell.h"
@@ -35,6 +35,32 @@ bool operator<(ExpressionKind k1, ExpressionKind k2) {
 }
 
 namespace {
+
+// dreal/dreal4#321: when a constant fold underflowed a nonzero true value to
+// +/-0, or overflowed a finite one to +/-inf, the scalar `folded` is a *lying*
+// literal -- e.g. pow(0.5,1075) = 2^-1075 rounds to 0.0, so pow(0.5,1075) > 0
+// would be a false unsat. Fold instead to a sound RealConstant *interval* that
+// brackets the true value, with the sign recovered from the signed zero /
+// infinity. This stays a constant (Drake forbids a symbolic Pow/Mul with all
+// constant operands -- ExpressionMulFactory::AddTerm asserts it) yet is sound.
+// @p true_is_zero is whether the operands make the exact real result genuinely
+// zero (the only case 0.0 is faithful); @p inputs_finite distinguishes a genuine
+// inf input from an overflow.
+Expression sound_constant_fold(const double folded, const bool true_is_zero,
+                               const bool inputs_finite) {
+  if (folded == 0.0 && !true_is_zero) {  // underflow: |true| in (0, DBL_TRUE_MIN]
+    const double m{std::numeric_limits<double>::denorm_min()};
+    return std::signbit(folded) ? real_constant(-m, 0.0, false)
+                                : real_constant(0.0, m, true);
+  }
+  if (std::isinf(folded) && inputs_finite) {  // overflow: |true| >= DBL_MAX
+    const double big{std::numeric_limits<double>::max()};
+    const double inf{std::numeric_limits<double>::infinity()};
+    return std::signbit(folded) ? real_constant(-inf, -big, false)
+                                : real_constant(big, inf, true);
+  }
+  return Expression{folded};  // faithful: fold to the scalar as before
+}
 
 // Returns true if @p v is represented by `int`.
 bool is_integer(const double v) {
@@ -248,13 +274,13 @@ bool Expression::include_ite() const {
 }
 
 double Expression::Evaluate(const Environment& env) const {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   assert(ptr_ != nullptr);
   return ptr_->Evaluate(env);
 }
 
 Expression Expression::EvaluatePartial(const Environment& env) const {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   if (env.empty()) {
     return *this;
   }
@@ -271,7 +297,7 @@ Expression Expression::Expand() const {
 }
 
 Expression Expression::Substitute(const Variable& var, Expression e) const {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   assert(ptr_ != nullptr);
   return ptr_->Substitute({{var, std::move(e)}}, FormulaSubstitution{});
 }
@@ -279,7 +305,7 @@ Expression Expression::Substitute(const Variable& var, Expression e) const {
 Expression Expression::Substitute(
     const ExpressionSubstitution& expr_subst,
     const FormulaSubstitution& formula_subst) const {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   assert(ptr_ != nullptr);
   if (!expr_subst.empty() || !formula_subst.empty()) {
     return ptr_->Substitute(expr_subst, formula_subst);
@@ -289,7 +315,7 @@ Expression Expression::Substitute(
 
 Expression Expression::Substitute(
     const ExpressionSubstitution& expr_subst) const {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   assert(ptr_ != nullptr);
   if (!expr_subst.empty()) {
     return ptr_->Substitute(expr_subst, FormulaSubstitution{});
@@ -299,7 +325,7 @@ Expression Expression::Substitute(
 
 Expression Expression::Substitute(
     const FormulaSubstitution& formula_subst) const {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   assert(ptr_ != nullptr);
   if (!formula_subst.empty()) {
     return ptr_->Substitute(ExpressionSubstitution{}, formula_subst);
@@ -346,7 +372,7 @@ Expression operator+(Expression&& lhs, Expression&& rhs) {
 
 // NOLINTNEXTLINE(runtime/references) per C++ standard signature.
 Expression& operator+=(Expression& lhs, const Expression& rhs) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   // Simplification: 0 + x => x
   if (is_zero(lhs)) {
     return lhs = rhs;
@@ -428,7 +454,7 @@ Expression& operator-=(Expression& lhs, const Expression& rhs) {
 Expression operator+(const Expression& e) { return e; }
 
 Expression operator-(const Expression& e) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   // Simplification: constant folding
   if (is_constant(e)) {
     return Expression{-get_constant_value(e)};
@@ -447,7 +473,7 @@ Expression operator-(const Expression& e) {
 }
 
 Expression operator-(Expression&& e) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   if (e.ptr_->use_count() == 1) {
     if (is_addition(e)) {
       return NegateAddition(to_addition(e));
@@ -499,7 +525,7 @@ Expression operator*(Expression&& lhs, Expression&& rhs) {
 
 // NOLINTNEXTLINE(runtime/references) per C++ standard signature.
 Expression& operator*=(Expression& lhs, const Expression& rhs) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   // Simplification: 1 * x => x
   if (is_one(lhs)) {
     lhs = rhs;
@@ -562,7 +588,13 @@ Expression& operator*=(Expression& lhs, const Expression& rhs) {
   }
   if (is_constant(lhs) && is_constant(rhs)) {
     // Simplification: Expression(c1) * Expression(c2) => Expression(c1 * c2)
-    return lhs = Expression{get_constant_value(lhs) * get_constant_value(rhs)};
+    const double v1{get_constant_value(lhs)};
+    const double v2{get_constant_value(rhs)};
+    // dreal/dreal4#321: a sound interval, not a lying underflow/overflow scalar.
+    // (Zero operands are already handled above, so a 0 product here underflowed.)
+    return lhs = sound_constant_fold(v1 * v2, /*true_is_zero=*/false,
+                                     /*inputs_finite=*/std::isfinite(v1) &&
+                                         std::isfinite(v2));
   }
 
   // Pow-related simplifications.
@@ -643,7 +675,7 @@ Expression operator/(Expression lhs, const Expression& rhs) {
 
 // NOLINTNEXTLINE(runtime/references) per C++ standard signature.
 Expression& operator/=(Expression& lhs, const Expression& rhs) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   // Simplification: x / 1 => x
   if (is_one(rhs)) {
     return lhs;
@@ -657,7 +689,10 @@ Expression& operator/=(Expression& lhs, const Expression& rhs) {
       oss << "Division by zero: " << v1 << "/" << v2;
       throw runtime_error(oss.str());
     }
-    lhs = Expression{v1 / v2};
+    // dreal/dreal4#321: a sound interval, not a lying underflow/overflow scalar.
+    lhs = sound_constant_fold(v1 / v2, /*true_is_zero=*/v1 == 0.0,
+                              /*inputs_finite=*/std::isfinite(v1) &&
+                                  std::isfinite(v2));
     return lhs;
   }
   // Simplification: E / E => 1
@@ -672,13 +707,13 @@ Expression& operator/=(Expression& lhs, const Expression& rhs) {
 }
 
 ostream& operator<<(ostream& os, const Expression& e) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   assert(e.ptr_ != nullptr);
   return e.ptr_->Display(os);
 }
 
 Expression Sum(const std::vector<Expression>& expressions) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   if (expressions.empty()) {
     return Expression::Zero();
   }
@@ -690,7 +725,7 @@ Expression Sum(const std::vector<Expression>& expressions) {
 }
 
 Expression Prod(const std::vector<Expression>& expressions) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   if (expressions.empty()) {
     return Expression::One();
   }
@@ -710,7 +745,7 @@ Expression real_constant(const double lb, const double ub,
 Expression log(const Expression& e) { return Expression{new ExpressionLog(e)}; }
 
 Expression abs(const Expression& e) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   // Simplification: constant folding.
   if (is_constant(e)) {
     return Expression{std::fabs(get_constant_value(e))};
@@ -731,7 +766,7 @@ Expression sqrt(const Expression& e) {
 }
 
 Expression pow(const Expression& e1, const Expression& e2) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   // Simplification
   if (is_constant(e2)) {
     const double v2{get_constant_value(e2)};
@@ -739,7 +774,10 @@ Expression pow(const Expression& e1, const Expression& e2) {
       // Constant folding
       const double v1{get_constant_value(e1)};
       ExpressionPow::check_domain(v1, v2);
-      return Expression{std::pow(v1, v2)};
+      // dreal/dreal4#321: a sound interval, not a lying underflow/overflow scalar.
+      return sound_constant_fold(std::pow(v1, v2), /*true_is_zero=*/v1 == 0.0,
+                                 /*inputs_finite=*/std::isfinite(v1) &&
+                                     std::isfinite(v2));
     }
     // pow(E, 0) => 1
     // TODO(soonho-tri): This simplification is not sound since it cancels `E`
@@ -802,7 +840,7 @@ Expression tanh(const Expression& e) {
 }
 
 Expression min(const Expression& e1, const Expression& e2) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   // simplification: min(x, x) => x
   if (e1.EqualTo(e2)) {
     return e1;
@@ -815,7 +853,7 @@ Expression min(const Expression& e1, const Expression& e2) {
 }
 
 Expression max(const Expression& e1, const Expression& e2) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   // Simplification: max(x, x) => x
   if (e1.EqualTo(e2)) {
     return e1;

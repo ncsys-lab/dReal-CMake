@@ -45,7 +45,7 @@ ContractorFixpoint::ContractorFixpoint(TerminationCondition term_cond,
   }
 }
 
-void ContractorFixpoint::Prune(ContractorStatus* cs) const {
+void ContractorFixpoint::Prune(ContractorStatus* cs, const UpwardRounding& ur) const {
   const Box::IntervalVector& iv{cs->box().interval_vector()};
   Box::IntervalVector old_iv{iv};
   do {
@@ -59,12 +59,12 @@ void ContractorFixpoint::Prune(ContractorStatus* cs) const {
 #endif
     old_iv = iv;
     for (const Contractor& ctc : contractors_) {
-      ctc.Prune(cs);
+      ctc.Prune(cs, ur);
       if (iv.is_empty()) {
         return;
       }
     }
-  } while (!term_cond_(old_iv, iv));
+  } while (!term_cond_(old_iv, iv, ur));
 }
 
 ostream& ContractorFixpoint::display(ostream& os) const {

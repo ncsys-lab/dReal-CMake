@@ -2,9 +2,33 @@ cmake_minimum_required(VERSION 3.16)
 project(dreal4_cmake)
 include(CMakePrintHelpers)
 
+find_package(Git QUIET)
+if(NOT GIT_FOUND)
+  set(GIT_EXECUTABLE git)
+endif()
+set(GIT_VERSION_HEADER "${CMAKE_BINARY_DIR}/git_version.h")
+# Always-run target: git queries are fast; copy_if_different in the script
+# means git_version.h timestamp (and thus dreal_main.cc recompilation) only
+# updates when the hash or dirty status actually changes.
+add_custom_target(git_version_h
+    COMMAND "${CMAKE_COMMAND}"
+        "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
+        "-DOUTPUT_FILE=${GIT_VERSION_HEADER}"
+        -P "${PROJECT_SOURCE_DIR}/cmake/GenerateGitVersion.cmake"
+    COMMENT "Capturing git version info"
+    VERBATIM
+)
+
 set(CMAKE_VERBOSE_MAKEFILE ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
+
+# Emit gcc_build/compile_commands.json so clangd/editors resolve the project's
+# full -I list (ibex-install, capd-install, generated parsers, the drake
+# third_party tree). Symlink it to the repo root for clangd to find it:
+#   ln -sf gcc_build/compile_commands.json compile_commands.json
+# Survives a fresh FULL_BUILD.sh (which reconfigures without -D flags).
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # NOTE: CMAKE_OSX_ARCHITECTURES is no longer forced to x86_64.
 # CAPD (the original x86-only ODE library) has been replaced with Codac, which
@@ -82,6 +106,14 @@ add_library(dreal4_cmake STATIC
         ${BISON_smt2_parser_OUTPUTS} ${FLEX_smt2_scanner_OUTPUTS}
         ${BISON_dr_parser_OUTPUTS} ${FLEX_dr_scanner_OUTPUTS}
 )
+# -frounding-math tells the compiler not to assume a fixed FPU rounding mode, so it
+# cannot constant-fold or reorder FP arithmetic across fesetround calls. dReal runs
+# gaol/ibex under FE_UPWARD and formatting/CAPD under FE_TONEAREST; without this flag
+# Clang's #pragma STDC FENV_ACCESS ON support is incomplete and the directed-rounding
+# ops in rounded_interval.h (sub_up/sub_down/add_up/add_down) could be silently
+# mis-compiled. gaol itself is already compiled with -frounding-math by IBEX's
+# CMakeLists; this covers dReal4's own source. PUBLIC propagates to dreal4 and tests.
+target_compile_options(dreal4_cmake PUBLIC -frounding-math)
 target_include_directories(dreal4_cmake PUBLIC
         "${PARSERS_HOME}"
         "${PROJECT_SOURCE_DIR}/src/"
@@ -113,7 +145,7 @@ target_link_libraries(dreal4_cmake PUBLIC "${CADICAL_LIB}")
 # ---------------------------------------------------------------------------
 # IBEX via ExternalProject — source-built from the dReal team's fork
 #
-# The fork carries seven surgical patches on top of ibex-team/ibex-lib@master:
+# The fork carries eleven surgical patches on top of ibex-team/ibex-lib@master:
 #   1. function: lazy-init gradient (perf-critical, ~65% of Function::init)
 #   2. Function::backward callback (perf-critical, eliminates HC4 snapshot)
 #   3. parser.yc namespace-qualify apply() (Linux/clang ADL fix)
@@ -121,7 +153,14 @@ target_link_libraries(dreal4_cmake PUBLIC "${CADICAL_LIB}")
 #   5. fire backward callback for non-scalar args (soundness: callback audit)
 #   6. copy old-value in backward callback to avoid alias (soundness: callback audit)
 #   7. HC4Revise: report partial narrowings on EmptyBoxException (soundness: callback audit)
-# See ../ibex-fork/MIGRATION.md for the divergence catalog. All seven are
+#   8. gaol: Interval::log/pow soundness gaps (strict-< for ub==0, fractional pow)
+#   9. gaol: inline aarch64 FPCR rounding fast-path (perf: ARM64 transcendental fesetround)
+#  10. gaol: batch the nearest-rounding region in transcendentals (perf: ~8% on odeexpr)
+#  11. function: empty domains via return-status instead of EmptyBoxException
+#      (perf: removes __cxa_throw unwinding from the HC4 backward hot path)
+#  12. gaol: underflow_saturate backward targets (soundness: dreal/dreal4#321 —
+#      bwd_pow/exp/sqr/mul/div no longer false-unsat on subnormal-band targets)
+# See ../ibex-fork/MIGRATION.md for the divergence catalog. All twelve are
 # candidate upstream PRs; once they land, drop the fork and point at
 # ibex-team/ibex-lib directly.
 #
@@ -138,7 +177,12 @@ include(ExternalProject)
 set(IBEX_INSTALL_DIR     "${CMAKE_BINARY_DIR}/ibex-install")
 set(IBEX_GIT_REPOSITORY  "https://github.com/ncsys-lab/ibex-lib.git"
     CACHE STRING "Git repository for the ibex fork (override with file://path for local dev)")
-set(IBEX_GIT_TAG         "dreal-perf-patches"
+# Pinned to the fork HEAD sha (reproducible) rather than the moving branch ref.
+# d9930909 = the 12-patch series; patch #12 adds underflow_saturate so HC4
+# backward ops stop false-unsat'ing on subnormal-band targets (dreal/dreal4#321).
+# Bump when fork patches land. (Local-dev iteration still works via
+# -DIBEX_GIT_TAG=<branch-or-sha> and -DIBEX_GIT_REPOSITORY=file:///path/to/ibex-fork.)
+set(IBEX_GIT_TAG         "d99309094850efb84e2ebc11a62ee655d690639f"
     CACHE STRING "Git ref for the ibex fork (branch, tag, or sha)")
 
 set(EP_ARCH_ARGS "")
@@ -297,6 +341,13 @@ target_link_libraries(dreal4_cmake PUBLIC "${GMP_C_LIB}" "${GMP_CXX_LIB}")
 # executable
 add_executable(dreal4 "${PROJECT_SOURCE_DIR}/src/dreal/dreal_main.cc")
 target_link_libraries(dreal4 PRIVATE dreal4_cmake)
+add_dependencies(dreal4 git_version_h)
+target_include_directories(dreal4 PRIVATE "${CMAKE_BINARY_DIR}")
+target_compile_definitions(dreal4 PRIVATE
+    DREAL_BUILD_OS="${CMAKE_SYSTEM_NAME}"
+    DREAL_BUILD_OS_VERSION="${CMAKE_SYSTEM_VERSION}"
+    DREAL_BUILD_ARCH="${CMAKE_SYSTEM_PROCESSOR}"
+)
 
 
 # tests

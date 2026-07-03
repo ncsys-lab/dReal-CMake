@@ -6,7 +6,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
-#include <dreal/util/rounding_mode_guard.h>
+#include <dreal/util/rounding.h>
 
 #include "dreal/symbolic/symbolic_environment.h"
 #include "dreal/symbolic/symbolic_expression.h"
@@ -557,7 +557,7 @@ Formula operator!=(const Formula& f, const Variable& v) {
 }
 
 Formula operator<(const Expression& e1, const Expression& e2) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   // Simplification: E1 - E2 < 0  =>  True
   const Expression diff{e1 - e2};
   if (diff.get_kind() == ExpressionKind::Constant) {
@@ -567,7 +567,7 @@ Formula operator<(const Expression& e1, const Expression& e2) {
 }
 
 Formula operator<=(const Expression& e1, const Expression& e2) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   // Simplification: E1 - E2 <= 0  =>  True
   const Expression diff{e1 - e2};
   if (diff.get_kind() == ExpressionKind::Constant) {
@@ -577,7 +577,7 @@ Formula operator<=(const Expression& e1, const Expression& e2) {
 }
 
 Formula operator>(const Expression& e1, const Expression& e2) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   // Simplification: E1 - E2 > 0  =>  True
   const Expression diff{e1 - e2};
   if (diff.get_kind() == ExpressionKind::Constant) {
@@ -587,7 +587,7 @@ Formula operator>(const Expression& e1, const Expression& e2) {
 }
 
 Formula operator>=(const Expression& e1, const Expression& e2) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   // Simplification: E1 - E2 >= 0  =>  True
   const Expression diff{e1 - e2};
   if (diff.get_kind() == ExpressionKind::Constant) {

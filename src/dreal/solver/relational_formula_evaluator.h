@@ -47,7 +47,8 @@ class RelationalFormulaEvaluator : public FormulaEvaluatorCell {
 
   ~RelationalFormulaEvaluator() override;
 
-  FormulaEvaluationResult operator()(const Box& box) const override;
+  FormulaEvaluationResult operator()(const Box& box,
+                                     const UpwardRounding& ur) const override;
 
   std::ostream& Display(std::ostream& os) const override;
 

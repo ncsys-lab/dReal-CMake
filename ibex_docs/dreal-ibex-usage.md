@@ -1,0 +1,101 @@
+# dReal's current IBEX usage — the audit's reference point
+
+What dReal actually binds against in `ncsys-lab/ibex-lib@dreal-perf-patches` (the
+fork; not stock IBEX). Every `AUDIT.md` finding is framed as a gap relative to
+this. Verified by grepping `src/dreal/` and reading the contractor-binding layer.
+
+> Soundness note (read `docs/soundness-vs-completeness.md`): IBEX is the
+> interval/contraction backend. A wrong-rounding or over-tight interval op here
+> is a **SOUNDNESS** hazard (false `unsat`); a looser contractor only costs
+> **COMPLETENESS** (missed refutation). The fork's gaol patches (#8, #12) and
+> dReal's `UpwardRoundingScope` exist precisely to protect soundness.
+
+## The thin slice dReal binds
+
+| IBEX surface | dReal symbol(s) | Where | Role |
+|---|---|---|---|
+| **Interval arithmetic** | `ibex::Interval` (34×), `ibex::IntervalVector` (4×) | throughout `src/dreal/` | the rigorous interval type underlying every Box/contraction |
+| **Symbolic functions** | `ibex::Function`, `ExprNode` (37×), `ExprCtr` (28×), `ExprSymbol` (11×), `ExprConstant`, `Array`, `cleanup` | `generic_contractor_generator.cc`, `contractor_ibex_fwdbwd.cc` | builds the DAG for each theory atom, then contracts it |
+| **HC4 forward-backward** | `ibex::Function::backward(...)` | `contractor/contractor_ibex_fwdbwd.cc` (+ `_mt`) | **the contraction hot loop** — the patched path; the only *always-on* IBEX contractor |
+| **Polytope hull** *(opt-in, dormant)* | `ibex::CtcPolytopeHull`, `ibex::LinearizerXTaylor` (5×), `ibex::System`, `ibex::SystemFactory`, `ibex::NumConstraint` | `contractor/contractor_ibex_polytope.cc` (+ `_mt`) | LP relaxation; **`--polytope`-gated, default OFF**, and built with no LP solver — see below |
+
+**The polytope config is fixed at the library defaults**
+(`contractor_ibex_polytope.cc:108`):
+`LinearizerXTaylor(system, RELAX, RANDOM_OPP, HANSEN)` → `CtcPolytopeHull(lr)`.
+No corner-policy / slope-formula tuning is exposed.
+
+### The polytope path is dormant by default — a finding, not a "use"
+
+Two facts together mean **HC4 is, by default, dReal's only active IBEX
+contractor**:
+- `config.use_polytope_` and `use_polytope_in_forall_` default to **`false`**
+  (`config.h:240-241`); the `--polytope` / `--forall-polytope` flags
+  (`dreal_main.cc:166,171`) must be passed to wire `ContractorIbexPolytope` into
+  `generic_contractor_generator.cc`.
+- dReal builds IBEX with **`-DLP_LIB=none`** (`CMakeLists.txt:202`, comment:
+  *"dReal does not exercise IBEX's LP-based contractors"*).
+
+But `CtcPolytopeHull`'s own header says it *"can only be used if ibex is installed
+with a LP solver (`-DLP_LIB`)"*. So passing `--polytope` against the shipped
+`LP_LIB=none` build is **unverified to even function** (likely throws / no-ops at
+the LP call). Net: the X-Taylor/polytope relaxation is *present in source but not
+exercised*. Whether to revive it (build IBEX with Soplex/CLP and benchmark the LP
+relaxation) is itself an audit question — see [AUDIT.md](AUDIT.md) tier D.
+
+## What dReal hand-rolls instead of using IBEX's version
+
+dReal does **not** use IBEX's `CtcHC4` / `CtcPropag` / `CtcFixPoint` /
+`CtcCompo`. It has its own contractor-composition + fixpoint layer:
+
+- `contractor/contractor_worklist_fixpoint.cc`, `contractor_fixpoint.cc` — its own
+  agenda/fixpoint loop (the analog of `CtcPropag`).
+- `contractor_seq.cc`, `contractor_join.cc` — its own compose/union (analog of
+  `CtcCompo`/`CtcUnion`).
+- `contractor_forall.h`, `counterexample_refiner.cc` — its own ∃∀ handling
+  (analog of `CtcForAll`/`CtcExist`, but CEGIS-style, tied to DPLL(T)).
+
+These exist because dReal's contractors run **inside DPLL(T) on transient search
+literals** with SMT-specific bookkeeping (explanations, theory lemmas, the Box
+abstraction), which the stock IBEX strategy classes don't model. So "replace with
+IBEX's `CtcPropag`" is usually **not** on the table; "borrow an IBEX *atomic*
+contractor (ACID/3BCID/Newton) into dReal's existing loop" is.
+
+## What dReal does NOT touch (the opportunity + the correctly-ignored)
+
+- **Unused atomic contractors** → opportunity: `Ctc3BCid`, `CtcAcid` (shaving /
+  constructive disjunction), `CtcNewton` (interval Newton), `CtcInverse`.
+- **Unavailable** → `LinearizerAffine2` / affine arithmetic: **not in the fork**
+  (it lives in the separate `ibex-affine` plugin, which dReal does not build —
+  verified: no `*affine*` source in the fork). Any affine-relaxation idea is a
+  plugin-integration task, not a drop-in.
+- **Correctly ignored** (different problem shape — dReal is an SMT solver, not a
+  standalone CSP/NLP solver): the IBEX `Solver`, `Optimizer`, separators (`Sep*`),
+  `Set`/paving, the Minibex parser, the COV file format, bisectors + cell buffers
+  (dReal branches inside DPLL(T)).
+
+## The 12 fork patches = dReal's IBEX divergence
+
+`../ibex-fork/MIGRATION.md` is the catalog. Cross-reference before proposing
+anything in the same area — several "obvious" levers are **already pulled**, and
+the patches' profiling numbers tell you where the hot path actually is.
+
+| # | sha | What | Area | Why it matters to the audit |
+|---|---|---|---|---|
+| 1 | `f5bf3361` | lazy-init gradient in `Function::init` | Function | ~65% of `init` was eager `Gradient` alloc dReal never used → **gradient is cold**; Newton/Jacobian ideas pay that cost back |
+| 2 | `a512418b` | `Function::backward` per-variable callback | Function/HC4 | dReal tracks narrowed vars via callback for theory lemmas |
+| 3 | `9a23379c` | parser.yc namespace/include fix | parser | build-only |
+| 4 | `ca21f309` | mathlib aarch64 Linux | build | Docker arm64 |
+| 5 | `f04f5db5` | backward callback fires for **vector/matrix** args | Function/HC4 | closed a missed-notification gap (soundness for lemma tracking) |
+| 6 | `1836b569` | copy old-value in callback (alias fix) | Function/HC4 | correctness of the callback contract |
+| 7 | `d2b978b9` | report partial narrowings on `EmptyBoxException` | HC4 | sharper lemmas on the empty-box path |
+| 8 | `33eb6676` | gaol `Interval::log`/`pow` soundness | gaol arith | `log([0,0])`, fractional `pow` — **false-`unsat` fixes** |
+| 9 | `e0311233` | **inline aarch64 FPCR** rounding fast-path | gaol rounding | **23–44%** of solve time on `odeexpr` — the rounding-toggle hot path is already optimized |
+| 10 | `3902fa35` | batch the nearest-rounding window in transcendentals | gaol rounding | halves FPU mode toggles per transcendental |
+| 11 | `cc6fb001` | empty domains via **return-status, not exception** | HC4 | `__cxa_throw` was up to **~27%** CPU on throw-dense (UNSAT) benches — eliminated |
+| 12 | `9500de6b` | `underflow_saturate` backward targets (dreal/dreal4#321) | gaol arith | subnormal-band backward ops were false-`unsat` — **soundness fix** (accepted δ-completeness tradeoff) |
+
+**Reading for the audit:** patches 1,2,5,6,7,11 are all on the `Function`/HC4
+backward path — that path is heavily profiled and tuned. Patches 8,9,10,12 are on
+gaol interval arithmetic (rounding + soundness). So the *micro*-optimization
+budget of the existing path is largely spent; the remaining leverage is
+**algorithmic** (contractors dReal doesn't run yet) — see [AUDIT.md](AUDIT.md).

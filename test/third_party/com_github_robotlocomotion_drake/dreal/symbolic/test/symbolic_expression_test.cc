@@ -16,7 +16,7 @@
 #include <gtest/gtest.h>
 
 #include "dreal/symbolic/symbolic_expression.h"
-#include "dreal/util/rounding_mode_guard.h"
+#include "dreal/util/rounding.h"
 #include "dreal/symbolic/test/symbolic_test_util.h"
 
 using std::count_if;
@@ -151,8 +151,8 @@ class SymbolicExpressionTest : public ::testing::Test {
 #define ROUND_L_UP_R_NEAR_EXPECT_DOUBLE_EQ(a, b) \
 { \
   double ___lhs_result, ___rhs_result; \
-  { RoundingModeGuard g(FE_UPWARD);    ___lhs_result = (a); } \
-  { RoundingModeGuard g(FE_TONEAREST); ___rhs_result = (b); } \
+  { UpwardRoundingScope g;    ___lhs_result = (a); } \
+  { NearestRoundingScope g; ___rhs_result = (b); } \
   EXPECT_DOUBLE_EQ(___lhs_result, ___rhs_result); \
 }
 

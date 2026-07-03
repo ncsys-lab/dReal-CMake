@@ -21,6 +21,7 @@
 #include "dreal/contractor/contractor_status.h"
 #include "dreal/solver/config.h"
 #include "dreal/util/box.h"
+#include "dreal/util/rounding.h"
 #include "odes/ode_types.h"
 
 namespace dreal {
@@ -38,9 +39,12 @@ class contractor_ode_lohner;
 template <typename ContextType>
 class ContractorForall;
 
-// Box::IntervalVector × Box::IntervalVector → Bool
-using TerminationCondition =
-    std::function<bool(Box::IntervalVector const&, Box::IntervalVector const&)>;
+// Box::IntervalVector × Box::IntervalVector → Bool. Evaluated inside a fixpoint
+// Prune, so it carries the UpwardRounding token (it inspects interval diameters
+// via safe_diam, which is gaol).
+using TerminationCondition = std::function<bool(
+    Box::IntervalVector const&, Box::IntervalVector const&,
+    const UpwardRounding&)>;
 
 class Contractor {
  public:
@@ -52,9 +56,13 @@ class Contractor {
     IBEX_POLYTOPE,
     FIXPOINT,
     WORKLIST_FIXPOINT,
-    FORALL,
+    FORALL,  // ∃∀ NRA quantifier (ContractorForall, CE-guided). PITFALL forall-vs-forall_t:
+             // NOT `forall_t` — that ODE trajectory invariant is checked inside ODE_LOHNER
+             // below. See docs/forall-semantics.md §7.
     JOIN,
-    ODE_LOHNER  // Replaces CAPD_FULL; uses IBEX interval arithmetic for ODE bounds.
+    ODE_LOHNER  // Replaces CAPD_FULL; uses IBEX interval arithmetic for ODE bounds. Also
+                // where the `forall_t` (FormulaKind::ForallT) per-slice invariant is enforced
+                // — distinct from the ∃∀ FORALL kind above (PITFALL forall-vs-forall_t).
   };
 
   explicit Contractor(const Config& config);
@@ -78,8 +86,11 @@ class Contractor {
   /// means that this contractor depends on the value of `box[i]`.
   const DynamicBitset& input() const;
 
-  /// Prunes @p cs.
-  void Prune(ContractorStatus* cs) const;
+  /// Prunes @p cs. Requires @p ur, the capability token witnessing that the
+  /// FE_UPWARD interval-phase rounding mode is established (see
+  /// UpwardRoundingScope). gaol/ibex contractors are sound only under
+  /// FE_UPWARD; threading the token makes that a compile-time obligation.
+  void Prune(ContractorStatus* cs, const UpwardRounding& ur) const;
 
   /// Returns kind.
   Kind kind() const;

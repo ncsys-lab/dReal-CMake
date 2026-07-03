@@ -63,7 +63,7 @@ class ContractorIbexPolytope : public ContractorCell {
   /// Default destructor.
   ~ContractorIbexPolytope() override = default;
 
-  void Prune(ContractorStatus* cs) const override;
+  void Prune(ContractorStatus* cs, const UpwardRounding& ur) const override;
   std::ostream& display(std::ostream& os) const override;
 
   /// Returns true if it has no internal ibex contractor.

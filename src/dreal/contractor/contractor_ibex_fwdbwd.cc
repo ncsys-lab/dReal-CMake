@@ -22,7 +22,8 @@
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
 #include "dreal/util/math.h"
-#include "dreal/util/rounding_mode_guard.h"
+#include "dreal/util/rounded_interval.h"
+#include "dreal/util/rounding.h"
 #include "dreal/util/stat.h"
 #include "dreal/util/timer.h"
 
@@ -88,7 +89,7 @@ ContractorIbexFwdbwd::ContractorIbexFwdbwd(Formula f, const Box& box,
   }
 }
 
-void ContractorIbexFwdbwd::Prune(ContractorStatus* cs) const {
+void ContractorIbexFwdbwd::Prune(ContractorStatus* cs, const UpwardRounding& ur) const {
   thread_local ContractorIbexFwdbwdStat stat{DREAL_LOG_INFO_ENABLED};
   DREAL_ASSERT(!is_dummy_ && num_ctr_);
 
@@ -96,18 +97,16 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs) const {
   DREAL_LOG_TRACE("ContractorIbexFwdbwd::Prune");
   DREAL_LOG_TRACE("CTC = {}", fmt::streamed(*num_ctr_));
   DREAL_LOG_TRACE("F = {}", f_);
-  stat.timer_pruning_.resume();
+  if (stat.enabled()) stat.timer_pruning_.resume();
 
   // gaol (ibex's interval backend) is only sound with the FPU in round-upward
   // mode; under any other mode its directed rounding inverts (lo>hi) and an
-  // inexact constant subexpression collapses to an empty interval, wrongly
-  // emptying the box (false UNSAT). This contractor historically relied on
-  // ambient FE_UPWARD, but CAPD's interval library (DoubleRounding) leaves the
-  // process FPU in FE_TONEAREST once it is linked in, so the ambient mode can
-  // no longer be assumed here. Establish it explicitly per Prune (cheap; runs
-  // on every ICP worker thread, where FPU mode is thread-local). See
-  // test/dreal/api/test/gaol_directed_rounding_false_unsat_test.cc.
-  const RoundingModeGuard round_guard{FE_UPWARD};
+  // inexact constant subexpression collapses to an empty interval (false
+  // UNSAT). FE_UPWARD is established once per ICP phase by the caller's
+  // UpwardRoundingScope and proven here by the `ur` token — so this hot Prune
+  // no longer pays a per-call fesetround. The assert verifies the inherited
+  // phase mode in Debug. See gaol_directed_rounding_false_unsat_test.cc.
+  DREAL_ASSERT_ROUNDING(FE_UPWARD);
 
   // Track which variables narrowed via the ibex fork's backward-callback
   // (commit 4d61b841 of the dreal-perf-patches branch). The callback fires
@@ -117,17 +116,21 @@ void ContractorIbexFwdbwd::Prune(ContractorStatus* cs) const {
   // 2-10, this beats the snapshot pattern by both allocation count and
   // comparison cost.
   bool changed{false};
+  // Token-gated wrapper for ibex's HC4 backward (see util/rounded_interval.h) — the
+  // `ur` proves FE_UPWARD is established, and routing through the wrapper lets
+  // the rounding lint forbid any raw ibex::Function::backward call.
   const bool is_inner{
-    num_ctr_->f.backward(
-      num_ctr_->right_hand_side(), iv,
+    ibex_hc4_backward(
+      num_ctr_->f, num_ctr_->right_hand_side(), iv,
       [cs, &changed](int var_idx,
                      const ibex::Interval& /*before*/,
                      const ibex::Interval& /*after*/) {
         cs->mutable_output().set(static_cast<DynamicBitset::size_type>(var_idx));
         changed = true;
-      })
+      },
+      ur)
   }; // true if iv was already inner (unchanged).
-  stat.timer_pruning_.pause();
+  if (stat.enabled()) stat.timer_pruning_.pause();
   if (stat.enabled()) {
     stat.num_pruning_++;
   }

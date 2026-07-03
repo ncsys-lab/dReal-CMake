@@ -15,8 +15,6 @@
 */
 #include "dreal/api/api.h"
 
-#include <utility>
-
 #include "dreal/solver/config.h"
 #include "dreal/solver/context.h"
 #include "dreal/util/assert.h"
@@ -29,8 +27,8 @@ optional<Box> CheckSatisfiability(const Formula& f, const double delta) {
   return CheckSatisfiability(f, config);
 }
 
-optional<Box> CheckSatisfiability(const Formula& f, Config config) {
-  Context context{std::move(config)};
+optional<Box> CheckSatisfiability(const Formula& f, const Config& config) {
+  Context context{config};
   for (const Variable& v : f.GetFreeVariables()) {
     context.DeclareVariable(v);
   }
@@ -44,8 +42,9 @@ bool CheckSatisfiability(const Formula& f, const double delta, Box* const box) {
   return CheckSatisfiability(f, config, box);
 }
 
-bool CheckSatisfiability(const Formula& f, Config config, Box* const box) {
-  const optional<Box> result{CheckSatisfiability(f, std::move(config))};
+bool CheckSatisfiability(const Formula& f, const Config& config,
+                         Box* const box) {
+  const optional<Box> result{CheckSatisfiability(f, config)};
   if (result) {
     DREAL_ASSERT(box);
     *box = *result;
@@ -63,8 +62,8 @@ optional<Box> Minimize(const Expression& objective, const Formula& constraint,
 }
 
 optional<Box> Minimize(const Expression& objective, const Formula& constraint,
-                       Config config) {
-  Context context{std::move(config)};
+                       const Config& config) {
+  Context context{config};
   for (const Variable& v : constraint.GetFreeVariables()) {
     context.DeclareVariable(v);
   }
@@ -84,9 +83,8 @@ bool Minimize(const Expression& objective, const Formula& constraint,
 }
 
 bool Minimize(const Expression& objective, const Formula& constraint,
-              Config config, Box* const box) {
-  const optional<Box> result{
-      Minimize(objective, constraint, std::move(config))};
+              const Config& config, Box* const box) {
+  const optional<Box> result{Minimize(objective, constraint, config)};
   if (result) {
     DREAL_ASSERT(box);
     *box = *result;

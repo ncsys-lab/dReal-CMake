@@ -72,7 +72,8 @@ class ForallFormulaEvaluator : public FormulaEvaluatorCell {
   /// Default destructor.
   ~ForallFormulaEvaluator() override = default;
 
-  FormulaEvaluationResult operator()(const Box& box) const override;
+  FormulaEvaluationResult operator()(const Box& box,
+                                     const UpwardRounding& ur) const override;
 
   std::ostream& Display(std::ostream& os) const override;
 

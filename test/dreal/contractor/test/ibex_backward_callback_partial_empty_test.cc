@@ -125,5 +125,43 @@ TEST(IbexBackwardCallbackPartialEmpty, InfeasibleConstraintEmptiesBox) {
   }
 }
 
+// Scenario C: HC4 incompleteness must be preserved (no spurious deep empty).
+//
+// A genuine "partial narrowing THEN deep empty" in a *single* backward call is
+// not constructible: for a single-occurrence tree HC4 is complete (empties only
+// at the root, = Scenario B), and the only deep-throw route is a repeated
+// variable in the forward over-approximation gap — but there the backward
+// projection divides by a zero-containing node domain and is unbounded, so it
+// neither narrows nor empties. The contradiction surfaces only under fixpoint
+// iteration (see contractor_fixpoint_test.cc CompositionEmptyPropagates).
+//
+// This test pins that incompleteness directly: x*x == -1 is infeasible, but a
+// single HC4 backward CANNOT refute it and must leave the box non-empty (ICP
+// branching is what eventually proves unsat end-to-end; see
+// hc4_empty_propagation_soundness_test.cc NegativeSquareIsUnsat). The
+// EmptyBoxException refactor must preserve this: were it to start emptying the
+// box here, that would be a spurious empty == false `unsat` soundness break in
+// the opposite direction from a missed empty.
+TEST(IbexBackwardCallbackPartialEmpty, GapConstraintNotSpuriouslyEmptied) {
+  std::fesetround(FE_UPWARD);
+  // f(x) = x * x, with both factors the SAME symbol (a repeated variable).
+  const auto& xs = ibex::ExprSymbol::new_();
+  ibex::Function f(xs, xs * xs);
+  ibex::IntervalVector box(1);
+  box[0] = ibex::Interval(-3.0, 3.0);
+
+  // x*x == -1 is infeasible, but lies in the forward over-approximation gap
+  // ([-3,3]*[-3,3] = [-9,9] as independent factors), so the root intersection
+  // is non-empty and HC4's one-pass backward cannot detect the contradiction.
+  ibex::Interval target_iv{-1.0, -1.0};
+  ibex::Domain target(target_iv);
+  f.backward(target, box);
+
+  EXPECT_FALSE(box.is_empty())
+      << "HC4 is incomplete on x*x == -1 (repeated variable, gap target); a "
+         "single backward must NOT empty the box. A spurious empty here would "
+         "be a false-unsat soundness break.";
+}
+
 }  // namespace
 }  // namespace dreal

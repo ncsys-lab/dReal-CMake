@@ -150,72 +150,47 @@ TEST(IbexLogPowEdgeCases, PowZeroBasePositiveExponent) {
   EXPECT_EQ(r.ub(), 0.0);
 }
 
-// DISABLED — captures the remaining unsoundness chain for dreal/dreal4#321
-// AFTER the ibex-fork patch 33eb6676 and the dReal Expression constant-fold
-// underflow guard. The chain:
-//
-//  1. `gaol::pow(Interval(0.5), 1075)` correctly returns [0, DBL_TRUE_MIN]
-//     after patch 33eb6676 (see PowSubnormalUnderflow above).
-//  2. ibex's HC4 backward through ExprSub-of-ExprPower mis-narrows: for the
-//     constraint `x - pow(0.5_const, 1075) = 0` with x in [DBL_TRUE_MIN, +inf]
-//     and the pow's forward image [0, DBL_TRUE_MIN], sub backward refines the
-//     pow-output to the singleton [DBL_TRUE_MIN, DBL_TRUE_MIN]; bwd_pow then
-//     observes that 0.5^1075 (the true value, ≈2^-1075) is strictly below
-//     DBL_TRUE_MIN, concludes no x in {0.5} satisfies, and throws empty.
-//     The pow forward and backward disagree on the underflow tolerance — the
-//     forward includes the subnormal regime in its image, the backward does
-//     not. A correct delta-SMT fix needs either a delta-aware contractor or
-//     a bwd_pow that treats a degenerate constant input as non-narrowable.
-//
-// Variant A (sub-only) passes; variant B (pow + sub) is the broken path; C
-// is the 1074 sanity. Variant B is the unfixed regression; the test is
-// DISABLED_-prefixed so CI stays green while leaving the diagnostic in tree.
-TEST(IbexLogPowEdgeCases, DISABLED_PowSubnormalUnderflowEndToEnd) {
+// dreal/dreal4#321, the ibex HC4 backward chain (FIXED by the gaol-fork
+// underflow_saturate patch). For `x - pow(0.5_const, 1075) = 0` with x in
+// [DBL_TRUE_MIN, +inf], forward pow gives [0, DBL_TRUE_MIN] (sound), sub-backward
+// pins the pow output to the singleton {DBL_TRUE_MIN}, and pre-fix bwd_pow then
+// inverted it via the *tight* gaol root (~0.50034), excluding the base 0.5 and
+// emptying the box -> false unsat. underflow_saturate widens the subnormal-band
+// target to include 0 before the root, restoring forward/backward consistency.
+// Variant A (sub-only) was always sound; B (pow 1075) is the regression; C (pow
+// 1074, exactly DBL_TRUE_MIN) is the just-above-underflow sanity. Note: ibex
+// patch #11 made Function::backward return-status (no EmptyBoxException), so we
+// assert the bool result rather than catch a throw.
+TEST(IbexLogPowEdgeCases, PowSubnormalUnderflowEndToEnd) {
   std::fesetround(FE_UPWARD);  // match gaol's runtime mode
   const double kDenormMin = std::numeric_limits<double>::denorm_min();
 
-  // Variant A
-  {
+  // Each variant: x - <opexpr> = 0 with x >= DBL_TRUE_MIN must leave x non-empty
+  // (the forward relaxation deems DBL_TRUE_MIN feasible, so backward must not
+  // prune it). The soundness property is the *queried variable box* staying
+  // non-empty; that is what dReal's solver checks (Box::is_empty), per ibex
+  // patch #11. NB: Function::backward's bool return-status is an internal
+  // "a domain (possibly a degenerate constant node) was contradicted" signal
+  // and is independently false here for all three variants -- including the
+  // pow-free variant A -- so it is NOT the emptiness signal and we don't assert
+  // on it.
+  auto check = [&](const char* tag, const ibex::ExprNode& opexpr) {
     ibex::Variable x_("x");
-    ibex::Function f(x_, x_ - ibex::ExprConstant::new_scalar(
-                                  ibex::Interval(0.0, kDenormMin)));
+    ibex::Function f(x_, x_ - opexpr);
     ibex::IntervalVector box(1);
     box[0] = ibex::Interval(kDenormMin, kInf);
-    try {
-      f.backward(ibex::Interval::zero(), box);
-    } catch (...) {
-      FAIL() << "[A] backward threw.";
-    }
-    EXPECT_FALSE(box[0].is_empty()) << "[A] x - [0, DBL_TRUE_MIN] = 0 with x >= DBL_TRUE_MIN should leave x non-empty; got [" << box[0].lb() << ", " << box[0].ub() << "].";
-  }
+    f.backward(ibex::Interval::zero(), box);
+    EXPECT_FALSE(box[0].is_empty())
+        << tag << " left x empty: [" << box[0].lb() << ", " << box[0].ub()
+        << "].";
+  };
 
-  // Variant B
-  {
-    ibex::Variable x_("x");
-    ibex::Function f(x_, x_ - ibex::pow(ibex::ExprConstant::new_scalar(0.5), 1075));
-    ibex::IntervalVector box(1);
-    box[0] = ibex::Interval(kDenormMin, kInf);
-    try {
-      f.backward(ibex::Interval::zero(), box);
-    } catch (...) {
-      FAIL() << "[B] backward threw.";
-    }
-    EXPECT_FALSE(box[0].is_empty()) << "[B] x = pow(0.5, 1075) with x >= DBL_TRUE_MIN should leave x non-empty; got [" << box[0].lb() << ", " << box[0].ub() << "]. Reproduces dreal/dreal4#321 at the ibex layer.";
-  }
-
-  // Variant C — sanity
-  {
-    ibex::Variable x_("x");
-    ibex::Function f(x_, x_ - ibex::pow(ibex::ExprConstant::new_scalar(0.5), 1074));
-    ibex::IntervalVector box(1);
-    box[0] = ibex::Interval(kDenormMin, kInf);
-    try {
-      f.backward(ibex::Interval::zero(), box);
-    } catch (...) {
-      FAIL() << "[C] backward threw.";
-    }
-    EXPECT_FALSE(box[0].is_empty()) << "[C sanity] pow(0.5, 1074) should always succeed; got [" << box[0].lb() << ", " << box[0].ub() << "].";
-  }
+  check("[A sub-only]",
+        ibex::ExprConstant::new_scalar(ibex::Interval(0.0, kDenormMin)));
+  check("[B pow(0.5,1075) #321]",
+        ibex::pow(ibex::ExprConstant::new_scalar(0.5), 1075));
+  check("[C pow(0.5,1074) sanity]",
+        ibex::pow(ibex::ExprConstant::new_scalar(0.5), 1074));
 }
 
 TEST(IbexLogPowEdgeCases, PowSubnormalUnderflow) {
@@ -240,6 +215,65 @@ TEST(IbexLogPowEdgeCases, PowSubnormalUnderflow) {
   EXPECT_GT(r.ub(), 0.0)
       << "Soundness violation: pow(0.5, 1075) returned [" << r.lb() << ", "
       << r.ub() << "] but true value 2^-1075 is strictly positive.";
+}
+
+// ===========================================================================
+// dreal/dreal4#321 backward-consistency net (FIXED by underflow_saturate).
+// For each HC4 backward op, force the op-output to its forward-image extreme (a
+// subnormal) so sub-backward pins it to that singleton, then check the operand
+// domain is NOT wrongly emptied by a too-tight inverse. The forward relaxation
+// deems the extreme feasible, so a sound backward must leave the operand
+// non-empty; pre-fix the five tight-inverting ops (pow/exp/sqr/mul/div) emptied
+// it -> false unsat. sqrt/log invert via a loose forward op and were always
+// sound (controls). EXPECT_FALSE(empty) is the required soundness property.
+// ===========================================================================
+TEST(IbexLogPowEdgeCases, SubnormalBackwardStaysConsistent) {
+  std::fesetround(FE_UPWARD);
+  const double kDenormMin = std::numeric_limits<double>::denorm_min();
+
+  auto probe = [](const char* tag, const ibex::ExprNode& opnode,
+                  const ibex::Interval& fwd_img, bool force_upper) {
+    ibex::Variable x_("x");
+    ibex::Function f(x_, x_ - opnode);
+    ibex::IntervalVector box(1);
+    // Force the op-output to the forward-image extreme (the subnormal ceiling
+    // for positive images; the floor for negative ones) so sub-backward pins it
+    // to a singleton and the operand's tight inverse is exercised.
+    box[0] = force_upper ? ibex::Interval(fwd_img.ub(), kInf)
+                         : ibex::Interval(-kInf, fwd_img.lb());
+    f.backward(ibex::Interval::zero(), box);
+    EXPECT_FALSE(box[0].is_empty())
+        << "[" << tag << "] EMPTIED: fwd_img=[" << fwd_img.lb() << ", "
+        << fwd_img.ub() << "] -> box now empty -- backward too tight (bug)";
+  };
+
+  // exp(c) for c<-744 underflows to a subnormal; bwd_exp inverts via tight log.
+  probe("exp(-745)", ibex::exp(ibex::ExprConstant::new_scalar(-745.0)),
+        ibex::exp(ibex::Interval(-745.0)), true);
+  // sqr(1e-160) = 1e-320 underflows to a subnormal; bwd_sqr inverts via sqrt_rel.
+  probe("sqr(1e-160)", ibex::sqr(ibex::ExprConstant::new_scalar(1e-160)),
+        ibex::sqr(ibex::Interval(1e-160)), true);
+  // pow(0.5,1075) -- the known #321 base case, re-probed via this harness.
+  probe("pow(0.5,1075)", ibex::pow(ibex::ExprConstant::new_scalar(0.5), 1075),
+        ibex::pow(ibex::Interval(0.5), 1075), true);
+  // sqrt control: sqrt of a positive c never produces a subnormal (expect sound).
+  probe("sqrt(denorm)", ibex::sqrt(ibex::ExprConstant::new_scalar(kDenormMin)),
+        ibex::sqrt(ibex::Interval(kDenormMin)), true);
+  // log control: log of a tiny c is a large-negative point; bwd_log inverts via
+  // exp (which underflows). Force the floor (most-negative) side.
+  probe("log(denorm)", ibex::log(ibex::ExprConstant::new_scalar(kDenormMin)),
+        ibex::log(ibex::Interval(kDenormMin)), false);
+  // mul: 1e-160 * 1e-162 = 1e-322 lands in the subnormal range; bwd_mul inverts
+  // each factor via gaol's tight div_rel.
+  probe("mul(1e-160,1e-162)",
+        ibex::ExprConstant::new_scalar(1e-160) *
+            ibex::ExprConstant::new_scalar(1e-162),
+        ibex::Interval(1e-160) * ibex::Interval(1e-162), true);
+  // div: 1e-320 / 1e3 = 1e-323 is subnormal; bwd_div inverts via mul + div_rel.
+  probe("div(1e-320,1e3)",
+        ibex::ExprConstant::new_scalar(1e-320) /
+            ibex::ExprConstant::new_scalar(1e3),
+        ibex::Interval(1e-320) / ibex::Interval(1e3), true);
 }
 
 }  // namespace

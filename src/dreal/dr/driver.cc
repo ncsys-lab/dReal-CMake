@@ -20,7 +20,9 @@
 #include <sstream>
 #include <string>
 #include <utility>
-#include <dreal/util/rounding_mode_guard.h>
+#include <dreal/util/rounded_format.h>
+#include <dreal/util/rounded_interval.h>
+#include <dreal/util/rounding.h>
 
 #include "dreal/dr/scanner.h"
 #include "dreal/solver/expression_evaluator.h"
@@ -69,10 +71,10 @@ bool DrDriver::parse_string(const string& input, const string& sname) {
 }
 
 void DrDriver::error(const location& l, const string& m) {
-  cerr << l << " : " << m << endl;
+  cerr << l << " : " << m << '\n';
 }
 
-void DrDriver::error(const string& m) { cerr << m << endl; }
+void DrDriver::error(const string& m) { cerr << m << '\n'; }
 
 const Variable& DrDriver::lookup_variable(const std::string& name) {
   const auto it = scope_.find(name);
@@ -108,17 +110,27 @@ void DrDriver::Solve() {
   }
   const optional<Box> model{context_.CheckSat()};
   if (model) {
-    RoundingModeGuard g(FE_TONEAREST); // for printing precision correctly
-    cout << "delta-sat with delta = " << context_.config().precision() << endl;
+    const NearestRoundingScope g; // for printing precision correctly
+    const NearestRounding nr{g.token()};
+    cout << "delta-sat with delta = " << context_.config().precision() << '\n';
     if (context_.config().produce_models()) {
-      cout << *model << endl;
+      cout << *model << '\n';
       for (const Expression& f : objectives_) {
-        cout << "Found minimum for " << f << " is "
-             << ExpressionEvaluator(f)(*model).mid() << endl;
+        // Interval (gaol) evaluation + safe_mid need FE_UPWARD; capture the
+        // scalar under a tight upward scope, then print it under the nearest
+        // scope `g` above.
+        const double minimum{[&] {
+          const UpwardRoundingScope eval_scope;
+          const UpwardRounding eval_ur{eval_scope.token()};
+          return safe_mid(ExpressionEvaluator(f)(*model, eval_ur), eval_ur);
+        }()};
+        cout << "Found minimum for " << f << " is ";
+        format_double(cout, minimum, nr);
+        cout << '\n';
       }
     }
   } else {
-    cout << "unsat" << endl;
+    cout << "unsat" << '\n';
   }
   Context::Exit();
 }

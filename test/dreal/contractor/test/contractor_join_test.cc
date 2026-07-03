@@ -22,6 +22,7 @@
 
 #include "dreal/contractor/contractor_ibex_fwdbwd.h"
 #include "dreal/contractor/contractor_status.h"
+#include "dreal/util/rounding.h"
 #include "dreal/solver/config.h"
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/box.h"
@@ -61,10 +62,33 @@ TEST_F(ContractorJoinTest, Sat) {
   // Before pruning, the box is not empty.
   EXPECT_FALSE(cs.box().empty());
 
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
 
   // After pruning, the box is still not empty.
   EXPECT_FALSE(cs.box().empty());
+}
+
+// Phase-0 soundness net (bucket 3): a disjunction empties only when *every*
+// branch empties. Both sin(x) == 2 and cos(x) == 2 are infeasible (sin/cos
+// range is [-1,1]), so each branch empties and the join must empty too. Guards
+// that the empty signal survives disjunctive composition.
+TEST_F(ContractorJoinTest, AllBranchesEmpty) {
+  const Formula f1{sin(x_) == 2.0};
+  const Formula f2{cos(x_) == 2.0};
+  box_[x_] = Box::Interval(-5.0, 5.0);
+  box_[y_] = Box::Interval(0.0, 1.0);
+  box_[z_] = Box::Interval(0.0, 1.0);
+  ContractorStatus cs{box_};
+  Config config{};
+  const Contractor ctc1 = make_contractor_ibex_fwdbwd(f1, box_, config);
+  const Contractor ctc2 = make_contractor_ibex_fwdbwd(f2, box_, config);
+  const Contractor ctc = make_contractor_join({ctc1, ctc2}, config);
+
+  EXPECT_FALSE(cs.box().empty());
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_TRUE(cs.box().empty())
+      << "Both sin(x) == 2 and cos(x) == 2 are infeasible; the join of two "
+         "empty branches must be empty.";
 }
 
 }  // namespace

@@ -5,10 +5,12 @@ Contractors are the core computational primitive in the theory layer. A contract
 All contractors implement the same interface (`src/dreal/contractor/contractor.h`):
 
 ```cpp
-void Contractor::Prune(ContractorStatus* cs) const;
+void Contractor::Prune(ContractorStatus* cs, const UpwardRounding& ur) const;
 ```
 
 `Prune` reads `cs->box()`, tightens it in-place, and updates the explanation set in `cs` to record which constraints were responsible for any pruning.
+
+The `ur` parameter is a zero-size capability token (`src/dreal/util/rounding.h`). The gaol/IBEX interval backend is sound only with the FPU in `FE_UPWARD` rounding mode, so the whole ICP contraction phase runs under `FE_UPWARD`, established **once** per phase by an `UpwardRoundingScope` (in `IcpSeq::CheckSat` and each `IcpParallel` worker) rather than per `Prune`. `UpwardRoundingScope` is the only minter of an `UpwardRounding`, and it is required to call `Prune` — so "the rounding mode is established" is a compile-time obligation a contractor cannot bypass. The pure-gaol leaves (`ContractorIbexFwdbwd`, `ContractorIbexPolytope`) no longer guard the mode themselves; they `DREAL_ASSERT_ROUNDING(FE_UPWARD)` to verify the inherited phase mode in Debug builds. See `docs/rounding.md` for the full design.
 
 ---
 
@@ -25,9 +27,9 @@ Defined in `Contractor::Kind`:
 | `IBEX_POLYTOPE` | `contractor_ibex_polytope.cc` | Linear relaxation (polytope) contractor |
 | `FIXPOINT` | `contractor_fixpoint.cc` | Run a contractor to fixpoint |
 | `WORKLIST_FIXPOINT` | `contractor_worklist_fixpoint.cc` | Fixpoint with dependency tracking |
-| `FORALL` | `contractor_forall.h` | ForallT (universal quantification over time) |
+| `FORALL` | `contractor_forall.h` | ∃∀ `QF_NRA`: CE-guided pruning for `forall` clauses (CAV 2018) — *not* the ODE-time `forall_t` |
 | `JOIN` | `contractor_join.cc` | Disjunctive composition (convex hull of results) |
-| `ODE_LOHNER` | `odes/contractor_odes_codac.cc` | Codac Lohner integration for ODEs |
+| `ODE_LOHNER` | `odes/contractor_odes.cc` | CAPD order-20 Taylor integration for ODEs (per-slice tube + filter) |
 
 ---
 
@@ -113,17 +115,22 @@ returns the interval hull (smallest enclosing box) of both results. This is soun
 
 **File:** `src/dreal/contractor/contractor_forall.h`
 
-Handles `ForallT` formulas: `∀t ∈ [t₀, t₁]: φ(x, t)`. These appear in ODE mode when checking that a property holds for all time points along a trajectory. The forall contractor samples or integrates over the time domain to prune the state space.
+Handles the **∃∀ `QF_NRA` quantifier** — `∃x. ∀y∈D. φ(x, y)` — *not* the ODE-time `forall_t` (that invariant check lives in the ODE contractor below; `docs/forall-semantics.md` §7 contrasts the two, and the `forall`/`forall_t` naming collision is a frequent confusion). `ContractorForall::Prune` runs the counterexample-guided loop of Kong, Solar-Lezama & Gao (CAV 2018, `papers/kong-solar-lezama-gao-2018-exists-forall.md`): find a `y` that violates `φ` for the current `x`-box, then contract the box with the real instantiation `φ(x, y_mid)`. It is a **well-defined pruning operator** (W1–W3 of `papers/gao-avigad-clarke-2012-delta-complete.md`), so it inherits δ-completeness from the same theorem as the algebraic contractors. Full mechanism — the two δ-regimes, the spurious-counterexample hazard, and the soundness/completeness analysis — is in `docs/forall-semantics.md` §4.
 
 ---
 
-## ODE Contractor (Lohner)
+## ODE Contractor (`contractor_ode_lohner`)
 
-**File:** `src/dreal/contractor/odes/contractor_odes_codac.cc`
+**File:** `src/dreal/contractor/odes/contractor_odes.cc` (CAPD backend in `contractor_odes_capd.cc`)
+
+> **⚠ PITFALL `forall-vs-forall_t`:** this contractor is also where the **`forall_t`** ODE
+> trajectory invariant (`FormulaKind::ForallT`) is enforced (per-slice). That is unrelated to
+> the ∃∀ NRA **`forall`** / `ContractorForall` (the "Forall Contractor" above). Canonical
+> side-by-side: `docs/forall-semantics.md` §7.
 
 See `docs/ode-integration.md` for a full description.
 
-At the contractor interface level: given an ODE constraint and a time window, `contractor_ode_lohner::Prune` dispatches to one of two backends. For short-horizon / low-dimensional flows it uses Codac's `CtcLohner` (order-2 Taylor, `TimePropag::FWD_BWD`). For long-horizon flows (`t_ub > --capd-t-gate`, default 5.0) or high-dimensional state (`n_state_vars >= --capd-ndim-gate`, default 6) it fires the CAPD order-20 backend (`contractor_odes_capd.cc`), falling back to Lohner on divergence. Both paths intersect with target state constraints and are sound.
+At the contractor interface level: given an ODE constraint and a time window, `contractor_ode_lohner::Prune` integrates with **CAPD** (order-20 `IOdeSolver` + `ITimeMap`) — the sole ODE backend since the Codac elimination. `run_capd_fwd` / `run_capd_bwd` return the **time-ordered per-slice tube** (each adaptive step's Taylor curve sub-gridded into `kHullGrid=16` enclosures); the `Prune` filter then walks the slices, checks the `ForallT` invariant per slice (FWD), intersects each terminal-eligible slice with the `X_t` gate, and hulls the survivors → narrowed `X_t` + time (no survivor → sound `set_empty`). The theory solver queues both a FWD (narrows `X_t`/time) and a BWD (narrows `X_0`) contractor per ODE constraint. A trivial-flow short-circuit (every RHS is the literal `0`) and a `T=0` short-circuit bypass CAPD entirely. On integration divergence (any CAPD exception, caught-and-skipped — no rethrow) the call narrows nothing for that `Prune` (sound but incomplete). The CAPD-integrated field must be a faithful image of the RHS — `to_capd_string` renders constants at 17 sig figs (a 6-digit truncation was a false-`unsat` soundness bug; see `docs/ode-integration.md` § Soundness). The previous Codac / CAPD-gated hybrid (and the `--capd-t-gate` / `--capd-ndim-gate` flags) was retired — see `docs/decisions.md` "ODE backend".
 
 ---
 
@@ -151,5 +158,5 @@ Every contractor maintains a `DynamicBitset input()` indicating which box dimens
 1. Add a new `Kind` to `Contractor::Kind` in `contractor.h`.
 2. Create `contractor_foo.h` / `contractor_foo.cc` implementing `ContractorCell`.
 3. Add a factory function `make_contractor_foo(...)` and declare it as a `friend` of `Contractor`.
-4. Implement `Prune`, `input()`, `include_forall()`, and `operator<<`.
+4. Implement `Prune(ContractorStatus* cs, const UpwardRounding& ur)`, `input()`, `include_forall()`, and `operator<<`. If the contractor wraps gaol/IBEX interval arithmetic, route the raw call through `ibex_hc4_backward` (`util/rounded_interval.h`) — passing `ur` — rather than calling `ibex::Function::backward` directly; forward `ur` to any child contractors' `Prune`. A contractor that needs `FE_TONEAREST` internally (like the CAPD ODE contractor) opens a `NearestRoundingScope` (and passes its `NearestRounding` token to nearest-regime consumers such as `run_capd_*`), then re-establishes a nested `UpwardRoundingScope` before invoking any gaol sub-contractor. The static lint `lint.py` enforces this routing.
 5. Wire up construction in `TheorySolver::BuildContractor` or `context_impl.cc`.

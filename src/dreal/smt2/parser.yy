@@ -116,7 +116,7 @@
 
 #include "dreal/smt2/driver.h"
 #include "dreal/smt2/scanner.h"
-#include "dreal/util/rounding_mode_guard.h"
+#include "dreal/util/rounding.h"
 
 /* this "connects" the bison parser in the driver to the flex scanner class
  * object. it defines the yylex() function call to pull the next token from the
@@ -243,7 +243,7 @@ command_set_info:
                         .SetInfo($3, $4);
                 }
         |       '(' TK_SET_INFO KEYWORD DOUBLE ')' {
-                    RoundingModeGuard g(FE_TONEAREST); // for parsing double
+                    NearestRoundingScope g; // for parsing double
                     driver
                         .mutable_context()
                         .SetInfo($3, std::stod($4));
@@ -263,7 +263,7 @@ command_set_option:
                         .SetOption($3, $4);
                 }
         |       '('TK_SET_OPTION KEYWORD DOUBLE ')' {
-                    RoundingModeGuard g(FE_TONEAREST); // for parsing double
+                    NearestRoundingScope g; // for parsing double
                     driver
                         .mutable_context()
                         .SetOption($3, std::stod($4));
@@ -412,9 +412,9 @@ term:           TK_TRUE { $$ = Formula::True(); }
         }
         |       DOUBLE {
             const Box::Interval i{StringToInterval($1)};
-            RoundingModeGuard g(FE_TONEAREST); // for parsing double
+            NearestRoundingScope g; // for parsing double
             const double parsed{std::stod($1)};
-            RoundingModeGuard g2(FE_UPWARD); // for ibex calls
+            UpwardRoundingScope g2; // for ibex calls
             if (i.diam() == 0) {
                 // point => floating-point constant expression.
                 $$ = i.mid();
@@ -592,7 +592,7 @@ ignored_dreal3_precision_value
 
 variable_sort_list: /* empty list */ { $$ = std::pair<Variables, Formula>(Variables{}, Formula::True()); }
         |       variable_sort variable_sort_list {
-            RoundingModeGuard g(FE_TONEAREST);
+            NearestRoundingScope g;
             const Variable& v = std::get<0>($1);
             const double lb = std::get<1>($1);
             const double ub = std::get<2>($1);
@@ -608,7 +608,7 @@ variable_sort_list: /* empty list */ { $$ = std::pair<Variables, Formula>(Variab
         ;
 
 variable_sort: '(' SYMBOL sort ')' {
-            RoundingModeGuard g(FE_TONEAREST);
+            NearestRoundingScope g;
             const Variable v = driver.RegisterVariable($2, $3);
             const double inf = std::numeric_limits<double>::infinity();
             $$ = std::tuple<Variable, double, double>(v, -inf, inf);

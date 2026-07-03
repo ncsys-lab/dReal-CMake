@@ -22,6 +22,7 @@
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/box.h"
 #include "dreal/util/logging.h"
+#include "dreal/util/rounding.h"
 
 namespace dreal {
 
@@ -80,8 +81,10 @@ class FormulaEvaluator {
   /// Default destruction
   ~FormulaEvaluator() = default;
 
-  /// Evaluates the constraint/formula with @p box.
-  FormulaEvaluationResult operator()(const Box& box) const;
+  /// Evaluates the constraint/formula with @p box. Interval (gaol) evaluation,
+  /// so the caller must hold an UpwardRounding token (FE_UPWARD established).
+  FormulaEvaluationResult operator()(const Box& box,
+                                     const UpwardRounding& ur) const;
 
   /// Returns the occurred variables in the formula.
   const Variables& variables() const;

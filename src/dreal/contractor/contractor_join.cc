@@ -40,12 +40,12 @@ ContractorJoin::ContractorJoin(vector<Contractor> contractors,
   }
 }
 
-void ContractorJoin::Prune(ContractorStatus* cs) const {
+void ContractorJoin::Prune(ContractorStatus* cs, const UpwardRounding& ur) const {
   ContractorStatus saved_original{*cs};
   cs->mutable_box().set_empty();
   for (const Contractor& contractor : contractors_) {
     ContractorStatus state_i{saved_original};
-    contractor.Prune(&state_i);
+    contractor.Prune(&state_i, ur);
     cs->InplaceJoin(state_i);
   }
 }

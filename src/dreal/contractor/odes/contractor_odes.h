@@ -26,6 +26,14 @@ namespace dreal
 
     std::ostream& operator<<(std::ostream& out, ode_direction const& d);
 
+    // Parse the BMC step index out of an ODE state-variable name, for the
+    // --visualize trace's per-segment `step` metadata. Two unroller naming
+    // conventions are supported:
+    //   dReach:      <base>_<step>_{0,t}   (e.g. height_3_t -> 3)
+    //   SMT-LIB BMC: <base>_k<step>        (e.g. x_decay_IntX_k0 -> 0)
+    // Returns 0 when neither shape is present (also the legitimate step-0 value).
+    unsigned int ode_step_from_name(const std::string& name);
+
     // ODE contractor using IBEX interval arithmetic + CAPD order-20 Taylor.
     //
     // Prune() runs the following steps in order:
@@ -33,13 +41,16 @@ namespace dreal
     //      along the trajectory and must agree at t=0 and t=T).
     //   2. T=0 special case: X_0 ∩ X_t (initial and final states must agree
     //      when time horizon is zero).
-    //   3. ForallT invariant checking at the X_0 endpoint via IBEX HC4
-    //      contractors built in the ctor.
-    //   4. Trivial-flow short-circuit: if every RHS is the literal 0, just
+    //   3. Trivial-flow short-circuit: if every RHS is the literal 0, just
     //      intersect X_0 ∩ X_t (no integration needed — variables are
     //      constant along the trajectory).
-    //   5. ODE trajectory integration via CAPD's IOdeSolver (order 20) +
-    //      ITimeMap, with backward integration via the negated -f(x) map.
+    //   4. ODE trajectory integration via CAPD's IOdeSolver (order 20) +
+    //      ITimeMap (backward via the negated -f(x) map), then cav26's
+    //      per-slice tube filter: the ForallT invariant is checked on EACH
+    //      trajectory slice (not just the endpoint — interior violations would
+    //      otherwise be missed), each terminal-eligible slice is intersected
+    //      with the X_t gate, survivors are hulled to narrow X_t and time, and
+    //      an empty survivor set refutes (set_empty). See contractor_odes.cc.
     //
     // Sound for ODE problems: CAPD's order-20 Taylor enclosure provides a
     // guaranteed over-approximation of all trajectories from X_0.
@@ -56,7 +67,7 @@ namespace dreal
         // (one enclosure per slice).
         nlohmann::json generate_trace(ContractorStatus cs_copy);
 
-        void Prune(ContractorStatus* cs) const override;
+        void Prune(ContractorStatus* cs, const UpwardRounding& ur) const override;
 
     private:
         ode_direction const m_dir;
@@ -70,6 +81,9 @@ namespace dreal
         std::vector<Variable> m_pars_t;
         bool m_need_to_check_inv{false};
         std::vector<Contractor> m_inv_ctcs;
+        // CAPD integration knobs for THIS contractor instance (resolved from
+        // Config in the constructor; the Taylor order is direction-specific).
+        CapdSolverParams m_capd_params;
         // ODE state variables in flow.ode_list order (positional match with
         // m_vars_0/m_vars_t). Precomputed in the constructor so Prune() doesn't
         // rebuild it on every call.

@@ -21,8 +21,9 @@
 #include <limits>
 #include <utility>
 
-#include "rounding_mode_guard.h"
+#include "rounding.h"
 #include "dreal/util/assert.h"
+#include "dreal/util/rounded_interval.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"
 #include "dreal/util/math.h"
@@ -148,11 +149,16 @@ const Box::IntervalVector& Box::interval_vector() const { return values_; }
 Box::IntervalVector& Box::mutable_interval_vector() { return values_; }
 
 pair<double, int> Box::MaxDiam() const {
-  RoundingModeGuard g(FE_UPWARD);
+  // Standalone entry point: self-establish the FE_UPWARD scope and mint the
+  // token for safe_diam (the nearest-regime analog is a NearestRoundingScope).
+  const UpwardRoundingScope g;
+  const UpwardRounding ur{g.token()};
   double max_diam{0.0};
   int idx{-1};
   for (size_t i{0}; i < variables_->size(); ++i) {
-    const double diam_i{values_[i].diam()}; // .diam() corrupts the FPU env.
+    // safe_diam(): .diam() is a gaol directed-rounding computation, sound only
+    // under the FE_UPWARD this function established above.
+    const double diam_i{safe_diam(values_[i], ur)};
     if (diam_i > max_diam && values_[i].is_bisectable()) {
       max_diam = diam_i;
       idx = i;
@@ -197,7 +203,7 @@ pair<Box, Box> Box::bisect_int(const int i) const {
   const Interval& intv_i{values_[i]};
   const double lb{ceil(intv_i.lb())};
   const double ub{floor(intv_i.ub())};
-  const double mid{intv_i.mid()};
+  const double mid{intv_i.mid()};  // lint: allow (integer bisection; bounds are exact integers)
   const double mid_floor{floor(mid)};
   DREAL_ASSERT(intv_i.lb() <= lb);
   DREAL_ASSERT(lb <= mid_floor);
@@ -234,12 +240,9 @@ Box& Box::InplaceUnion(const Box& b) {
 
 ostream& operator<<(ostream& os, const Box& box) {
   PrecisionGuard precision_guard(&os, numeric_limits<double>::max_digits10);
-  int i{0};
-
-  std::vector<Variable> sorted_vars = *(box.variables_);
-  std::sort(sorted_vars.begin(), sorted_vars.end(), [](const Variable& a, const Variable& b) { return a.get_name() < b.get_name(); });
-  for (const Variable& var : sorted_vars) {
-    const Box::Interval interval(box.values_[i++]);
+  for (int i = 0; i < box.size(); ++i) {
+    const Variable& var{box.variable(i)};
+    const Box::Interval interval(box.values_[i]);
     os << var << " : ";
     switch (var.get_type()) {
       case Variable::Type::INTEGER:
@@ -251,9 +254,16 @@ ostream& operator<<(ostream& os, const Box& box) {
              << static_cast<int>(interval.ub()) << "]";
         }
         break;
-      case Variable::Type::CONTINUOUS:
+      case Variable::Type::CONTINUOUS: {
+        // ibex's interval operator<< is a known FPU rounding-mode clobberer: it
+        // does internal directed rounding and leaves the FPU in a directed mode
+        // (FE_UPWARD) on return. Bracket it in an ExpectClobber nearest scope so
+        // the print runs under FE_TONEAREST and the caller's mode is restored on
+        // exit, containing the clobber. See ExpectClobber in rounding.h.
+        const NearestRoundingScope interval_print{expect_clobber};
         os << interval;
         break;
+      }
       case Variable::Type::BOOLEAN:
         if (interval.ub() == 0.0) {
           os << "False";
@@ -264,7 +274,7 @@ ostream& operator<<(ostream& os, const Box& box) {
         }
         break;
     }
-    if (i != box.size()) {
+    if (i != box.size() - 1) {
       os << "\n";
     }
   }

@@ -25,6 +25,8 @@
 #include "dreal/symbolic/odes/symbolic_odes_cell.h"
 #include "nlohmann/json.hpp"
 
+#include "dreal/util/json_guarded.h"
+
 namespace dreal
 {
     std::ofstream literal_log("/tmp/dreal_audit_sat_literal_log.txt");
@@ -32,7 +34,7 @@ namespace dreal
 
     void sat_log_label_clause(const std::string& s) {
         if (!DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) return;
-        literal_log << s << std::endl;
+        literal_log << s << '\n';
     }
 
     void sat_log_literal(const int lit, const std::optional<Variable>& def) {
@@ -41,7 +43,7 @@ namespace dreal
 
         static std::set<Variable> seen_literals;
         if (def && !seen_literals.count(*def)) {
-            literal_log << "def:\t" << ::abs(lit) << " := " << *def << std::endl;
+            literal_log << "def:\t" << ::abs(lit) << " := " << *def << '\n';
             seen_literals.emplace(*def);
         }
 
@@ -51,7 +53,7 @@ namespace dreal
     void sat_log_literal0() {
         if (!DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED) return;
         for (int v : literal_log_clause) literal_log << v << ' ';
-        literal_log << '0' << std::endl;
+        literal_log << '0' << '\n';
         literal_log_clause.clear();
     }
 
@@ -113,11 +115,11 @@ namespace dreal
             lemma_comment = s.str();
         }
 
-        std::cout << lemma_comment << std::endl; // todo: gate with macro or flag and use spdlog
+        std::cout << lemma_comment << '\n'; // todo: gate with macro or flag and use spdlog
 
         static int audit_no = 0;
         std::ofstream myfile;
-        myfile.open("/tmp/dreal_audit/lemma" + std::to_string(audit_no++) + ".smt2");
+        myfile.open("/tmp/dreal_audit/lemma" + std::to_string(audit_no++) + ".smt2");  // lint: allow int
 
         myfile << "\n" << lemma_comment << "\n\n";
         myfile << "(set-logic QF_NRA_ODE)\n";
@@ -133,7 +135,7 @@ namespace dreal
 
         myfile << "(assert " << ToPrefix(!formula) << " )\n";
 
-        myfile << "(check-sat)(exit)" << std::endl;
+        myfile << "(check-sat)(exit)" << '\n';
         myfile.flush();
         myfile.close();
     }
@@ -175,13 +177,14 @@ namespace dreal
             all_matches_json.emplace_back(match_conflict_str, subs_strs, tag, wna);
         }
         dump["all_matches"] = all_matches_json;
-        const auto dump_str = dump.dump(-1, ' ', true);
+        const NearestRoundingScope nearest_scope;
+        const auto dump_str = dump_json(dump, nearest_scope.token(), -1, ' ', true);
         std::cout << "; pm_dump_all = " << dump_str << '\n';
 
         static int audit_no = 0;
         std::ofstream myfile;
-        myfile.open("/tmp/dreal_audit/pm" + std::to_string(audit_no++) + ".json");
-        myfile << dump_str << std::endl;
+        myfile.open("/tmp/dreal_audit/pm" + std::to_string(audit_no++) + ".json");  // lint: allow int
+        myfile << dump_str << '\n';
         myfile.flush();
         myfile.close();
     }

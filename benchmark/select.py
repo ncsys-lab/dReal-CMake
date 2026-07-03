@@ -1,15 +1,44 @@
 #!/usr/bin/env python3
-"""Select benchmarks for a run: 8 random + all current anomalies.
+"""Select benchmarks for a run.
 
-Usage: python3 select.py [--n N] [--seed SEED]
-Prints full file paths, one per line, to stdout.
+Default mode: 8 family-weighted random + all current anomalies.
+  python3 select.py [--n N] [--seed SEED]
+
+Family-subset mode (for A/B over a targeted family, e.g. the ODE families —
+the random weighting favours odeexpr, which has no ODEs):
+  python3 select.py --family github,tacas,saradc --all   # every job in those
+  python3 select.py --family github --n 6                 # 6 random from github
+
+Prints TSV (csv_name <TAB> filepath), one per line, to stdout.
 """
 import argparse
 import csv
 import json
 import os
 import random
+import re
 import sys
+
+from odeexpr import family_of, load_odeexpr_names, resolve_odeexpr, weight_of
+
+_LARGE_K_RE = re.compile(r'_k(\d+)_')
+_BITWIDTH_RE = re.compile(r'_(\d+)b_')
+
+
+def _is_oom_risk(name: str) -> bool:
+    """Return True if the benchmark is known to exhaust memory.
+
+    github/tacas: _k<N>_ with N >= 1024.
+    saradc: _<N>b_ with N >= 9 (bitwidth encodes problem size independently of k).
+    """
+    for m in _LARGE_K_RE.finditer(name):
+        if int(m.group(1)) >= 1024:
+            return True
+    for m in _BITWIDTH_RE.finditer(name):
+        if int(m.group(1)) >= 9:
+            return True
+    return False
+
 
 BENCHMARK_DIR = "/Users/kunalsheth/Documents/new_dreal/nraode_to_nra"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -39,6 +68,8 @@ def resolve_path(bench_name: str) -> str | None:
             if os.path.exists(p):
                 return p
         return None
+    if bench_name.startswith("odeexpr_"):
+        return resolve_odeexpr(bench_name)
     return None
 
 
@@ -49,21 +80,73 @@ def load_benchmarks(baseline_csv: str) -> list[str]:
         rows = list(reader)
     # Row 0: group headers, Row 1: sub-headers, Row 2: index label, Row 3+: data
     for row in rows[3:]:
-        if row and row[0].strip():
-            names.append(row[0].strip())
+        name = row[0].strip() if row else ""
+        if name and not _is_oom_risk(name):
+            names.append(name)
     return names
+
+
+def weighted_sample_without_replacement(items, k, rng):
+    """Pick k of `items` (each a (name, path) pair) weighted by family weight.
+
+    Efraimidis-Spirakis A-Res: assign each item key = u**(1/w) with u~U(0,1),
+    take the k largest keys. Heavier families (odeexpr) are proportionally more
+    likely to be drawn per item.
+    """
+    if k >= len(items):
+        return list(items)
+    keyed = []
+    for name, path in items:
+        w = weight_of(name)
+        u = rng.random()
+        key = u ** (1.0 / w) if w > 0 else 0.0
+        keyed.append((key, name, path))
+    keyed.sort(key=lambda t: t[0], reverse=True)
+    return [(name, path) for _key, name, path in keyed[:k]]
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=8, help="random benchmarks to add (not counting anomalies)")
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--family", default=None,
+                        help="comma-separated family filter (odeexpr,saradc,github,tacas); "
+                             "restricts the corpus to those families before selection")
+    parser.add_argument("--all", action="store_true",
+                        help="emit EVERY benchmark of the (filtered) corpus, deterministically "
+                             "sorted — no random sampling, no anomaly injection. Intended for an "
+                             "A/B over a fixed family set (e.g. --family github,tacas,saradc --all)")
     args = parser.parse_args()
 
     baseline_csv = os.path.join(SCRIPT_DIR, "baseline.csv")
     state_path = os.path.join(SCRIPT_DIR, "state.json")
 
-    all_names = load_benchmarks(baseline_csv)
+    # Corpus = the frozen baseline CSV rows (saradc/github/tacas) plus the
+    # manifest-derived odeexpr family (4th family, content-addressed).
+    all_names = load_benchmarks(baseline_csv) + load_odeexpr_names()
+
+    if args.family:
+        want = {f.strip() for f in args.family.split(",") if f.strip()}
+        all_names = [n for n in all_names if family_of(n) in want]
+        if not all_names:
+            print(f"ERROR: no benchmarks match --family {sorted(want)}", file=sys.stderr)
+            return 1
+
+    # --all: deterministic full enumeration of the (filtered) corpus. No
+    # anomalies, no random — an A/B wants a fixed, reproducible job set.
+    if args.all:
+        rows = sorted((n, resolve_path(n)) for n in all_names)
+        emitted = 0
+        for name, path in rows:
+            if not path:
+                print(f"WARN: could not find file for {name}", file=sys.stderr)
+                continue
+            print(f"{name}\t{path}")
+            emitted += 1
+        print(f"Selected {emitted} benchmarks (--all"
+              f"{', --family ' + args.family if args.family else ''}); "
+              f"{len(rows) - emitted} not found on disk (skipped).", file=sys.stderr)
+        return 0
 
     with open(state_path) as f:
         state = json.load(f)
@@ -84,7 +167,7 @@ def main():
         print(f"WARN: could not find file for {n}", file=sys.stderr)
 
     sample_size = min(args.n, len(resolvable))
-    selected_pool = rng.sample(resolvable, sample_size)
+    selected_pool = weighted_sample_without_replacement(resolvable, sample_size, rng)
 
     # Always include anomalies (resolved)
     anomaly_paths = [(n, resolve_path(n)) for n in anomaly_names]
@@ -108,4 +191,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

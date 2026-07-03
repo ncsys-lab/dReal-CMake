@@ -5,6 +5,160 @@ or **Rejected** (with numbers + reason). Acceptance bar: net PAR2 improvement �
 probe + gate sets, **zero** SAT/UNSAT correctness flips vs ground truth, no >1.5× regressions.
 Soundness guardrails (FE_UPWARD/FE_TONEAREST guards, no silent fallbacks) are non-negotiable.
 
+> **Scope:** §Adopted and §Rejected below are **all CAPD/ODE-path tuning** — the probe set
+> is ODE-heavy and the baseline profile is an ODE benchmark where `contractor_ode_lohner`
+> is 90.8% of runtime. The ODE-free `ode_expressivity` (odeexpr) family shares **none** of
+> this code; for its assumption re-check and its (different) hotspot, see the
+> **odeexpr** section at the bottom of this file.
+
+## 2026-06 re-tuning campaign — runtime knobs + pooled sweep (IN PROGRESS)
+
+The ODE contractor's performance regime **changed** under the soundness fixes on
+`rounding-mode-fixes` (per-slice tube filter restored `5d619fe3f`; full-precision
+vector-field feed `a925eba2c`; terminal-gate window clip `a60b0ff8e`). Those fixes were
+measured against the *old* coarse-endpoint contractor, so the **§Adopted / §Rejected
+numbers below are superseded** for the current architecture and are being re-measured by
+this campaign. (They remain as the historical record of what was tried and why.)
+
+### What changed in the code
+
+The CAPD knobs are no longer compile-time `constexpr` in `contractor_odes_capd.cc`; they
+are **runtime CLI flags** threaded through a `CapdSolverParams` struct (`ode_types.h`),
+resolved per contractor instance from `Config` (`contractor_odes.cc` ctor, direction-aware
+for the Taylor order):
+
+| Flag | Default (= old constexpr) | Knob |
+|---|---|---|
+| `--ode-taylor-order` | 20 | forward CAPD `IOdeSolver` Taylor order |
+| `--ode-backward-order` | 20 | backward (`-f(x)`) Taylor order (a lohner instance is single-direction) |
+| `--ode-abs-tol` / `--ode-rel-tol` | 1e-10 | CAPD step-control tolerances |
+| `--ode-hull-grid` | 16 | per-step tube sub-slices in the filter |
+| `--ode-c0-set` | `rect2` | enclosure set: `rect2`/`tripleton`/`horect2` (runtime type-dispatch) |
+| `--ode-backward` | `true` | enable the backward (X₀-narrowing) contractor (emit-guard in `theory_solver.cc`) |
+| `--ode-max-step` | 0 (adaptive) | optional `setMaxStep` cap |
+
+Defaults equal the prior constexprs, so default behavior is unchanged — **proven** by a
+123-job A/B (`/tmp/dreal4_head` HEAD vs worktree@default): identical solve-set (117/123),
+zero SAT/UNSAT disagreements, CPU within noise (aggregate 0.99×). The order-20 rationale
+moved onto the `kDefaultOde*` constants in `solver/config.h`.
+
+### Experimental design for a meta-parameter sweep
+
+Screen wide and cheap, then confirm narrow and clean:
+
+1. **OFAT on the probe set** (`benchmark/probe_odes.tsv`, 18 ODE-heavy: tacas inverters +
+   github prostate/thermostat/quad/cardiac/water + saradc box/nonlinear; mix of fast k2 and
+   stress k256+). Vary **one knob at a time** around the default; `base` is one of the
+   configs. Screens main-effect *direction* and flags any verdict change.
+2. **Targeted 2-factor sweeps** only for the architecturally-coupled pairs — **order ×
+   hull-grid** (per-slice cost ≈ hull_grid × #steps, and #steps falls with order) and
+   **order × c0-set**. Probe set only.
+3. **Confirm** the best 1–3 configs on the **full 123 ODE-family** via the sequential
+   `do_ab.sh` (cleaner timing than the pool) before any recommendation.
+
+**Metric & guardrails.** CPU time (user+sys) **ratio vs `base`** is the screen — within one
+pooled sweep, `base` and every variant are shuffled together so they share the same average
+contention, making the *ratio* fair even though absolute CPU shifts ~10–17% vs an isolated
+run (memory-bandwidth contention). A **SAT↔UNSAT change vs base is the soundness signal**: a
+coarser enclosure (lower order / fewer slices / looser tol / backward-off) can only
+*fail-to-refute* → a `base`-UNSAT turning delta-sat means base was the tighter/sounder answer;
+investigate against the cav26 oracle, never silently accept. The probe screens **large**
+effects reliably; sub-contention-noise effects need the confirmation run.
+
+### Pooled sweep harness (`benchmark/do_sweep.sh`)
+
+`do_sweep.sh NAME1="flags1" NAME2="flags2" …` sweeps **one** binary over many flag configs on
+the same jobs and emits a `compare_solvers.py` table (N columns). Key behavior:
+
+- **Pooled, not per-config batches.** All (config × benchmark) pairs run in **one shuffled
+  12-way pool**, not 20 separate 18-job batches. *Why:* an 18-job probe drains to its 2–3
+  long-poles (e.g. a k256 thermostat) while the other ~9 cores idle — across 20 configs that
+  idle tail wastes most of the wall time. Pooling overlaps a slow config's long-pole with
+  other configs' fast jobs, so the cores stay full (≈2.2 hr → ≈40 min for the 20×18 OFAT).
+  It does **not** oversubscribe: ≤`MAXJOBS` solvers run at once, each `nice -n 1` on its own
+  core, so per-process CPU-time stays accurate — same per-core fairness as `run_batch`'s 12-way,
+  just better packed. The shuffle spreads long-poles so the only thin tail is the last ~12 jobs.
+- **Env:** `JOBS` (default `probe_odes.tsv`; point at `select.py --family … --all` for the
+  full-corpus confirm), `DREAL_BINARY`, `MAXJOBS` (default **12** — the project standard),
+  `TIMEOUT` (default 600; the OFAT probe uses a tighter cap, e.g. 400, to bound stress-TIM cost
+  while the 123-job confirm keeps 600). Per-config flags ride a bash array-free TSV column with
+  an empty-flags `NONE` sentinel (bash 3.2 on macOS has no assoc arrays, and an empty TSV field
+  is collapsed by tab-IFS `read`).
+- **Enablers** (in `run_batch.sh`): `DREAL_ARGS` injects per-invocation solver flags; `TIMEOUT`
+  overrides the 600 s cap. Both default to the prior behavior.
+- **Usage:**
+  ```bash
+  # OFAT probe (one knob), tighter cap:
+  JOBS=benchmark/probe_odes.tsv TIMEOUT=400 bash benchmark/do_sweep.sh \
+      "base=" "ord12=--ode-taylor-order 12" "bwoff=--ode-backward false"
+  # Full-corpus confirm of a winner (sequential do_ab is cleaner for final numbers):
+  bash benchmark/do_ab.sh /path/to/binA gcc_build/dreal4
+  ```
+
+### Lessons learned
+
+- **Pooling > per-config batching** for a sweep with skewed per-job runtimes (above).
+- **Count solvers with `pgrep -x dreal4`, not `pgrep -f gcc_build/dreal4`** — the `-f` form also
+  matches the `gtime`/`nice`/`timeout` wrapper procs (≈3 per solve), so 12 real solves read as
+  ~39 and look like a broken throttle. The `while (( $(jobs -r | wc -l) >= MAX ))` throttle is
+  correct (same pattern as `folderops/unroll_folder.sh`); cap is **12**.
+- **A timing-sensitive run needs a quiet machine** — a background CLion `-j14` auto-build (it
+  rebuilds on file save) silently inflates wall time and risks false 600 s TIMs; quit it before
+  the A/B / sweep. Builds and ctest (correctness, not timing) can overlap; baselines/A-Bs cannot.
+- **A cleanup wiped local-only benchmark artifacts** (`baseline.csv`, `baseline_local.csv`,
+  `baseline_odeexpr.csv`, `state.json`, `probe_odes.tsv` — all untracked) and `do_baseline.sh`
+  dies if `state.json` is absent (`set_local_baseline.py` reads it). Reconstructible:
+  `baseline.csv` ← `/tmp/good_benchmarks.csv` (same schema, documented superset); seed an empty
+  `{"anomalies":[],"exceptional":[]}` `state.json`.
+- **A benchmark "zero verdict flips" does NOT clear a correctness-class (soundness *or*
+  completeness) change** — the sweep's lower order/hull-grid flipped no verdict on 141
+  benchmarks, yet a curated unit test (`GravityInvariantTest`) caught that hull-grid 4 silently
+  breaks interior-invariant refutation — a *completeness* gate (asserts φ^δ T-satisfiable on a
+  T-unsatisfiable φ — missed refutation), not soundness. Curated refutation/completeness tests
+  exercise sharp cases a benchmark corpus can't. And the
+  reflex to "bump hull-grid back up until the test passes" is gaming the verifier — the test was
+  exposing a real looseness defect. **Root cause + the deferred fix: `HULL_COMPLETENESS.md`.**
+
+### Per-knob findings (measured on the current — still ~4× loose — tube)
+
+These drove the adopted default (order 12 / hull-grid 4 / backward 12); numbers reflect the
+SHIPPED tube, which `HULL_COMPLETENESS.md` shows is ~4× looser than CAPD's precision and will
+tighten once the width-based sub-slicing fix lands (re-tune then). Soundness direction: lower
+order/hull only *widens* enclosures (no false-`unsat`); the cost is missed refutation
+(completeness), which the F1 test catches for the sharp interior case below the hull-4 resolution.
+
+- **Taylor order is problem-dependent** (the strongest reason it stays a flag): tacas inverters
+  want low (~8–12, up to ~2.5× faster); stiff long-horizon github wants high (~16–20). Order 16
+  was the best global compromise; order 10 *regressed* github.
+- **hull-grid is NOT a free speed knob** — it is the time-resolution of interior-invariant
+  detection (see `HULL_COMPLETENESS.md`). Lowering it looked like a universal win on benchmarks but
+  trades away refutation completeness.
+- **backward-order / tolerance / c0-set**: minor (±5%). `c0-set=horect2` slightly slower
+  (matches the old §Rejected). Tolerance is a *minor* lever — the earlier smoke-test "looser tol
+  is 2.4× slower" was contention noise; the clean OFAT vindicates the old "tolerance ≈ no effect".
+- **max-step cap**: harmful (slower + lost the stress benchmark). Keep adaptive (0).
+- **backward off**: ~2× faster but loses X₀-narrowing (completeness risk) — a per-workload flag,
+  never a default.
+
+### Campaign status (2026-06-23)
+
+- Phase 0 re-baseline ✓; Phase 1 runtime-flag plumbing ✓ + gates; Phase 2 behavior-neutral A/B ✓.
+- Phase 3 sweep ✓ (OFAT 20 configs + order×hull-grid interactions + 123-confirm).
+- Phase 4: default **ADOPTED** at forward & backward order 12 + hull-grid 4. The F1
+  "soundness" test failure was diagnosed (not gamed) as a *completeness* gate — missed
+  refutation / false-`delta-sat`, never false-`unsat` — an owner-accepted tradeoff
+  (`HULL_COMPLETENESS.md`). 123-confirm: ~2× faster (PAR2 0.49), +4 solved (121/123), zero flips;
+  bwd-12 adds ~5% over bwd-20. F1 test pinned to hull-16 (guards the mechanism at adequate
+  resolution). Suite green (641/641 modulo the Timer flaky); Debug rounding gate ✓.
+- **Follow-up RESOLVED (2026-06):** the ~4× looseness was fixed — but by a **centered-in-time
+  (mean-value) range**, not the width-based sub-slicing originally proposed (the real cause was
+  naive Horner in the *time* argument, not sub-interval count; see `HULL_COMPLETENESS.md`
+  "Resolution"). hull-grid is no longer completeness-relevant and the F1 case now refutes at the
+  hull-4 default. Same-instance trade-off: github/tacas faster (~0.19×/0.60× PAR2), saradc ~+14%
+  CPU, no correctness flips. The per-knob numbers above were measured on the OLD loose tube; a
+  full OFAT/123 re-tune on the tightened tube is the remaining optional step before re-picking
+  any default.
+
 ## Measurement setup
 
 - **Baseline:** `benchmark/baseline_local.csv` (~30 stratified, refreshed on this branch).
@@ -31,89 +185,48 @@ Soundness guardrails (FE_UPWARD/FE_TONEAREST guards, no silent fallbacks) are no
 | `contractor_ode_lohner::Prune` | **90.8%** | the ODE contractor is the bottleneck |
 | `run_capd_fwd` | 85.4% | forward CAPD integration (BWD contractor is the small remainder) |
 | `OdeSolver::encloseC0Map` | 84.5% | |
-| `computeTaylorCoefficients` (order 20) | **74.2%** | **primary target** — scales with Taylor order |
+| `computeTaylorCoefficients` (order 20) | **74.2%** | scales with Taylor order |
 | `autodiff::Div::eval` | ~17% | vector-field division AD (inverter sigmoid has `/`) |
 | `DoubleRounding::roundUp/roundDown` (leaves) | ~9.3% | per-op FPU-mode switches (CAPD NATIVE intervals) |
 | `capd::intervals::operator*` (leaves) | ~6.9% | interval multiplies |
 
-Takeaway: CAPD forward Taylor integration dominates nonlinear-ODE runtime. Highest-value levers
-(profiling-justified): **lower Taylor order**, **looser tolerance** (fewer steps), and reducing
-the AD operation count. Set type is already `C0Rect2Set` (doubleton + QR reorganization).
-
-## Backlog (ordered; profiling-justified first)
-
-1. Centralize the 3 duplicated CAPD config sites into one helper (refactor; behavior-identical). — prerequisite
-2. Lower Taylor order 20 → {16,14,12,10} (sweep). Targets the 74% hotspot directly.
-3. Looser tolerance 1e-10 → {1e-9,1e-8,1e-7}. Fewer steps.
-4. Joint order×tolerance sweep.
-5. Adaptive `n_steps` clamp `[20,60]` / factor `2.0` retune.
-6. Set representations: `C0Rect2RSet` / `C0HORect2Set` / tripleton (tightness vs cost).
-7. `SolutionCurve` reuse; warm-start step size across ICP iterations.
-8. C1/variational backward narrowing (interesting, higher effort).
-9. Allocation reduction in `with_params` IMap deep-copy per Prune.
+Takeaway: CAPD forward Taylor integration dominates nonlinear-ODE runtime. Set type is already
+`C0Rect2Set` (doubleton + QR reorganization).
 
 ---
 
-## Open approaches (not yet attempted)
-
-### Vector-field simplification / CSE before to_capd_string
-
-The forward integration is ~69% of order-10 runtime, dominated by
-`computeODECoefficients` — CAPD's automatic differentiation of the ODE RHS, with
-`autodiff::Div` (division AD) alone ~17%. CAPD's parser does common-subexpression
-elimination *within* one IMap string but does not factorize. The ODE RHS for the
-inverter/cardiac models has large repeated transcendental subterms (the same
-`log(... exp ...)` block appears across multiple `d/dt`). Pre-simplifying / CSE-ing
-the RHS with Drake's symbolic layer before emitting `to_capd_string` could cut the
-per-step AD cost at its root. Medium-high effort, **low confidence**:
-- The `a / c → a * (1/c)` constant-denominator rewrite is **N/A** for the probe
-  families — their divisions are state-dependent (prostate `(/ z (+ z 2))`, the
-  inverter's 60 divisions are sigmoid terms), so the expensive division AD is
-  inherent, not a constant-fold artifact.
-- Subexpression dedup: CAPD's parser already does within-string CSE, so a
-  Drake-level CSE pass may add little. Would need to confirm CAPD isn't already
-  capturing the repeated `log(...exp...)` blocks before investing.
-
-This is the last untried CAPD-side idea and it is speculative; the high-confidence
-config/allocation wins are all harvested.
-
 ## Adopted
 
-### 1. Taylor order 20 → 10  (commit pending)
+> **Note (2026-06):** the numbers in §Adopted and §Rejected were measured against the
+> *pre-per-slice* coarse-endpoint contractor and are **superseded** — they are being
+> re-measured by the "2026-06 re-tuning campaign" section above. Kept as the historical
+> record of what was tried and the reasoning.
 
-Lower the CAPD `IOdeSolver` Taylor order from 20 to 10 (`kCapdTaylorOrder`).
-Directly attacks the 74% `computeTaylorCoefficients` hotspot — fewer Taylor
-coefficients per step on the expensive transcendental/division vector fields.
+### 1. CAPD Taylor order = 20 (order-10 was adopted, then reversed)
 
-**Sweep (fast sub-probe, 16 benchmarks, vs order-20 frozen probe_baseline):**
+`kCapdTaylorOrder = 20`. An earlier entry lowered the order 20→10 for a 48% fast-probe win, but
+that was measured against the **coarse endpoint-narrowing** ODE contractor — which was also
+**unsound** (its `run_capd_fwd` intersected the terminal box with only `enclosure(t_ub)`, false-
+`unsat`'ing free-time integrals whose solution lands at an interior time `< t_ub`; **proven** on
+`github_oct5_0hz_k2_prostate_cancer_*`: coarse → `unsat` 0.03 s, while cav26 and the restored
+per-slice form → `delta-sat` with a witness at interior times ≈1.7–4.4 « horizon 20). See
+`docs/decisions.md` "Per-slice ODE tube".
 
-| order | net PAR2 | flips | notes |
-|---|---|---|---|
-| 14 | 0.671 (32.9% faster) | 0 | tacas inverters ~1.85× |
-| **10** | **0.517 (48.3% faster)** | **0** | tacas inverters ~3× (0.31–0.33×) |
-| 8 | 0.446 (55.4%) | **1** | rejected — prostate SAT→UNSAT |
+Restoring cav26's per-slice tube filter (sub-grids `kHullGrid=16` enclosures **per step**) fixes
+the soundness bug at a cost: the cost model goes from ∝ #steps to ∝ 16 × #steps, so a low
+order's many small steps **explode** the slice count. Order-20 is cav26's co-designed partner:
+fewer, larger steps + tighter per-step enclosures that also localize interior invariant
+violations. The k256 thermostat went 187 s → timeout at order 10, back to 196 s at order 20.
+Per-slice verdicts match cav26; on the proven case this build is faster (68 s vs 209 s, both
+`delta-sat`). A lower-order enclosure is always a sound superset (never a false-`unsat`), so
+order is a speed/precision lever only. The order-10-era sweep tables are superseded.
 
-**Validation at order 10:**
-- Full probe (18, incl. 2 TIMs): net 0.859 (14.1% faster), 0 flips, 0 real
-  regressions. The 2 TIMs (`quad2-1`, `k13_inverter`) stay TIM — they're ICP/
-  SAT-search bound, not CAPD-per-step bound, so order doesn't rescue them.
-- 30-set gate: **0 correctness flips**, 7 exceptional. One >1.5× "regression"
-  (`car-3-single-linear` 267s→TIM) was **parallel-scheduling contention, not an
-  order effect**: isolated, car-3 solves delta-sat in **184s** at order 10
-  (well under the 300s timeout). car-3 is a near-timeout linear benchmark whose
-  parallel PAR2 is noise-dominated.
-- ctest green except the documented flaky trio.
+*Caveat on attribution:* the per-slice change is **orthogonal** to the
+`..._inverter_sigmoid_UNS` UNSAT↔delta-sat flip — that is the #321 ibex-backward
+`underflow_saturate` tradeoff (`docs/decisions.md`; do not re-investigate); do not credit/blame
+the ODE contractor for it.
 
-Soundness: a lower-order Taylor enclosure is wider but still a rigorous
-superset — sound, never a false-UNSAT. The order-8 prostate flip is the
-delta-sat/unsat boundary ambiguity (different orders give different enclosure
-*shapes*); order 10 keeps prostate SAT consistently across orders 10/14/20.
-
-Current best = order 10. Subsequent experiments measure vs the order-20 frozen
-probe_baseline, so their net ratio reflects cumulative gain; compare against
-0.859 (full) / 0.517 (fast) to detect incremental regressions.
-
-### 2. thread_local reuse of the parameter-bound IMap (commit pending)
+### 2. thread_local reuse of the parameter-bound IMap
 
 `with_params` deep-copied the cached IMap (the full automatic-differentiation
 tree) on every fwd/bwd/trace call to bind parameters without mutating the
@@ -126,12 +239,7 @@ Strictly safe / behavior-identical: `setParameter` fully overwrites the named
 parameters, the cached base maps are immutable and live for the whole process,
 and thread_local storage means no copy is shared across parallel ICP workers
 (works for IcpSeq and IcpParallel). No verdict can change — it only removes an
-allocation.
-
-- Fast sub-probe: net 0.499 vs order-10's 0.517 (~3.5% faster), 0 flips.
-- Full probe: net 0.847 vs order-10's 0.859 (15.3% cumulative vs order-20), 0
-  flips, 0 regressions, TIMs unchanged.
-- ctest green except the flaky trio.
+allocation. Fast sub-probe ~3.5% faster, 0 flips; ctest green except the flaky trio.
 
 ## Rejected
 
@@ -168,15 +276,6 @@ cost, same mechanism) not tested — same prediction. Kept C0Rect2Set. The
 `CapdC0Set` type alias was added to centralize this knob for the A/B test and
 is retained (mirrors the order/tolerance centralization).
 
-### Re-profile at order 10 (guides remaining work)
-
-After order 10, the k22 heavy path shifted: contractor_ode_lohner::Prune 79%
-(was 91%), run_capd_fwd 69% (was 85%), backward contractor + Prune overhead
-~10% (was ~5%), non-ODE (ibex arithmetic HC4 + fixpoint) ~21% (was ~9%). The
-forward Taylor cost is at the order-10 floor and irreducible by config. The
-two grown shares — the **backward contractor** (a second full CAPD integration
-per ODE constraint) and **non-ODE arithmetic** — are the remaining targets.
-
 ### Backward ODE contractor — no safe focused win (cav26 X_0 narrowing kept)
 
 The backward contractor (a one-shot `-f(x)` image narrowing X_0, one per ODE
@@ -212,8 +311,7 @@ forward solution curve).
 vs the order-20 baseline — a correctness flip (halt). The flip is the inherent
 delta-boundary ambiguity rather than a soundness bug (the enclosure stays a
 valid superset at any order), but any verdict change vs baseline is
-disqualifying. The order knee is between 8 and 10; order 10 is the floor with
-zero flips. Not retested below 8.
+disqualifying. The order knee is between 8 and 10. Not retested below 8.
 
 ### CAPD tolerance 1e-10 → 1e-8 (at order 10)
 
@@ -226,7 +324,184 @@ these benchmarks. `run_capd_fwd`/`run_capd_bwd` compute `n_steps`/`max_step`
 tolerance-based adaptive control, and for these short/smooth horizons the step
 count is already near-minimal, so loosening tolerance can't reduce it further.
 Both the tolerance and n_steps levers are therefore closed for fwd/bwd; the
-per-step Taylor-coefficient cost (order) is the only step-cost lever, and it's
-at the order-10 floor. Kept tol 1e-10 (tighter = safer, no speed cost).
-Follow-up: the dead `n_steps`/`max_step` in fwd/bwd is a cleanup candidate
-(also the stale Codac-era file header comment).
+per-step Taylor-coefficient cost (order) is the only step-cost lever. Kept tol
+1e-10 (tighter = safer, no speed cost). Follow-up: the dead `n_steps`/`max_step`
+in fwd/bwd is a cleanup candidate.
+
+### Vector-field CSE before to_capd_string (CAPD-side, deferred)
+
+Pre-simplifying / CSE-ing the ODE RHS with Drake's symbolic layer before emitting
+`to_capd_string` could cut per-step AD cost (CAPD's `autodiff::Div` ~17% of order-10 runtime).
+Medium-high effort, **low confidence**: the `a/c → a*(1/c)` rewrite is N/A (the probe families'
+divisions are state-dependent — prostate `(/ z (+ z 2))`, the inverter's sigmoid terms — so the
+division AD is inherent, not a constant-fold artifact), and CAPD's parser already does
+within-string CSE, so a Drake-level pass may add little. The last untried CAPD-side idea; the
+high-confidence config/allocation wins are harvested.
+
+---
+
+## odeexpr (ODE-free QF_NRA) — separate code path
+
+**Why separate.** The high-priority `ode_expressivity` (odeexpr) family is **pure QF_NRA with
+no ODEs** (transcendental-heavy: `sin`/`tanh`/`pow`/`exp`; quantifier-free; each sets
+`:precision 5e-4`; Lyapunov positivity/stability/decrease obligations). `sample` confirms **0
+samples** in any `capd*`/`contractor_ode*` frame — the active path is
+`IcpSeq → Fixpoint[ ContractorIbexFwdbwd × N, Integer ] → BranchLargestFirst`, single-threaded,
+all of polytope/local-opt/pattern-matching off by default. Every §Adopted/§Rejected idea is in
+CAPD code that **never runs here** — none can help or backfire.
+
+**A/B of the shared / default-off levers** (all 50, 600 s timeout, IcpSeq; reference = default):
+
+| arm | solved | PAR2 vs default | verdict flips |
+|---|---|---|---|
+| default | 36/50 | 1.00× | — |
+| `--worklist-fixpoint` | 34/50 | **5.58× worse** | none |
+| `--polytope` | 16/50\* | n/a (errors) | none |
+
+- **`--worklist-fixpoint`: net negative here too** — the same faster-on-SAT / catastrophic-on-
+  UNSAT variance as the ODE-side k17/k70 (pushes `tanh_decrease__J1.0` and `kuramoto_doe__N3`
+  over timeout, −2 solves). The ODE-grounds rejection holds on odeexpr.
+- **`--polytope`: not usable in this build.** \*The 16 "solved" are trivial pre-contractor
+  instances; the rest exit 255 with `LPSolver method called but no LPSolver has been configured`
+  — IBEX was built without an LP backend (`-DLP_LIB` unset). Would need an LP-enabled IBEX first.
+- **`--local-optimization`: provably inert** (exist-forall-only; odeexpr is quantifier-free).
+
+**The odeexpr hotspots — three mechanical overheads, all addressed.** Self-sample showed ~half
+of odeexpr runtime was mechanical (mode switches + exception unwinding), not interval algebra:
+
+1. **`fesetround` (FPU mode switch), 23–44%.** Two slices. (a) A dReal-side slice: `is_integer`
+   (called per `pow` in `ExpressionEvaluator::VisitPow`) opened a `NearestRoundingScope` for
+   uniformity though it is mode-**independent**, forcing a needless `FE_UPWARD↔FE_TONEAREST`
+   flip per call — **removed** (`util/math.cc`), plus check-before-set in `RoundingModeGuard`
+   makes redundant nested scopes free (~9% relative on `pow`-dense). (b) The gaol-internal slice
+   (each interval transcendental toggles the mode around its mathlib call) — addressed in the
+   **ibex-fork**, levers #9 (inline aarch64 `msr` FPCR write) + #10 (batch the two directed
+   bounds into one nearest/upward window, halving toggles): **~8% aggregate**, bit-identical
+   (gated by `gaol_transcendental_bitidentity_test.cc`). See `../ibex-fork/MIGRATION.md`.
+2. **C++ exception unwinding, 3–37%.** IBEX `HC4Revise` signalled an emptied domain by throwing
+   `EmptyBoxException`; UNSAT decrease/positivity proofs prune to empty at extreme frequency, so
+   `__cxa_throw`/`_Unwind_*` was on the ICP hot path (26.6% on `tanh_decrease__J1.0`).
+   **Eliminated** in the ibex-fork (patch #11): the whole shared backward engine returns a `bool`
+   instead of throwing; `Function::backward`'s public signature is unchanged (dReal already reads
+   `is_empty()`). `__cxa_throw` → **0%**; +2 odeexpr newly solved, 0 flips, `tanh_J1` 311→183 s
+   (1.7×). Guarded by the Phase-0 soundness net (`hc4_empty_propagation_soundness_test.cc`,
+   engine-level `empty01/empty02`), all written against the throw-based code first.
+3. **Stat timer overhead, 4–16%.** `ContractorIbexFwdbwd::Prune` (and `…Polytope::Prune`) called
+   `stat.timer_pruning_.resume()/.pause()` unconditionally, so with default log level `off`
+   (`stat.enabled() = false`) two `steady_clock::now()` calls per `Prune` were computed and
+   discarded. **Fixed** by gating on `stat.enabled()`. `mach_continuous_time` 11.3% → 0% on
+   kuramoto__N6 (its short per-Prune work made the fixed overhead relatively large).
+
+**Post-fix profile (the remaining floor).** With all three addressed, `fesetround` and
+`__cxa_throw` read ~0%. Three benchmarks (`sample`, leaf-level):
+
+| category | xwin1.5 (TIM) | kuramoto__N6 (TIM) | J0.6 (SAT) |
+|---|---|---|---|
+| gaol transcendentals (atanh/tanh/cos/sin/div_rel/sqrt_rel) | **44.8%** | **30.5%** | **45.2%** |
+| HC4 backward | 11.4% | 12.0% | 12.0% |
+| HC4 forward | 9.3% | 13.6% | 8.9% |
+| ExpressionEvaluator (Drake VisitExpression/VisitPow) | 6.9% | 4.5% | 6.6% |
+| Allocation (IntervalVector copies) | 5.4% | 5.2% | 5.2% |
+| gaol interval arithmetic | 5.1% | 6.2% | 4.7% |
+| fesetround / `__cxa_throw` | **~0%** | **~0%** | **~0%** |
+
+Gaol transcendentals (30–45%) are the **computational floor** — the actual correctly-rounded
+interval math, irreducible without changing the interval library's soundness semantics.
+Branching (`FindMaxDiam`) is ~0.4% — no headroom; a branching-heuristic A/B is ruled out.
+
+---
+
+## Open avenues (deferred — post-timer-fix)
+
+These ideas are not yet attempted. Ordered by estimated confidence × effort.
+
+### A. ExpressionEvaluator overhead (medium confidence, medium effort)
+
+**What:** `EvaluateBox` calls dReal's own `ExpressionEvaluator` (the Drake symbolic traversal)
+once per formula after every successful `Prune`, to check delta-satisfiability. This costs
+4.5–7% of total runtime (profile above). Components: `VisitExpression` dispatch, hash-table
+variable-index lookups (`__hash_table::__emplace_unique`, ~1.4%), and the coefficient
+accumulate loop in `VisitAddition`.
+
+**Direction:** The hash-table lookup is a `map<Variable, int>` index lookup done per
+variable per eval. A flat sorted-vector or pre-built index array could replace it.
+Alternatively, if the formula set is stable across ICP iterations (it is — it's set once),
+precompiling the formula evaluators into IBEX `Function` objects (which already do CSE and
+compile to a flat byte stream) and reusing the HC4 forward-eval path would eliminate the
+Drake traversal entirely. That is a larger restructuring (the `FormulaEvaluator` and
+`ExpressionEvaluator` classes are the eval layer).
+
+**Caution:** `EvaluateBox` also determines which formulas are violated (the `DynamicBitset`
+returned) — branching uses this. Any replacement must preserve that output.
+
+### B. Allocation reduction — IntervalVector copies in HC4 (medium confidence, medium effort)
+
+**What:** `IntervalVector::IntervalVector` (copy constructor) and `_xzm_free` collectively ~5%
+of runtime. The copy constructor appears in the HC4 forward pass (allocating the input vector
+for each `Eval::eval` call) and in the backward pass's local snapshots. Post-Phase-2,
+exception-elimination removed the `try/catch` frame but may not have changed heap turnover in
+the backward engine's local allocations.
+
+**Direction:** Instrument IBEX's `eval` and backward paths with Instruments → Allocations
+(or `malloc_count`) to confirm the allocation sites and count. If `IntervalVector` copies are
+O(constraints × ICP-iterations), a preallocated workspace (thread-local or per-contractor)
+that is resized-once and reused across calls could eliminate the per-call allocation.
+
+**Note:** This is in IBEX's core (`ibex::Eval`, `CompiledFunction`), so the change would live
+in the ibex-fork, following the same pattern as the exception-elimination patches.
+
+### C. Per-constraint skip-if-unchanged gate (low confidence, medium effort)
+
+**What:** IBEX's `ContractorFixpoint` iterates all N constraints until no box shrinks. For
+odeexpr's Lyapunov formulas, many constraints involve non-overlapping variable clusters; a
+narrowing in constraint `i` rarely propagates to constraint `j` unless they share a variable.
+A dependency graph that tracks which variables each constraint reads/writes could gate
+re-evaluation of constraint `j` until one of its input variables changes.
+
+**Why low confidence:** The `--worklist-fixpoint` flag (a coarser version of this idea)
+was measured net-negative on both ODE and odeexpr families — faster on SAT-easy instances
+but catastrophically slow on UNSAT-difficult ones (k17 23 s → 0.85 s; k70 47 s → 7876 s).
+A per-constraint graph rather than a global queue reorder might have better variance, but
+that distinction is unproven. Profile above shows HC4 forward (13.6%) + backward (12%) = 25%
+— so if this idea works, there is meaningful headroom. Worth a targeted A/B only if the
+worklist-fixpoint catastrophe can be traced to the global reorder rather than the early-exit
+logic.
+
+### D. Constraint ordering heuristic (low confidence, low effort)
+
+**What:** IBEX evaluates constraints in declaration order (as they appear in the parsed
+`.smt2`). A heuristic that front-loads high-shrinkage constraints might cut fixpoint
+iterations. The profile shows `HC4Revise::proj` (the per-constraint iteration entry point)
+at ~1.6% leaf — the overhead of cycling through low-yield constraints is embedded in
+`CompiledFunction::forward/backward`. Reordering is a one-time setup cost.
+
+**How to A/B:** Read the current constraint order from `ContractorFixpoint`'s contractor list
+at solve start, sort by some heuristic (e.g. number of variables, or by profiling iteration
+zero's shrinkage), then run. This is dReal-side and does not require ibex-fork changes.
+
+### E. Gaol Lever 3 — 1 toggle per transcendental (NO-GO for now)
+
+After Levers 1+2 (inline FPCR write + batched dn_up pairs → 2 toggles per transcendental), the
+remaining gaol `fesetround` cost is the essential **2-per-transcendental** directed-rounding
+round-trip, and it cannot be cut bit-identically:
+
+- The toggle is **structural.** Correctly-rounded transcendentals use double-double internal
+  arithmetic whose error analysis is valid **only in round-to-nearest**; gaol's ambient is
+  FE_UPWARD. So every interval transcendental round-trips upward→nearest→upward = 2 `msr fpcr`
+  writes. Verified dead ends: patching mathlib/libultim to not require nearest (round-to-nearest
+  is a documented correctness precondition, not a flag — `Init_Lib()` sets `FE_DFL_ENV`);
+  switching to crlibm (its directed functions are *also* nearest-wrapped); the logged
+  `lb = -round_up(-f(x))` "Lever 3" (a misconception — that identity flips upward⟷downward for
+  *arithmetic*; `f` is still the mathlib routine needing nearest).
+- The only true eliminations are architectural and **not bit-identical** (verdict-shift risk at
+  the delta boundary, non-upstreamable): invert the ambient (keep FPU nearest, do interval
+  arithmetic with `next_float`/`previous_float` ULP bumps) or write custom upward-mode directed
+  transcendentals.
+
+**Measured ceiling: ≈13–16% on transcendental-dense benchmarks, ~6–10% aggregate** over the 50
+odeexpr (in-solver redundant-`msr` A/B: inject K extra round-trips between the two mathlib calls
+— net mode unchanged, identical search trajectory — and measure the time delta; +11–13% per
+added pair on the clean long-runners, a mild under-estimate). That is right at the bar for a
+non-bit-identical change for a permanent fork liability — **NO-GO**. The unharvested
+bit-identical avenues A–D (ExpressionEvaluator ~5–7%, allocation ~5%) are the better next step;
+revisit msr-elimination only if A–D are exhausted and the densest instances remain msr-bound.

@@ -33,6 +33,7 @@
 #include "dreal/solver/icp_seq.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
+#include "dreal/util/rounded_interval.h"
 #include "dreal/util/stat.h"
 #include "dreal/util/timer.h"
 #include "odes/ode_formula_evaluator.h"
@@ -56,14 +57,15 @@ TheorySolver::TheorySolver(const Config& config)
 
 namespace {
 bool DefaultTerminationCondition(const Box::IntervalVector& old_iv,
-                                 const Box::IntervalVector& new_iv) {
+                                 const Box::IntervalVector& new_iv,
+                                 const UpwardRounding& ur) {
   DREAL_ASSERT(!new_iv.is_empty());
   constexpr double kThreshold{DREAL_EXPERIMENTAL_THEORY_FIXEDPT_THRESHOLD};
   // If there is a dimension which is improved more than
   // threshold, we continue the current fixed-point computation
   // (return false).
   for (int i{0}; i < old_iv.size(); ++i) {
-    const double new_i{new_iv[i].diam()};
+    const double new_i{safe_diam(new_iv[i], ur)};
     // If the width of new interval is +oo, it has no improvement
     if (new_i == numeric_limits<double>::infinity()) {
       continue;
@@ -72,7 +74,7 @@ bool DefaultTerminationCondition(const Box::IntervalVector& old_iv,
     if (old_iv[i].is_degenerated()) {
       continue;
     }
-    const double old_i{old_iv[i].diam()};
+    const double old_i{safe_diam(old_iv[i], ur)};
     const double improvement{1 - new_i / old_i};
     DREAL_ASSERT(!std::isnan(improvement));
     if (improvement >= kThreshold) {
@@ -232,7 +234,9 @@ optional<Contractor> TheorySolver::BuildContractor(
       }
     }
 
-    {
+    // --ode-backward=false skips the backward (X_0-narrowing) contractor
+    // entirely; ode_bwd_ctcs stays empty so the downstream insertion is a no-op.
+    if (config_.ode_backward()) {
       auto &cache = bwd_ode_contractor_cache_;
       auto dir = ode_direction::BWD;
       auto &ctcs = ode_bwd_ctcs;

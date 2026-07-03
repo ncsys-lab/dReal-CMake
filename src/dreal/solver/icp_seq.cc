@@ -59,6 +59,14 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
   TimerGuard branch_timer_guard(&stat.timer_branch_, stat.enabled(),
                                 false /* start_timer */);
 
+  // The entire ICP contraction phase runs under FE_UPWARD (gaol soundness).
+  // Establish it ONCE here — not once per Prune — and thread the capability
+  // token down through every contractor. This is the phase-hoist that removes
+  // the per-Prune fesetround cost. CAPD contractors flip to FE_TONEAREST
+  // internally and restore FE_UPWARD on exit; brancher/eval below inherit it.
+  const UpwardRoundingScope phase_scope;
+  const UpwardRounding ur{phase_scope.token()};
+
   while (!stack.empty()) {
     DREAL_LOG_DEBUG("IcpSeq::CheckSat() Loop Head");
 
@@ -78,7 +86,7 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
     // 2. Prune the current box.
     DREAL_LOG_TRACE("IcpSeq::CheckSat() Current Box:\n{}", current_box);
     prune_timer_guard.resume();
-    contractor.Prune(cs);
+    contractor.Prune(cs, ur);
     prune_timer_guard.pause();
     stat.num_prune_++;
     DREAL_LOG_TRACE("IcpSeq::CheckSat() After pruning, the current box =\n{}",
@@ -93,7 +101,8 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
     // under evaluation and it's small enough.
     eval_timer_guard.resume();
     const optional<DynamicBitset> evaluation_result{
-        EvaluateBox(formula_evaluators, current_box, config().precision(), cs)};
+        EvaluateBox(formula_evaluators, current_box, config().precision(), cs,
+                    ur)};
     if (!evaluation_result) {
       // 3.2.1. We detect that the current box is not a feasible solution.
       DREAL_LOG_DEBUG(
@@ -115,7 +124,7 @@ bool IcpSeq::CheckSat(const Contractor& contractor,
     Box box_left;
     Box box_right;
     const int branching_dim = config().brancher()(
-        current_box, *evaluation_result, &box_left, &box_right);
+        current_box, *evaluation_result, &box_left, &box_right, ur);
     if (branching_dim >= 0) {
       if (stack_left_box_first_) {
         stack.emplace_back(box_left, branching_dim);

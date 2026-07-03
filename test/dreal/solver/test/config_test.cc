@@ -31,10 +31,10 @@ using std::pair;
 std::vector<Variable> g_branch_variables;
 
 int MyBrancher(const Box& box, const DynamicBitset& bitset, Box* left,
-               Box* right) {
+               Box* right, const UpwardRounding& ur) {
   DREAL_ASSERT(!bitset.none());
 
-  const pair<double, int> max_diam_and_idx{FindMaxDiam(box, bitset)};
+  const pair<double, int> max_diam_and_idx{FindMaxDiam(box, bitset, ur)};
   const int branching_dim{max_diam_and_idx.second};
   if (branching_dim >= 0) {
     pair<Box, Box> bisected_boxes{box.bisect(branching_dim)};

@@ -463,7 +463,10 @@ pip-selfcheck.json
 
 .idea
 .idea/**
-smt2
+# top-level SMT2 examples/scratch dir only — anchored so it does NOT match the
+# source dir src/dreal/smt2/ or the test fixtures under test/dreal/test/smt2/.
+/smt2/
 gcc_build
 past_compilations
 benchmark/results/
+dreal_popl27

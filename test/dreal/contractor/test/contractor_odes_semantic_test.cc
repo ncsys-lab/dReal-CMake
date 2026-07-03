@@ -6,28 +6,32 @@
 // close that gap by exercising `mk_contractor_ode_lohner` on systems with
 // known closed-form solutions.
 //
-// Two gates per system:
-//   - SOUNDNESS (must hold): on a SAT-known (X_0, X_t, t) instance, the box
-//     stays non-empty after Prune(). A false UNSAT here is a soundness bug.
-//   - VALUE (informational): on a UNSAT-known instance, a sound and
-//     reasonably tight contractor should empty the box. Looseness here is
-//     acceptable; a false SAT is not a bug per se, just an unhelpful
-//     contractor.
+// Two gate TYPES per system. Label each by the property it protects, using
+// model-theory notation (see docs/soundness-vs-completeness.md for the T-relation
+// definitions and CLAUDE.md's terminology-discipline mandate):
+//   - [SOUNDNESS GATE], SAT direction: on a SAT-known (X_0, X_t, t) instance the
+//     box stays non-empty after Prune(). Emptying it would be a false `unsat`
+//     — SOUNDNESS (asserts the integral T-unsatisfiable when it is
+//     T-satisfiable, ∃M⊨T. M⊨φ): the contractor over-pruned a real solution.
+//   - [COMPLETENESS GATE], UNSAT direction: on a robustly-UNSAT instance (gap ≫
+//     δ) whose ODE enclosure is provably disjoint from the box gate, Prune()
+//     MUST empty the box. CAPD enclosures are outward over-approximations, so a
+//     disjoint enclosure proves true infeasibility and emptying is sound and
+//     required. Failing to empty is a missed refutation — COMPLETENESS (asserts
+//     φ^δ T-satisfiable when φ^δ is T-unsatisfiable → false `delta-sat`): the
+//     always-VALID OdeFormulaEvaluator then rubber-stamps the un-refuted box.
+//     This is BUG-006. See DecayFlowTest.*Infeasible*.
 //
-// HEAD's BWD path is a no-op (`contractor_odes.cc` Step 4 early-return for
-// BWD), so on HEAD the BWD soundness gates pass vacuously (box unchanged).
-// The LohnerAlgorithm BWD experiment activates the BWD path; soundness
-// gates must continue to pass with the experiment active — a false UNSAT
-// (box becomes empty on a SAT-known case) is the abort condition.
+// The asymmetry is the whole point: a too-loose enclosure can only ever weaken
+// the COMPLETENESS gate — never the SOUNDNESS gate — because widening an
+// over-approximation never removes a real solution. (Failing to empty when the
+// enclosure merely *overlaps* the gate within the over-approximation, gap ≤ δ,
+// is acceptable delta-sat slack, not a bug.)
 //
-// Note on value gates: the contractor does NOT mark the box empty when a
-// component's narrowing intersection is empty (`contractor_odes.cc:315`
-// skips the update). Infeasibility detection happens at the ICP/SAT layer,
-// not in the contractor itself. The TrivialFlowTest cases empty the box
-// because they hit the trivial-flow short-circuit, which calls
-// `set_empty()` explicitly. For non-trivial flows we focus on soundness
-// gates only; value detection is benchmark territory, not unit-test
-// territory.
+// The contractor empties the box on a disjoint enclosure directly
+// (`contractor_ode_lohner::Prune`'s refute_or_narrow), for non-trivial flows
+// as well as the trivial-flow short-circuit. Infeasibility is NOT deferred to
+// the ICP/SAT layer.
 
 #include "dreal/contractor/odes/contractor_odes.h"
 
@@ -39,6 +43,7 @@
 #include <gtest/gtest.h>
 
 #include "dreal/contractor/contractor_status.h"
+#include "dreal/util/rounding.h"
 #include "dreal/symbolic/symbolic.h"
 #include "dreal/util/box.h"
 
@@ -93,7 +98,7 @@ TEST_F(TrivialFlowTest, FwdInfeasible_BoxEmpties) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_TRUE(cs.box().empty())
       << "trivial flow, disjoint X_0 = [0,1] / X_t = [2,3] (FWD) should empty";
 }
@@ -105,7 +110,7 @@ TEST_F(TrivialFlowTest, BwdInfeasible_BoxEmpties) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_TRUE(cs.box().empty())
       << "trivial flow, disjoint X_0 / X_t (BWD) should empty via short-circuit";
 }
@@ -146,7 +151,7 @@ TEST_F(DecayFlowTest, FwdFeasible_BoxRemains) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   ASSERT_FALSE(cs.box().empty())
       << "decay feasible (FWD): box should remain non-empty [SOUNDNESS GATE]";
   // xt is narrowed by FWD to its overapprox of x(1); the closed-form
@@ -171,13 +176,61 @@ TEST_F(DecayFlowTest, BwdFeasible_BoxRemains) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   ASSERT_FALSE(cs.box().empty())
       << "decay feasible (BWD): box should remain non-empty [SOUNDNESS GATE]";
   EXPECT_LE(cs.box()[x0_].lb(), 1.0)
       << "BWD must not over-prune x_0 above 1 (drops the true point x_0=1)";
   EXPECT_GE(cs.box()[x0_].ub(), 2.0)
       << "BWD must not over-prune x_0 below 2 (drops the true point x_0=2)";
+}
+
+// Ground truth: UNSAT (the bug006 / dreal-bugs.md regression, non-trivial flow).
+// X_0 = [1,2], t ∈ [0,1]. The feasible terminal set is the trajectory TUBE
+// {x0·e^-t : x0∈[1,2], t∈[0,1]} = [1·e^-1, 2·e^0] = [0.368, 2] (max at x0=2,
+// t=0). X_t = [2.5,3] lies entirely above the tube, so NO (x0,t) satisfies the
+// integral → infeasible; the contractor MUST empty the box. CAPD enclosures
+// are outward over-approximations, so a hull disjoint from X_t proves true
+// infeasibility — set_empty() here is sound (no false-UNSAT risk).
+//
+// (X_t must clear the whole tube, not just the t=1 endpoint x(1)∈[0.368,0.736]:
+// X_t=[2,3] would touch the tube at x0=2,t=0 and is genuinely SAT. Refuting on
+// the endpoint alone — the pre-fix endpoint-only contractor's latent behavior —
+// would false-unsat such free-time instances; the tube hull is what makes the
+// refutation sound. See run_capd_fwd's header.)
+//
+// This is a real completeness/refutation gate, not the "informational value gate" the file
+// header used to describe: before the fix the contractor silently dropped the
+// empty intersection (no set_empty), leaving the box non-empty for the
+// always-VALID OdeFormulaEvaluator to rubber-stamp as delta-sat — BUG-006.
+TEST_F(DecayFlowTest, FwdInfeasible_BoxEmpties) {
+  SetBounds(1.0, 2.0, 2.5, 3.0, 1.0);
+  Config config;
+  ContractorStatus cs{box_};
+  const auto ic = MakeIc();
+  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
+                                            config, 0.0);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_TRUE(cs.box().empty())
+      << "decay infeasible (FWD): trajectory tube [0.368,2] over t∈[0,1] is "
+         "disjoint from X_t=[2.5,3]; box must empty [COMPLETENESS GATE, BUG-006]";
+}
+
+// Ground truth: UNSAT, same instance. The BWD backward image of X_t=[2.5,3]
+// over τ∈[0,1] (reverse-time x grows) is the tube {xt·e^τ : xt∈[2.5,3],
+// τ∈[0,1]} ⊆ [2.5, 3e] ≈ [2.5, 8.15], disjoint from X_0=[1,2]; the contractor
+// must empty the box.
+TEST_F(DecayFlowTest, BwdInfeasible_BoxEmpties) {
+  SetBounds(1.0, 2.0, 2.5, 3.0, 1.0);
+  Config config;
+  ContractorStatus cs{box_};
+  const auto ic = MakeIc();
+  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
+                                            config, 0.0);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_TRUE(cs.box().empty())
+      << "decay infeasible (BWD): backward tube [2.5,8.15] over τ∈[0,1] is "
+         "disjoint from X_0=[1,2]; box must empty [COMPLETENESS GATE, BUG-006]";
 }
 
 // =============================================================================
@@ -235,7 +288,7 @@ TEST_F(MockProstateTest, FwdFeasible_BoxRemains) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_FALSE(cs.box().empty())
       << "mock-prostate feasible (FWD): box should remain non-empty "
          "[SOUNDNESS GATE for rational coupling]";
@@ -249,7 +302,7 @@ TEST_F(MockProstateTest, BwdFeasible_BoxRemains) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_FALSE(cs.box().empty())
       << "mock-prostate feasible (BWD): box should remain non-empty "
          "[SOUNDNESS GATE for rational coupling, BWD path]";
@@ -268,7 +321,7 @@ TEST_F(MockProstateTest, BwdFeasible_PreservesInteriorPoint) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   ASSERT_FALSE(cs.box().empty())
       << "mock-prostate feasible (BWD): box should remain non-empty";
   EXPECT_TRUE(cs.box()[x0_].contains(7.5))
@@ -295,7 +348,7 @@ TEST_F(DecayFlowTest, FwdFeasible_LongHorizonSoundness) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   ASSERT_FALSE(cs.box().empty())
       << "long-horizon decay (FWD, default gates): SAT instance should "
          "remain non-empty [SOUNDNESS GATE for CAPD on t_ub=20]";
@@ -313,7 +366,7 @@ TEST_F(DecayFlowTest, BwdFeasible_LongHorizonSoundness) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   ASSERT_FALSE(cs.box().empty())
       << "long-horizon decay (BWD, default gates): SAT instance should remain "
          "non-empty [SOUNDNESS GATE for CAPD backward integration on t_ub=20]";
@@ -335,7 +388,7 @@ TEST_F(MockProstateTest, FwdFeasible_LongHorizonSoundness) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_FALSE(cs.box().empty())
       << "long-horizon mock-prostate (FWD, default gates → CAPD): SAT instance "
          "should remain non-empty [SOUNDNESS GATE]";
@@ -348,7 +401,7 @@ TEST_F(MockProstateTest, BwdFeasible_LongHorizonSoundness) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_FALSE(cs.box().empty())
       << "long-horizon mock-prostate (BWD, default gates → CAPD): SAT instance "
          "should remain non-empty [SOUNDNESS GATE]";
@@ -367,7 +420,7 @@ TEST_F(TrivialFlowTest, LongHorizon_ShortCircuitFires) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   EXPECT_TRUE(cs.box().empty())
       << "trivial flow with t_ub=20 must short-circuit (disjoint X_0/X_t) "
          "regardless of CAPD gate threshold";
@@ -444,7 +497,7 @@ TEST_F(SixDimDecayTest, FwdFeasible_HighDim) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   ASSERT_FALSE(cs.box().empty())
       << "6D decay (FWD, ndim gate → CAPD): SAT instance should stay non-empty";
   // Each xi_t must still contain its closed-form trajectory [e^-1, 2e^-1].
@@ -463,7 +516,7 @@ TEST_F(SixDimDecayTest, BwdFeasible_HighDim) {
   const auto ic = MakeIc();
   const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::BWD,
                                             config, 0.0);
-  ctc.Prune(&cs);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
   ASSERT_FALSE(cs.box().empty())
       << "6D decay (BWD, ndim gate → CAPD): SAT instance should stay non-empty";
   // Each xi_0 must still contain {1, 2} (no soundness regression).
@@ -471,6 +524,309 @@ TEST_F(SixDimDecayTest, BwdFeasible_HighDim) {
     EXPECT_LE(cs.box()[v0].lb(), 1.0) << "BWD over-pruned " << v0;
     EXPECT_GE(cs.box()[v0].ub(), 2.0) << "BWD over-pruned " << v0;
   }
+}
+
+// =============================================================================
+// Fixture 5: gravity / parabola — dx/dt = v, dv/dt = -1.
+// Closed form from (x0, v0): x(t) = x0 + v0*t - 0.5*t^2, v(t) = v0 - t.
+// Non-monotonic x: with x0=0, v0=1 it rises to a peak x=0.5 at t=1, then falls
+// back to x=0 at t=2. This is the fixture for ForallT invariants that hold at
+// the endpoints but are violated in the trajectory *interior* (F1) — the gap
+// the rewrite opened by checking the invariant only at the pre-integration box
+// instead of along the CAPD tube (cav26's per-slice check_invariant).
+// =============================================================================
+
+class GravityInvariantTest : public ::testing::Test {
+ protected:
+  inline static const Variable x_{"grav_x", Variable::Type::CONTINUOUS};
+  inline static const Variable v_{"grav_v", Variable::Type::CONTINUOUS};
+  inline static const Variable x0_{"grav_x_0_0", Variable::Type::CONTINUOUS};
+  inline static const Variable v0_{"grav_v_0_0", Variable::Type::CONTINUOUS};
+  inline static const Variable xt_{"grav_x_0_t", Variable::Type::CONTINUOUS};
+  inline static const Variable vt_{"grav_v_0_t", Variable::Type::CONTINUOUS};
+  inline static const Variable t0_{"grav_time_0", Variable::Type::CONTINUOUS};
+  Box box_{vector<Variable>{x_, v_, x0_, v0_, xt_, vt_, t0_}};
+
+  inline static const std::shared_ptr<const OdeFlow> ode_ = make_shared<OdeFlow>(
+      "gravity",
+      vector<std::pair<Variable, Expression>>{{x_, v_}, {v_, Expression{-1.0}}});
+
+  Formula MakeIc() const {
+    return integral(0.0, t0_, {x0_, v0_}, {xt_, vt_}, ode_);
+  }
+
+  // x0=0, v0=1; terminal pinned at t=2 (so the trajectory MUST traverse the
+  // interior peak at t=1); X_t brackets the true endpoint x(2)=0, v(2)=-1.
+  void SetBounds() {
+    box_[x_] = Box::Interval(-10.0, 10.0);
+    box_[v_] = Box::Interval(-10.0, 10.0);
+    box_[x0_] = Box::Interval(0.0, 0.0);
+    box_[v0_] = Box::Interval(1.0, 1.0);
+    box_[xt_] = Box::Interval(-0.2, 0.2);
+    box_[vt_] = Box::Interval(-1.2, -0.8);
+    box_[t0_] = Box::Interval(2.0, 2.0);
+  }
+};
+
+// Ground truth WITHOUT the invariant: SAT (x(2)=0 ∈ X_t). WITH the invariant
+// `∀t. x ≤ 0.3`: UNSAT — the interior peak x(1)=0.5 > 0.3 violates it, and the
+// terminal is pinned at t=2 so the trajectory cannot avoid the peak.
+//
+// The invariant holds at BOTH endpoints (x(0)=0, x(2)=0 ≤ 0.3) and on the X_t
+// box (xt ∈ [-0.2,0.2] ≤ 0.3), so the rewrite's pre-integration-box-only check
+// passes and the box is wrongly left non-empty (false delta-sat). cav26 checked
+// the invariant on every tube slice and refuted. [F1 COMPLETENESS GATE]
+TEST_F(GravityInvariantTest, FwdInteriorInvariantViolation_BoxEmpties) {
+  SetBounds();
+  Config config;
+  // Pin hull-grid to 16 (high resolution) so this test guards the per-slice
+  // MECHANISM independently of the default-tube precision: an interior-only
+  // violation IS refuted when given ample time-resolution. The companion test
+  // FwdInteriorInvariantViolation_DefaultHull_BoxEmpties asserts the SHIPPED
+  // default also refutes it — true since the 2026-06 centered-in-time tube fix
+  // (HULL_COMPLETENESS.md "Resolution") tightened the default tube to CAPD
+  // precision. A coarser hull-grid only ever widens (sound; never a false-unsat),
+  // so this pin can never mask a soundness hole.
+  config.mutable_ode_hull_grid().set_from_command_line(16);
+  ContractorStatus cs{box_};
+  const auto ic = MakeIc();
+  const Formula inv = forallT(ode_, 0.0, t0_, xt_ <= 0.3);
+  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {inv}}, ode_direction::FWD,
+                                            config, 0.0);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_TRUE(cs.box().empty())
+      << "gravity, ∀t. x≤0.3 violated only at the interior peak x(1)=0.5 while "
+         "holding at both endpoints; box must empty [F1 interior-refutation "
+         "mechanism, at pinned resolution]";
+}
+
+// Same interior violation, but at the SHIPPED DEFAULT hull-grid (no pin). This is
+// the completeness gate for the centered-in-time tube fix (HULL_COMPLETENESS.md):
+// with the naive curve(sub) range the default tube is ~4x too loose and MISSES the
+// peak (delta-sat); the mean-value range tightens it enough that the default
+// detects the violation. A margin of 0.2 (peak 0.5 vs bound 0.3) >> the 1e-3
+// precision must never be missed regardless of the speed knob.
+TEST_F(GravityInvariantTest, FwdInteriorInvariantViolation_DefaultHull_BoxEmpties) {
+  SetBounds();
+  Config config;  // shipped default hull-grid — no pin
+  ContractorStatus cs{box_};
+  const auto ic = MakeIc();
+  const Formula inv = forallT(ode_, 0.0, t0_, xt_ <= 0.3);
+  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {inv}}, ode_direction::FWD,
+                                            config, 0.0);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_TRUE(cs.box().empty())
+      << "gravity, ∀t. x≤0.3 violated at interior peak x(1)=0.5 (margin 0.2 ≫ "
+         "precision); box must empty at the DEFAULT hull-grid [F1 completeness "
+         "gate — centered-in-time tube]";
+}
+
+// Control: same instance WITHOUT the invariant is genuinely SAT — the fix must
+// not over-prune it to empty (no false UNSAT from the per-slice machinery).
+TEST_F(GravityInvariantTest, FwdNoInvariant_BoxRemains) {
+  SetBounds();
+  Config config;
+  ContractorStatus cs{box_};
+  const auto ic = MakeIc();
+  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
+                                            config, 0.0);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_FALSE(cs.box().empty())
+      << "gravity without invariant: x(2)=0 ∈ X_t, genuinely SAT [SOUNDNESS]";
+}
+
+// =============================================================================
+// Fixture 6: anti-correlated 2-D — dx/dt = -x, dy/dt = y.
+// x(t) = x0*e^-t decays; y(t) = y0*e^t grows. With x0=2, y0=e^-2 the trajectory
+// runs from (2, 0.135) to (0.27, 1) over t∈[0,2]. The component-wise hull is
+// x∈[0.27,2], y∈[0.135,1], but the two extremes never co-occur at one time.
+// This is the fixture for F2: a coarse component-wise hull overlaps a gate that
+// no single trajectory time reaches, so hull-then-intersect fails to refute
+// while cav26's per-slice intersect-drop-hull refutes.
+// =============================================================================
+
+class AntiCorrelatedTest : public ::testing::Test {
+ protected:
+  inline static const Variable x_{"ac_x", Variable::Type::CONTINUOUS};
+  inline static const Variable y_{"ac_y", Variable::Type::CONTINUOUS};
+  inline static const Variable x0_{"ac_x_0_0", Variable::Type::CONTINUOUS};
+  inline static const Variable y0_{"ac_y_0_0", Variable::Type::CONTINUOUS};
+  inline static const Variable xt_{"ac_x_0_t", Variable::Type::CONTINUOUS};
+  inline static const Variable yt_{"ac_y_0_t", Variable::Type::CONTINUOUS};
+  inline static const Variable t0_{"ac_time_0", Variable::Type::CONTINUOUS};
+  Box box_{vector<Variable>{x_, y_, x0_, y0_, xt_, yt_, t0_}};
+
+  inline static const std::shared_ptr<const OdeFlow> ode_ = make_shared<OdeFlow>(
+      "anticorr",
+      vector<std::pair<Variable, Expression>>{{x_, -x_}, {y_, y_}});
+
+  Formula MakeIc() const {
+    return integral(0.0, t0_, {x0_, y0_}, {xt_, yt_}, ode_);
+  }
+};
+
+// Ground truth: UNSAT. X_t requires x∈[1.5,2] AND y∈[0.8,1.2]. x∈[1.5,2] only
+// early (t≲0.29, where y≲0.18 ≪ 0.8); y∈[0.8,1.2] only late (t≳1.79, where
+// x≲0.33 ≪ 1.5). No single time satisfies both, so the integral is infeasible
+// (gap ≫ δ). The component-wise hull x∈[0.27,2], y∈[0.135,1] overlaps BOTH gate
+// intervals, so the rewrite's hull-then-intersect leaves the box non-empty
+// (false delta-sat). Per-slice filtering refutes. [F2 COMPLETENESS GATE]
+TEST_F(AntiCorrelatedTest, FwdAntiCorrelated_BoxEmpties) {
+  box_[x_] = Box::Interval(0.0, 10.0);
+  box_[y_] = Box::Interval(0.0, 10.0);
+  box_[x0_] = Box::Interval(2.0, 2.0);
+  box_[y0_] = Box::Interval(std::exp(-2.0), std::exp(-2.0));
+  box_[xt_] = Box::Interval(1.5, 2.0);
+  box_[yt_] = Box::Interval(0.8, 1.2);
+  box_[t0_] = Box::Interval(0.0, 2.0);
+  Config config;
+  ContractorStatus cs{box_};
+  const auto ic = MakeIc();
+  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
+                                            config, 0.0);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_TRUE(cs.box().empty())
+      << "anti-correlated tube reaches x∈[1.5,2] and y∈[0.8,1.2] at disjoint "
+         "times; no single time hits the gate, box must empty [F2 COMPLETENESS GATE]";
+}
+
+// =============================================================================
+// F3 + F4 on the existing DecayFlowTest fixture (dx/dt = -x).
+// =============================================================================
+
+// F3 — time narrowing. X_t=[0.4,0.5] is reachable by x(t)=x0*e^-t only for
+// t∈[ln2, ln(2/0.4)] ≈ [0.69, 1.61] (x0∈[1,2]); t outside that window cannot
+// land in X_t. The contractor should narrow the time variable from its input
+// [0,3] toward that feasible window. The rewrite never contracts time (F3);
+// cav26 narrowed T to the surviving slices' time-hull.
+TEST_F(DecayFlowTest, FwdFeasible_TimeNarrows) {
+  SetBounds(1.0, 2.0, 0.4, 0.5, 3.0);
+  Config config;
+  ContractorStatus cs{box_};
+  const auto ic = MakeIc();
+  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
+                                            config, 0.0);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  ASSERT_FALSE(cs.box().empty()) << "decay into X_t=[0.4,0.5] is SAT";
+  EXPECT_LT(cs.box()[t0_].ub(), 2.5)
+      << "time should narrow below 3.0 toward the feasible window ~[0.69,1.61] "
+         "(no t>~1.61 lands x in [0.4,0.5]) [F3]";
+}
+
+// F4 — constant (non-variable) integration time. Same disjoint geometry as the
+// BUG-006 DecayFlowTest.FwdInfeasible case, but the duration is the literal 1.0
+// rather than a time variable. x(1)∈[e^-1,2e^-1]≈[0.368,0.736] is disjoint from
+// X_t=[2,3] → UNSAT. The rewrite bails out on non-variable time
+// (`if (!is_variable(icct)) return;`), enforcing nothing (latent false
+// delta-sat); cav26 integrated constant durations. [F4 COMPLETENESS GATE]
+TEST_F(DecayFlowTest, FwdConstantTime_Infeasible_BoxEmpties) {
+  box_[x_] = Box::Interval(-100.0, 100.0);
+  box_[x0_] = Box::Interval(1.0, 2.0);
+  box_[xt_] = Box::Interval(2.0, 3.0);
+  box_[t0_] = Box::Interval(0.0, 5.0);  // unused: time is the constant below
+  Config config;
+  ContractorStatus cs{box_};
+  const Formula ic = integral(0.0, Expression{1.0}, {x0_}, {xt_}, ode_);
+  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
+                                            config, 0.0);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_TRUE(cs.box().empty())
+      << "constant duration t=1: x(1)≈[0.368,0.736] disjoint from X_t=[2,3]; "
+         "box must empty [F4 COMPLETENESS GATE]";
+}
+
+// =============================================================================
+// Fixture 8: pinned terminal time — the endpoint must contract to the
+// trajectory value AT t_ub, not to the fat tube over the last sub-grid slice.
+//
+// Regression for BUG-005 (witness mis-print) and BUG-008 (false delta-sat).
+// integrate_tube_slices sub-grids each CAPD step's full domain [0,step] and
+// sets each slice's enclosure to curve(sub) = the trajectory TUBE over that
+// time sub-interval. For a pinned time (win_lb == win_ub == t_ub) the only
+// window-overlapping slice is [t_ub - step/16, t_ub], whose tube fattens the
+// endpoint by ~step/16·|dx/dt|. Intersecting X_t with that tube binds the
+// endpoint variable to an interior-time value (BUG-005) and lets a sub-true
+// gate survive (BUG-008). The gate must use the trajectory clipped to the
+// time window, which for a pinned time collapses to the point x(t_ub).
+// =============================================================================
+
+// BUG-005: dx/dt = -0.5 x, x0=100, time pinned to [1,1]. True x(1)=100·e^-0.5
+// ≈ 60.6531. With a wide X_t gate the FWD contractor must narrow X_t to a tight
+// band around 60.6531 — NOT [60.6531, ~61.6] (the fat last-slice tube).
+class PinnedDecayTest : public ::testing::Test {
+ protected:
+  inline static const Variable x_{"pd_x", Variable::Type::CONTINUOUS};
+  inline static const Variable x0_{"pd_x_0_0", Variable::Type::CONTINUOUS};
+  inline static const Variable xt_{"pd_x_0_t", Variable::Type::CONTINUOUS};
+  inline static const Variable t0_{"pd_time_0", Variable::Type::CONTINUOUS};
+  Box box_{vector<Variable>{x_, x0_, xt_, t0_}};
+  inline static const std::shared_ptr<const OdeFlow> ode_ = make_shared<OdeFlow>(
+      "pinned_decay",
+      vector<std::pair<Variable, Expression>>{{x_, -0.5 * x_}});
+  Formula MakeIc() const { return integral(0.0, t0_, {x0_}, {xt_}, ode_); }
+};
+
+TEST_F(PinnedDecayTest, FwdPinnedEndpoint_NarrowsToTrueValue) {
+  box_[x_] = Box::Interval(-200.0, 200.0);
+  box_[x0_] = Box::Interval(100.0, 100.0);
+  box_[xt_] = Box::Interval(-200.0, 200.0);  // wide gate
+  box_[t0_] = Box::Interval(1.0, 1.0);       // PINNED terminal time
+  Config config;
+  ContractorStatus cs{box_};
+  const auto ic = MakeIc();
+  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
+                                            config, 0.0);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  ASSERT_FALSE(cs.box().empty()) << "pinned decay endpoint is reachable: SAT";
+  const double true_xt = 100.0 * std::exp(-0.5);  // ≈ 60.6531
+  const ibex::Interval xt = cs.box()[xt_];
+  // The whole narrowed band must sit tightly around x(1) — NOT fattened to the
+  // last-slice tube [60.65, ~61.6] (the bug). Tolerance bounds (true_xt ± 0.05)
+  // avoid ULP-level sensitivity of the libm reference to the ambient FPU
+  // rounding mode left by a prior test. The bug's ub (~61.6) and width (~3.25)
+  // both blow past 0.05; the fix's band is ~1e-9 wide centered on x(1).
+  EXPECT_GT(xt.lb(), true_xt - 0.05) << "narrowed X_t must sit near x(1)≈60.6531";
+  EXPECT_LT(xt.ub(), true_xt + 0.05)
+      << "pinned endpoint must contract to x(1)≈60.6531, not the fat last-slice "
+         "tube reaching ~61.6 [BUG-005 GATE]";
+  EXPECT_LT(xt.ub() - xt.lb(), 0.05)
+      << "pinned endpoint band must be tight (a single value), not the fat "
+         "last-slice tube [BUG-005 GATE]";
+}
+
+// BUG-008: rising flow dx/dt = 0.5(100-x), x0=20, time pinned [1,1]. True
+// endpoint x(1)=100-80·e^-0.5 ≈ 51.4775. X_t gate [0,51.0] sits below the true
+// value by 0.477 ≫ delta, so the only sound verdict is refutation (box empties).
+// The bug's fat last-slice tube reaches down to ~50.9 and wrongly survives the
+// gate (false delta-sat).
+class PinnedRiseTest : public ::testing::Test {
+ protected:
+  inline static const Variable x_{"pr_x", Variable::Type::CONTINUOUS};
+  inline static const Variable x0_{"pr_x_0_0", Variable::Type::CONTINUOUS};
+  inline static const Variable xt_{"pr_x_0_t", Variable::Type::CONTINUOUS};
+  inline static const Variable t0_{"pr_time_0", Variable::Type::CONTINUOUS};
+  Box box_{vector<Variable>{x_, x0_, xt_, t0_}};
+  inline static const std::shared_ptr<const OdeFlow> ode_ = make_shared<OdeFlow>(
+      "pinned_rise",
+      vector<std::pair<Variable, Expression>>{{x_, 0.5 * (100.0 - x_)}});
+  Formula MakeIc() const { return integral(0.0, t0_, {x0_}, {xt_}, ode_); }
+};
+
+TEST_F(PinnedRiseTest, FwdPinnedSubTrueGate_BoxEmpties) {
+  box_[x_] = Box::Interval(-200.0, 200.0);
+  box_[x0_] = Box::Interval(20.0, 20.0);
+  box_[xt_] = Box::Interval(0.0, 51.0);  // sub-true gate (true endpoint ≈51.4775)
+  box_[t0_] = Box::Interval(1.0, 1.0);   // PINNED terminal time
+  Config config;
+  ContractorStatus cs{box_};
+  const auto ic = MakeIc();
+  const auto ctc = mk_contractor_ode_lohner(box_, {ic, {}}, ode_direction::FWD,
+                                            config, 0.0);
+  { const UpwardRoundingScope rms_; ctc.Prune(&cs, rms_.token()); }
+  EXPECT_TRUE(cs.box().empty())
+      << "pinned rise: x(1)≈51.4775 > gate ub 51.0 by 0.477 ≫ delta; the "
+         "endpoint clipped to t=1 is disjoint from X_t → box must empty "
+         "[BUG-008 COMPLETENESS GATE]";
 }
 
 }  // namespace

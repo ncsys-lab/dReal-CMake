@@ -30,6 +30,7 @@
 #include "dreal/contractor/generic_contractor_generator.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/box.h"
+#include "dreal/util/rounded_interval.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/interrupt.h"
 #include "dreal/util/logging.h"
@@ -43,8 +44,14 @@ Box RefineCounterexample(const Formula& query,
                          const Variables& quantified_variables, Box b,
                          double precision);
 
-/// Contractor for forall constraints. See the following problem
-/// definition and our approach.
+/// Contractor for the ∃∀ NRA `forall` quantifier (`Formula::Forall`, `Kind::FORALL`).
+///
+/// PITFALL forall-vs-forall_t: this is NOT the ODE-time `forall_t`
+/// (`FormulaKind::ForallT`), whose per-slice trajectory-invariant check lives in the ODE
+/// contractor (`contractor_odes*.cc`, `Kind::ODE_LOHNER`). Independent machinery — see
+/// docs/forall-semantics.md §7.
+///
+/// See the following problem definition and our approach.
 ///
 /// <pre>
 /// Problem: Given a box B ∈ IRⁿ and a formula F =
@@ -142,7 +149,8 @@ class ContractorForall : public ContractorCell {
   ContractorForall& operator=(ContractorForall&&) = delete;
 
   bool PruneWithCounterexample(ContractorStatus* cs, Box* const current_box,
-                               const Box& counterexample) const {
+                               const Box& counterexample,
+                               const UpwardRounding& ur) const {
     // Need to prune the current_box using counterexample.
     ContractorStatus contractor_status(counterexample);
     // 1.1.1. Set up exist_var parts for pruning
@@ -154,9 +162,9 @@ class ContractorForall : public ContractorCell {
     // taking the mid-points of counterexample.
     for (const Variable& forall_var : get_quantified_variables(f_)) {
       contractor_status.mutable_box()[forall_var] =
-          counterexample[forall_var].mid();
+          safe_mid(counterexample[forall_var], ur);
     }
-    contractor_.Prune(&contractor_status);
+    contractor_.Prune(&contractor_status, ur);
     if (contractor_status.box().empty()) {
       // If the pruning result is empty, there is nothing more to do. Exit
       // the loop.
@@ -184,7 +192,10 @@ class ContractorForall : public ContractorCell {
   /// Default destructor.
   ~ContractorForall() override = default;
 
-  void Prune(ContractorStatus* cs) const override {
+  // Ref: docs/papers/kong-solar-lezama-gao-2018-exists-forall.md — this CE-guided
+  // prune loop is Algorithm 2 (∀-clause pruning) of Kong, Solar-Lezama & Gao, CAV 2018;
+  // the inner_delta < epsilon < delta levels are its double-sided error control (§3.2).
+  void Prune(ContractorStatus* cs, const UpwardRounding& ur) const override {
     Box& current_box = cs->mutable_box();
     Config& config_for_counterexample{
         context_for_counterexample_.mutable_config()};
@@ -215,10 +226,10 @@ class ContractorForall : public ContractorCell {
                         counterexample);
 
         if (config().use_local_optimization()) {
-          counterexample = refiner_->Refine(counterexample);
+          counterexample = refiner_->Refine(counterexample, ur);
         }
         bool need_to_break_the_loop =
-            PruneWithCounterexample(cs, &current_box, counterexample);
+            PruneWithCounterexample(cs, &current_box, counterexample, ur);
         if (need_to_break_the_loop) {
           break;
         }
@@ -291,10 +302,10 @@ class ContractorForallMt : public ContractorCell {
 
   ~ContractorForallMt() override = default;
 
-  void Prune(ContractorStatus* cs) const override {
+  void Prune(ContractorStatus* cs, const UpwardRounding& ur) const override {
     ContractorForall<ContextType>* const ctc{GetCtcOrCreate(cs->box())};
     DREAL_ASSERT(ctc);
-    return ctc->Prune(cs);
+    return ctc->Prune(cs, ur);
   }
 
   std::ostream& display(std::ostream& os) const override {

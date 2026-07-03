@@ -149,7 +149,7 @@ Formula TseitinCnfizer::VisitForall(const Formula& f) {
     return *(new_clauses.begin());
   } else {
     static size_t id{0};
-    const Variable bvar{string("forall") + to_string(id++),
+    const Variable bvar{string("forall") + to_string(id++),  // lint: allow int
                         Variable::Type::BOOLEAN};
     map_.emplace(bvar, make_conjunction(new_clauses));
     return Formula{bvar};
@@ -163,7 +163,7 @@ Formula TseitinCnfizer::VisitConjunction(const Formula& f) {
   const set<Formula> transformed_operands{::dreal::map(
       get_operands(f),
       [this](const Formula& formula) { return this->Visit(formula); })};
-  const Variable bvar{string("conj") + to_string(id++),
+  const Variable bvar{string("conj") + to_string(id++),  // lint: allow int
                       Variable::Type::BOOLEAN};
   map_.emplace(bvar, make_conjunction(transformed_operands));
   return Formula{bvar};
@@ -174,7 +174,7 @@ Formula TseitinCnfizer::VisitDisjunction(const Formula& f) {
   const set<Formula>& transformed_operands{::dreal::map(
       get_operands(f),
       [this](const Formula& formula) { return this->Visit(formula); })};
-  const Variable bvar{string("disj") + to_string(id++),
+  const Variable bvar{string("disj") + to_string(id++),  // lint: allow int
                       Variable::Type::BOOLEAN};
   map_.emplace(bvar, make_disjunction(transformed_operands));
   return Formula{bvar};

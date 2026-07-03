@@ -39,6 +39,11 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   const Variable y_{"y"};
   const Variable z_{"z"};
   Box box_;
+
+  // ExpressionEvaluator does gaol interval evaluation (FE_UPWARD); establish it
+  // and mint the token operator() now requires.
+  const UpwardRoundingScope rms_;
+  const UpwardRounding ur{rms_.token()};
 };
 
 TEST_F(ExpressionEvaluatorTest, Arithmetic1) {
@@ -49,7 +54,7 @@ TEST_F(ExpressionEvaluatorTest, Arithmetic1) {
   box_[y_] = Box::Interval(2, 3);
   box_[z_] = Box::Interval(3, 4);
 
-  EXPECT_EQ(evaluator(box_), Box::Interval(1 + 2 + 3, 2 + 3 + 4));
+  EXPECT_EQ(evaluator(box_, ur), Box::Interval(1 + 2 + 3, 2 + 3 + 4));
   ostringstream oss;
   oss << evaluator;
   EXPECT_EQ(oss.str(), "ExpressionEvaluator((x + y + z))");

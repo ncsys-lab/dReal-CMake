@@ -1,0 +1,28 @@
+; single water tank, fill mode. d/dt[x] = (q - 0.5*sqrt(2g)*sqrt(x))/A
+; A=2, q=4.951 => equilibrium at x=5 (since 0.5*sqrt(2*9.80665)*sqrt(5)=4.951)
+; x_0 = 5 => true trajectory stays at x_t = 5.0 for all time. SAT under x_t<=5.05.
+(set-logic QF_NRA_ODE)
+(declare-fun x () Real [0.0, 100.0])
+(declare-fun A () Real [0.0, 100.0])
+(declare-fun q () Real [0.0, 100.0])
+(declare-fun x_0 () Real [0.0, 100.0])
+(declare-fun x_t () Real [0.0, 100.0])
+(declare-fun A_0 () Real [0.0, 100.0])
+(declare-fun A_t () Real [0.0, 100.0])
+(declare-fun q_0 () Real [0.0, 100.0])
+(declare-fun q_t () Real [0.0, 100.0])
+(declare-fun time () Real [1.0, 1.0])
+(define-ode flow_1 (
+  (= d/dt[x] (/ (- q (* (* 0.5 (^ (* 2 9.80665) 0.5)) (^ x 0.5))) A))
+  (= d/dt[A] 0)
+  (= d/dt[q] 0)))
+(assert (and
+  (= A_0 2.0)
+  (= q_0 4.951)
+  (= x_0 5.0)
+  (= [x_t A_t q_t] (integral 0. time [x_0 A_0 q_0] flow_1))
+  (>= x_t 4.95)
+  (<= x_t 5.05)
+))
+(check-sat)
+(exit)

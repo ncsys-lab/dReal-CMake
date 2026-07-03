@@ -82,8 +82,8 @@ class ContractorCell {
   /// Sets include_forall true.
   void set_include_forall();
 
-  /// Performs pruning on @p cs.
-  virtual void Prune(ContractorStatus* cs) const = 0;
+  /// Performs pruning on @p cs. @p ur witnesses FE_UPWARD is established.
+  virtual void Prune(ContractorStatus* cs, const UpwardRounding& ur) const = 0;
 
   /// Outputs this contractor to @p os.
   virtual std::ostream& display(std::ostream& os) const = 0;

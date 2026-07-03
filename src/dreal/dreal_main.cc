@@ -28,7 +28,13 @@
 #include "dreal/util/exception.h"
 #include "dreal/util/filesystem.h"
 #include "dreal/util/logging.h"
-#include "util/rounding_mode_guard.h"
+#include "util/rounding.h"
+// gcc_build/git_version.h is generated at every build by the CMake custom
+// target git_version_h (cmake/GenerateGitVersion.cmake).  It defines:
+//   DREAL_GIT_HASH  — short SHA from `git rev-parse --short HEAD`
+//   DREAL_GIT_DIRTY — 1 if tracked files are modified, 0 otherwise
+//                     (untracked files are ignored; always 0 in Docker)
+#include "git_version.h"
 
 namespace dreal {
 
@@ -39,13 +45,37 @@ using std::string;
 using std::vector;
 
 namespace {
+// Value wiring for --version fields:
+//
+//   DREAL_GIT_HASH / DREAL_GIT_DIRTY
+//     git → cmake/GenerateGitVersion.cmake (runs each build via add_custom_target)
+//         → gcc_build/git_version.h (only rewritten when content changes)
+//         → #include "git_version.h" above → here.
+//
+//   DREAL_BUILD_OS / DREAL_BUILD_OS_VERSION / DREAL_BUILD_ARCH
+//     CMake configure-time variables CMAKE_SYSTEM_NAME / _VERSION / _PROCESSOR
+//         → target_compile_definitions(dreal4 ...) in CMakeLists.txt
+//         → -D flags passed to the compiler → here.
+//
+//   __DATE__ / __TIME__
+//     Compiler built-ins stamped when this translation unit is compiled.
+//     Because dreal_main.cc #includes git_version.h, it recompiles whenever
+//     the hash or dirty status changes, keeping the timestamp in sync.
 string get_version_string() {
 #ifndef NDEBUG
   const string build_type{"Debug"};
 #else
   const string build_type{"Release"};
 #endif
-  return fmt::format("v{} ({} Build)", Context::version(), build_type);
+  const string git_suffix = DREAL_GIT_DIRTY
+      ? fmt::format("Commit {} <dirty>", DREAL_GIT_HASH)
+      : fmt::format("Commit {}", DREAL_GIT_HASH);
+  return fmt::format("{}\n"
+                     "{}, {} Build.\n"
+                     "Built for {} {} {}, on {} {}.",
+                     Context::version(),
+                     git_suffix, build_type,
+                     DREAL_BUILD_OS, DREAL_BUILD_OS_VERSION, DREAL_BUILD_ARCH, __DATE__, __TIME__);
 }
 }  // namespace
 
@@ -56,14 +86,14 @@ MainProgram::MainProgram(int argc, const char* argv[]) {
 }
 
 void MainProgram::PrintUsage() {
-  RoundingModeGuard g(FE_TONEAREST); // may print doubles
+  NearestRoundingScope g; // may print doubles
   string usage;
   opt_.getUsage(usage);
   cerr << usage;
 }
 
 void MainProgram::AddOptions() {
-  RoundingModeGuard g(FE_TONEAREST); // parses and maniuplates doubles
+  NearestRoundingScope g; // parses and maniuplates doubles
   opt_.overview =
       fmt::format("dReal {} : delta-complete SMT solver", get_version_string());
   opt_.syntax = "dreal [OPTIONS] <input file> (.smt2 or .dr)";
@@ -246,10 +276,48 @@ void MainProgram::AddOptions() {
            0 /* Delimiter if expecting multiple args. */,
            fmt::format("Set pattern matching timeout in seconds. (default = {})", kDefaultDrpmMaxTime).c_str(),
            "--drpm-max-time", positive_double_option_validator);
+
+  // ---- CAPD ODE-contractor tuning knobs --------------------------------------
+  auto* const nonneg_double_option_validator =
+      new ez::ezOptionValidator("d" /* double */, "ge", "0");
+  auto* const c0_set_option_validator =
+      new ez::ezOptionValidator("t", "in", "rect2,tripleton,horect2", false);
+  auto* const bool_option_validator =
+      new ez::ezOptionValidator("t", "in", "true,false", false);
+
+  opt_.add(fmt::format("{}", Config::kDefaultOdeTaylorOrder).c_str(), false, 1, 0,
+           fmt::format("CAPD forward-integration Taylor order. (default = {})",
+                       Config::kDefaultOdeTaylorOrder).c_str(),
+           "--ode-taylor-order", positive_int_option_validator);
+  opt_.add(fmt::format("{}", Config::kDefaultOdeBackwardOrder).c_str(), false, 1, 0,
+           fmt::format("CAPD backward-integration Taylor order. (default = {})",
+                       Config::kDefaultOdeBackwardOrder).c_str(),
+           "--ode-backward-order", positive_int_option_validator);
+  opt_.add(fmt::format("{}", Config::kDefaultOdeAbsTol).c_str(), false, 1, 0,
+           fmt::format("CAPD absolute integration tolerance. (default = {})",
+                       Config::kDefaultOdeAbsTol).c_str(),
+           "--ode-abs-tol", positive_double_option_validator);
+  opt_.add(fmt::format("{}", Config::kDefaultOdeRelTol).c_str(), false, 1, 0,
+           fmt::format("CAPD relative integration tolerance. (default = {})",
+                       Config::kDefaultOdeRelTol).c_str(),
+           "--ode-rel-tol", positive_double_option_validator);
+  opt_.add(fmt::format("{}", Config::kDefaultOdeHullGrid).c_str(), false, 1, 0,
+           fmt::format("CAPD per-step tube sub-slice count. (default = {})",
+                       Config::kDefaultOdeHullGrid).c_str(),
+           "--ode-hull-grid", positive_int_option_validator);
+  opt_.add("rect2", false, 1, 0,
+           "CAPD C0 enclosure set: rect2, tripleton, or horect2. (default = rect2)",
+           "--ode-c0-set", c0_set_option_validator);
+  opt_.add("true", false, 1, 0,
+           "Enable the backward ODE contractor (X_0 narrowing). (default = true)",
+           "--ode-backward", bool_option_validator);
+  opt_.add(fmt::format("{}", Config::kDefaultOdeMaxStep).c_str(), false, 1, 0,
+           "CAPD max integration step cap; 0 = fully adaptive. (default = 0)",
+           "--ode-max-step", nonneg_double_option_validator);
 }
 
 bool MainProgram::ValidateOptions() {
-  RoundingModeGuard g(FE_TONEAREST); // manipulates doubles
+  NearestRoundingScope g; // manipulates doubles
   // Checks bad options and bad arguments.
   vector<string> bad_options;
   vector<string> bad_args;
@@ -292,7 +360,7 @@ bool MainProgram::ValidateOptions() {
 }
 
 void MainProgram::ExtractOptions() {
-  RoundingModeGuard g(FE_TONEAREST);  // parses and manipulates doubles
+  NearestRoundingScope g;  // parses and manipulates doubles
   // Temporary variables used to set options.
   string verbosity;
   opt_.get("--verbose")->getString(verbosity);
@@ -458,11 +526,54 @@ void MainProgram::ExtractOptions() {
     DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --drpm-max-time = {}",
                     config_.drpm_max_time());
   }
+  if (opt_.isSet("--ode-taylor-order")) {
+    int v{0};
+    opt_.get("--ode-taylor-order")->getInt(v);
+    config_.mutable_ode_taylor_order().set_from_command_line(v);
+  }
+  if (opt_.isSet("--ode-backward-order")) {
+    int v{0};
+    opt_.get("--ode-backward-order")->getInt(v);
+    config_.mutable_ode_backward_order().set_from_command_line(v);
+  }
+  if (opt_.isSet("--ode-abs-tol")) {
+    double v{0};
+    opt_.get("--ode-abs-tol")->getDouble(v);
+    config_.mutable_ode_abs_tol().set_from_command_line(v);
+  }
+  if (opt_.isSet("--ode-rel-tol")) {
+    double v{0};
+    opt_.get("--ode-rel-tol")->getDouble(v);
+    config_.mutable_ode_rel_tol().set_from_command_line(v);
+  }
+  if (opt_.isSet("--ode-hull-grid")) {
+    int v{0};
+    opt_.get("--ode-hull-grid")->getInt(v);
+    config_.mutable_ode_hull_grid().set_from_command_line(v);
+  }
+  if (opt_.isSet("--ode-c0-set")) {
+    string v;
+    opt_.get("--ode-c0-set")->getString(v);
+    const OdeC0SetType set_type = (v == "tripleton") ? OdeC0SetType::Tripleton
+                                : (v == "horect2")   ? OdeC0SetType::HORect2
+                                                     : OdeC0SetType::Rect2;
+    config_.mutable_ode_c0_set().set_from_command_line(set_type);
+  }
+  if (opt_.isSet("--ode-backward")) {
+    string v;
+    opt_.get("--ode-backward")->getString(v);
+    config_.mutable_ode_backward().set_from_command_line(v == "true");
+  }
+  if (opt_.isSet("--ode-max-step")) {
+    double v{0};
+    opt_.get("--ode-max-step")->getDouble(v);
+    config_.mutable_ode_max_step().set_from_command_line(v);
+  }
 }
 
 int MainProgram::Run() {
   if (opt_.isSet("--version")) {
-    cout << "dReal " << get_version_string() << endl;
+    cout << "dReal " << get_version_string() << '\n';
     return 0;
   }
   if (opt_.isSet("--help")) {
@@ -481,7 +592,7 @@ int MainProgram::Run() {
     }
   }
   if (!opt_.isSet("--in") && !file_exists(filename)) {
-    cerr << "File not found: " << filename << "\n" << endl;
+    cerr << "File not found: " << filename << "\n" << '\n';
     PrintUsage();
     return 1;
   }
@@ -497,7 +608,7 @@ int MainProgram::Run() {
     RunDr(filename, config_, opt_.isSet("--debug-scanning"),
           opt_.isSet("--debug-parsing"));
   } else {
-    cerr << "Unknown extension: " << filename << "\n" << endl;
+    cerr << "Unknown extension: " << filename << "\n" << '\n';
     PrintUsage();
     return 1;
   }
@@ -517,7 +628,7 @@ int main(int argc, const char* argv[]) {
   // default stack size is 8MB
   // CPS-pattern matching algo goes DEEP...
   // doing 63MB because that's approximately the max on macOS
-  constexpr rlim_t desired_stack_size = 63 * 1024 * 1024;
+  constexpr rlim_t desired_stack_size = rlim_t{63} * 1024 * 1024;
   rlimit rl{0};
   getrlimit(RLIMIT_STACK, &rl);
   rl.rlim_cur = std::max(rl.rlim_cur, desired_stack_size);
@@ -526,10 +637,10 @@ int main(int argc, const char* argv[]) {
   getrlimit(RLIMIT_STACK, &rl);
   if (rl.rlim_cur < desired_stack_size) {
     // `DREAL_LOG_*` functions have not been initialized yet.
-    std::cerr << "Failed to configure desired stack size limit. Exiting." << std::endl;
-    std::cerr << "\tCurrent Size = " << rl.rlim_cur << std::endl;
-    std::cerr << "\tMaximum Size = " << rl.rlim_max << std::endl;
-    std::cerr << "\tDesired Size = " << desired_stack_size << std::endl;
+    std::cerr << "Failed to configure desired stack size limit. Exiting." << '\n';
+    std::cerr << "\tCurrent Size = " << rl.rlim_cur << '\n';
+    std::cerr << "\tMaximum Size = " << rl.rlim_max << '\n';
+    std::cerr << "\tDesired Size = " << desired_stack_size << '\n';
     // exit(-1);
   }
 

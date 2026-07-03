@@ -19,6 +19,7 @@
 
 #include "dreal/solver/filter_assertion.h"
 #include "dreal/util/assert.h"
+#include "dreal/util/rounded_interval.h"
 #include "dreal/util/logging.h"
 
 namespace dreal {
@@ -103,21 +104,25 @@ CounterexampleRefiner::CounterexampleRefiner(const Formula& query,
   }
 }
 
-Box CounterexampleRefiner::Refine(Box box) {
+Box CounterexampleRefiner::Refine(Box box, const UpwardRounding& ur) {
   if (!opt_) {
     return box;
   }
 
-  // 1. Set up init and env.
+  // 1. Set up env (exist variables) and init (forall variables).
+  //    NloptOptimizer indexes its dimensions by Box{forall_vec_} order, so
+  //    init_[k] must hold forall_vec_[k]'s value. Keying both the initial guess
+  //    here and the read-back below off forall_vec_ position (not a counter that
+  //    advances over box-insertion order) keeps them aligned with nlopt and with
+  //    each other regardless of how the box's variables were ordered.
   Environment env;
-  int i = 0;
   for (const Variable& var : box.variables()) {
-    const double mid = box[var].mid();
-    if (forall_variables_.include(var)) {
-      init_[i++] = mid;  // forall variable
-    } else {
-      env.insert(var, mid);  // exist variable
+    if (!forall_variables_.include(var)) {
+      env.insert(var, safe_mid(box[var], ur));  // exist variable
     }
+  }
+  for (int k = 0; k < static_cast<int>(forall_vec_.size()); ++k) {
+    init_[k] = safe_mid(box[forall_vec_[k]], ur);
   }
   // 2. call optimizer
   double optimal_value{0.0};
@@ -145,10 +150,10 @@ Box CounterexampleRefiner::Refine(Box box) {
       case nlopt::result::MAXEVAL_REACHED:
       case nlopt::result::MAXTIME_REACHED:
       case nlopt::result::ROUNDOFF_LIMITED:
-        // 3. move the solution values from x into box.
-        i = 0;
-        for (const Variable& var : forall_vec_) {
-          box[var] = init_[i++];
+        // 3. move the solution values from x into box (same forall_vec_ order
+        //    nlopt and the init_ setup above use).
+        for (int k = 0; k < static_cast<int>(forall_vec_.size()); ++k) {
+          box[forall_vec_[k]] = init_[k];
         }
         break;
       default:

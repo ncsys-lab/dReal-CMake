@@ -19,15 +19,18 @@
 
 #include "dreal/util/box.h"
 #include "dreal/util/dynamic_bitset.h"
+#include "dreal/util/rounding.h"
 
 namespace dreal {
 
 /// Finds the dimension with the maximum diameter in a @p box. It only
-/// consider the dimensions enabled in @p active_set.
+/// consider the dimensions enabled in @p active_set. Uses gaol (safe_diam), so
+/// the caller must hold an UpwardRounding token (FE_UPWARD established).
 ///
 /// @returns a pair of (max dimension, variable index).
 std::pair<double, int> FindMaxDiam(const Box& box,
-                                   const DynamicBitset& active_set);
+                                   const DynamicBitset& active_set,
+                                   const UpwardRounding& ur);
 
 /// Finds the largest dimension in `active_set` and partitions `box`
 /// into two sub-boxes by branching on the chosen dimension. It
@@ -42,6 +45,6 @@ std::pair<double, int> FindMaxDiam(const Box& box,
 ///
 /// @returns the branching dimension if found, otherwise returns -1.
 int BranchLargestFirst(const Box& box, const DynamicBitset& active_set,
-                       Box* left, Box* right);
+                       Box* left, Box* right, const UpwardRounding& ur);
 
 }  // namespace dreal

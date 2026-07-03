@@ -18,7 +18,8 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
-#include <dreal/util/rounding_mode_guard.h>
+#include <dreal/util/rounded_format.h>
+#include <dreal/util/rounding.h>
 
 #include "dreal/symbolic/odes/symbolic_odes_cell.h"
 
@@ -31,11 +32,16 @@ namespace dreal {
 
 namespace {
 ostream& print_constant(ostream& os, double c) {
-  RoundingModeGuard g(FE_TONEAREST);
+  // Decimal formatting is correct only under FE_TONEAREST; route the doubles
+  // through the token-gated format_double so the mode is compile-time proven.
+  const NearestRoundingScope g;
+  const NearestRounding nr{g.token()};
   if (c >= 0) {
-    return os << c;
+    return format_double(os, c, nr);
   } else {
-    return os << "(- " << (-c) << ")";
+    os << "(- ";
+    format_double(os, -c, nr);
+    return os << ")";
   }
 }
 
@@ -67,7 +73,7 @@ ostream& PrefixPrinter::VisitConstant(const Expression& e) {
 }
 
 ostream& PrefixPrinter::VisitRealConstant(const Expression& e) {
-  RoundingModeGuard g(FE_TONEAREST);
+  NearestRoundingScope g;
   const double mid{get_lb_of_real_constant(e) / 2.0 +
                    get_ub_of_real_constant(e) / 2.0};
   return print_constant(os_, mid);

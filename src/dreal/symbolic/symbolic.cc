@@ -535,6 +535,9 @@ class IsDifferentiableVisitor {
 
 }  // namespace
 
+// Ref: docs/papers/gao-avigad-clarke-2012-delta-complete.md — δ-weakening/strengthening
+// of atoms (Def. 3.1), the syntactic perturbation underpinning the δ-SMT problem and the
+// CE-search in ContractorForall.
 /// Strengthen the input formula $p f by @p delta.
 Formula DeltaStrengthen(const Formula& f, const double delta) {
   DREAL_ASSERT(delta > 0);
@@ -578,7 +581,7 @@ vector<Variable> CreateVector(const string& prefix, const int size,
   vector<Variable> v;
   v.reserve(size);
   for (int i = 0; i < size; ++i) {
-    v.emplace_back(prefix + to_string(i), type);
+    v.emplace_back(prefix + to_string(i), type);  // lint: allow int
   }
   return v;
 }

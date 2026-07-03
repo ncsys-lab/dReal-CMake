@@ -10,7 +10,7 @@ description: Run a quick regression benchmark batch (~8-12 benchmarks) for the d
 2. Spawn a Haiku subagent with this exact prompt:
 
 ---
-Run the dReal4 benchmark script (foreground, 420000ms timeout):
+Run the dReal4 benchmark script (foreground, 1500000ms timeout):
 ```bash
 bash /Users/kunalsheth/Documents/new_dreal/dreal4-cmake/benchmark/do_benchmark.sh
 ```
@@ -18,12 +18,15 @@ The script prints OUT_DIR to stdout when done. Use the Read tool to read `<OUT_D
 
 Return a formatted summary as your only output:
 - If `correctness_flips` is non-empty, lead with: **CORRECTNESS REGRESSION**: [names] changed SAT/UNSAT result.
+- Then, if any regression has priority `ODEEXPR-HIGH`/`ODEEXPR` (the high-priority ode_expressivity family — names start `odeexpr_`), lead with those next: **ODEEXPR REGRESSION**: [names]. odeexpr is weighted ~3× the other families, so treat its regressions as more serious and its speedups as more meaningful.
 - First line: `N ran, M regressions, K exceptional`
-- 2–4 sentences: (1) overall health, (2) notable timing changes using PAR2 scores (e.g. "PAR2: 50 s vs 600 s (0.08×, formerly TIM)" for a benchmark that went from timeout to solve), (3) whether exceptional speedups look real or noise
+- 2–4 sentences: (1) overall health, (2) notable timing changes using PAR2 scores — PAR2 is now CPU time (user+sys), 600 s timeout / 1200 s penalty (e.g. "PAR2: 50 s vs 1200 s (0.04×, formerly TIM)"), (3) whether exceptional speedups look real or noise
 - One sentence: what needs investigation before continuing, if anything
 - Last line: `anomaly_report: <OUT_DIR>/anomaly_report.txt`
 
-Be terse. Only return the final summary — no narration.
+Then, as the FINAL part of your output, ALWAYS render the per-family PAR2 table from `family_comparison` in `aggregate.json` (the run vs the frozen baseline, `baseline_sha` in the same file). One markdown table, one row per family plus `weighted_overall`, columns: Family | Weight | n | Baseline PAR2 (s) | This run PAR2 (s) | Ratio. Sort families by descending weight (odeexpr, saradc, tacas, github) with `weighted_overall` last. Flag ratio >1.5 as a regression and <0.6 as exceptional. If `family_comparison` is absent (older run), say so in one line instead of inventing numbers.
+
+Be terse. Only return the final summary + the PAR2 table — no narration.
 
 ---
 

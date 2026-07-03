@@ -37,6 +37,8 @@
 #include "dreal/util/if_then_else_eliminator.h"
 #include "dreal/util/interrupt.h"
 #include "dreal/util/logging.h"
+#include "dreal/util/rounded_interval.h"
+#include "dreal/util/rounding.h"
 
 namespace dreal {
 
@@ -55,9 +57,16 @@ namespace {
 // This function tighten the box @p box so that every dimension has a
 // width smaller than delta.
 void Tighten(Box* box, const double delta) {
+  // This runs as delta-sat post-processing from Context::Impl::CheckSat(),
+  // whose ambient FPU mode is undefined (whatever CheckSatCore left — and once
+  // CAPD is linked, that is FE_TONEAREST). safe_diam/safe_mid and the gaol `&=`
+  // below are all gaol computations sound only under FE_UPWARD, so establish it
+  // for the whole pass and mint the token the directed-rounding helpers need.
+  const UpwardRoundingScope round_scope;
+  const UpwardRounding ur{round_scope.token()};
   for (int i = 0; i < box->size(); ++i) {
     auto& interval = (*box)[i];
-    if (interval.diam() > delta) {
+    if (safe_diam(interval, ur) > delta) {
       const Variable& var{box->variable(i)};
       switch (var.get_type()) {
         case Variable::Type::BINARY:
@@ -66,13 +75,21 @@ void Tighten(Box* box, const double delta) {
           interval = 1.0;
           break;
         case Variable::Type::CONTINUOUS: {
-          const double mid{interval.mid()};
-          const double half_delta{delta / 2.0};
-          interval &= Box::Interval(mid - half_delta, mid + half_delta);
+          // Sound outward-rounded [mid - delta/2, mid + delta/2]. The previous
+          // hand-built `Box::Interval(mid - half, mid + half)` was mis-rounded
+          // under every single rounding mode (the lower endpoint pulled inward,
+          // yielding a too-narrow box). The typed directed-rounding helpers make
+          // the outward rounding explicit and compiler-checked; see
+          // util/rounded_interval.h.
+          const Exact mid{safe_mid(interval, ur)};
+          const Exact half_delta{Exact{delta}.half()};
+          interval &= make_sound_interval(sub_down(mid, half_delta, ur),
+                                          add_up(mid, half_delta, ur));
         } break;
         case Variable::Type::INTEGER: {
-          const double mid{interval.mid()};
-          interval = static_cast<int>(mid);
+          // static_cast<int>(double) truncates toward zero independent of the
+          // rounding mode; only the safe_mid() is FE_UPWARD-sensitive.
+          interval = static_cast<int>(safe_mid(interval, ur));
         } break;
       }
     }

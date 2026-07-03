@@ -17,6 +17,7 @@
 
 #include <ostream>
 
+#include "dreal/contractor/odes/ode_types.h"
 #include "dreal/solver/brancher.h"
 #include "dreal/util/box.h"
 #include "dreal/util/dynamic_bitset.h"
@@ -34,7 +35,8 @@ class Config {
   ~Config() = default;
 
   using Brancher = std::function<int(
-      const Box& box, const DynamicBitset& bitset, Box* left, Box* right)>;
+      const Box& box, const DynamicBitset& bitset, Box* left, Box* right,
+      const UpwardRounding& ur)>;
 
   /// Returns the precision option.
   double precision() const;
@@ -159,6 +161,32 @@ class Config {
   std::chrono::duration<double, std::chrono::seconds::period> drpm_max_time() const;
   OptionValue<double>& mutable_drpm_max_time();
 
+  /// @name CAPD ODE-contractor tuning knobs
+  ///
+  /// Runtime overrides for the CAPD rigorous Taylor integrator. Defaults match
+  /// the values the contractor shipped as compile-time constants; see the
+  /// kDefaultOde* constants below for the rationale. Forward and backward
+  /// integration take separate Taylor orders (a lohner contractor instance is
+  /// single-direction).
+  /// @{
+  int ode_taylor_order() const;
+  OptionValue<int>& mutable_ode_taylor_order();
+  int ode_backward_order() const;
+  OptionValue<int>& mutable_ode_backward_order();
+  double ode_abs_tol() const;
+  OptionValue<double>& mutable_ode_abs_tol();
+  double ode_rel_tol() const;
+  OptionValue<double>& mutable_ode_rel_tol();
+  int ode_hull_grid() const;
+  OptionValue<int>& mutable_ode_hull_grid();
+  OdeC0SetType ode_c0_set() const;
+  OptionValue<OdeC0SetType>& mutable_ode_c0_set();
+  bool ode_backward() const;
+  OptionValue<bool>& mutable_ode_backward();
+  double ode_max_step() const;
+  OptionValue<double>& mutable_ode_max_step();
+  /// @}
+
   /// Returns if it's smtlib2_compliant mode.
   bool smtlib2_compliant() const;
 
@@ -173,6 +201,35 @@ class Config {
   static constexpr int kDefaultNloptMaxEval{100};
   static constexpr double kDefaultNloptMaxTime{0.01};
   static constexpr double kDefaultDrpmMaxTime{0.222};
+
+  // CAPD ODE-contractor defaults (previously compile-time constants in
+  // contractor_odes_capd.cc). Retuned by the 2026-06 sweep (OPTIMIZATION_LOG.md
+  // "2026-06 re-tuning campaign"): forward & backward order 12 + hull-grid 4,
+  // down from order 20 / hull-16. 123-job ODE-family confirm vs the old default:
+  // ~2x faster (PAR2 0.49), +4 solved (121/123, incl. a newly-completed UNSAT),
+  // and ZERO SAT<->UNSAT flips across 141 benchmarks (backward-order 12 adds a
+  // further ~5%). The optimal forward order is problem-dependent (tacas inverters
+  // want ~8-12, stiff long-horizon github wants ~16-20), so it stays a flag.
+  //
+  // SOUNDNESS/COMPLETENESS NOTE: lowering order / hull-grid only WIDENS the enclosures (each
+  // sub-slice is still a sound outward over-approximation), so it can NEVER cause
+  // a false-UNSAT; the only cost of a coarser knob is *completeness* (a missed
+  // refutation / delta-sat), never a soundness hole. As of the 2026-06
+  // centered-in-time tube fix (HULL_COMPLETENESS.md "Resolution"), hull-grid is
+  // NO LONGER completeness-load-bearing: the per-slice enclosure is evaluated by
+  // a mean-value-in-time range (curve(mid) + curve'(sub)·(sub-mid), intersected
+  // with the naive curve(sub)), which holds the tube near CAPD's actual precision
+  // regardless of the adaptive step size — so the sharp interior
+  // invariant-violation (GravityInvariantTest F1) is now refuted at THIS default
+  // hull-4, not only at hull-16. Higher hull-grid still helps pathologically
+  // sharp cases but no longer trades away the F1-class refutation.
+  // Tolerances at 1e-10 (step size is not tolerance-limited on the corpus).
+  static constexpr int kDefaultOdeTaylorOrder{12};
+  static constexpr int kDefaultOdeBackwardOrder{12};
+  static constexpr double kDefaultOdeAbsTol{1e-10};
+  static constexpr double kDefaultOdeRelTol{1e-10};
+  static constexpr int kDefaultOdeHullGrid{4};
+  static constexpr double kDefaultOdeMaxStep{0.0};  // 0 => fully adaptive
 
  private:
   // NOTE: Make sure to match the default values specified here with the ones
@@ -238,6 +295,16 @@ class Config {
 
   OptionValue<int> drpm_max_size_{0};
   OptionValue<double> drpm_max_time_{0.222};
+
+  // CAPD ODE-contractor knobs (defaults = current shipped behavior).
+  OptionValue<int> ode_taylor_order_{kDefaultOdeTaylorOrder};
+  OptionValue<int> ode_backward_order_{kDefaultOdeBackwardOrder};
+  OptionValue<double> ode_abs_tol_{kDefaultOdeAbsTol};
+  OptionValue<double> ode_rel_tol_{kDefaultOdeRelTol};
+  OptionValue<int> ode_hull_grid_{kDefaultOdeHullGrid};
+  OptionValue<OdeC0SetType> ode_c0_set_{OdeC0SetType::Rect2};
+  OptionValue<bool> ode_backward_{true};
+  OptionValue<double> ode_max_step_{kDefaultOdeMaxStep};
 
   // Brancher to use. By default it uses `BranchLargestFirst`.
   OptionValue<Brancher> brancher_{BranchLargestFirst};

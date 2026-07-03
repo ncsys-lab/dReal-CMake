@@ -40,9 +40,9 @@ ContractorSeq::ContractorSeq(vector<Contractor> contractors,
   }
 }
 
-void ContractorSeq::Prune(ContractorStatus* cs) const {
+void ContractorSeq::Prune(ContractorStatus* cs, const UpwardRounding& ur) const {
   for (const Contractor& c : contractors_) {
-    c.Prune(cs);
+    c.Prune(cs, ur);
     if (cs->box().empty()) {
       return;
     }

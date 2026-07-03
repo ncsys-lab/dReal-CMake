@@ -47,7 +47,7 @@ class ContractorSeq : public ContractorCell {
   /// Default destructor.
   ~ContractorSeq() override = default;
 
-  void Prune(ContractorStatus* cs) const override;
+  void Prune(ContractorStatus* cs, const UpwardRounding& ur) const override;
   std::ostream& display(std::ostream& os) const override;
 
   const std::vector<Contractor>& contractors() const;

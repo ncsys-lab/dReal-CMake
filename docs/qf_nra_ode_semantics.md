@@ -4,7 +4,7 @@ This document gives a ground-up description of the `QF_NRA_ODE` logic as impleme
 Every claim is cross-referenced to the parser (`src/dreal/smt2/parser.yy`, `scanner.ll`), the driver
 (`src/dreal/smt2/driver.cc`), the symbolic layer
 (`src/third_party/com_github_robotlocomotion_drake/dreal/symbolic/odes/`), and the contractor
-(`src/dreal/contractor/odes/contractor_odes.cc`, `contractor_odes_codac.cc`).
+(`src/dreal/contractor/odes/contractor_odes.cc`, `contractor_odes_capd.cc`).
 
 ---
 
@@ -92,8 +92,8 @@ as an **ODE parameter** (`ode_pars`). Every other variable is an **ODE state var
 
 This distinction matters for the contractor:
 
-- **State variables** (`ode_vars`): integrated by `CtcLohner`; their final-state domains are pruned
-  by the ODE enclosure.
+- **State variables** (`ode_vars`): integrated by CAPD (`run_capd_fwd`, `contractor_odes_capd.cc`);
+  their final-state domains are pruned by the ODE enclosure.
 - **Parameters** (`ode_pars`): not integrated; instead, the contractor enforces
   `pars_0[i] ∩ pars_t[i]` — i.e., the initial and final values of a parameter must agree (they are
   constant along the trajectory by definition). This intersection is step 1 of `Prune` in
@@ -152,18 +152,22 @@ The right-hand side `e` in `(= d/dt[x] e)` is a full dReal `Expression` and may 
   `sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `min`,
   `max`, `abs`)
 
-However, the expression translator in `contractor_odes_codac.cc` (`translate_expr`) only handles
-a subset of `ExpressionKind`: Constant, RealConstant, Var, Add, Mul, Div, Pow, Exp, Sqrt, Sin,
-Cos, Tan, Abs. Anything else (`log`, `asin`, `atan`, etc.) throws:
+The expression translator `to_capd_string` (`src/dreal/contractor/odes/to_capd_string.h`) converts
+each RHS into the string format that `capd::IMap` parses. It covers essentially the full QF_NRA
+operator set — `+ - * / ^`/`pow`, `exp`, `log`, `sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`,
+`atan`, `atan2`, `sinh`, `cosh`, `tanh`, `min`, `max`, `abs` — emulating the ones `IMap` has no
+primitive for (`abs` → `sqrt(sqr(·))`, `tan` → `sin/cos`, `sinh`/`cosh`/`tanh` → `exp`, `atan2` →
+an `atan` formula). Only `IfThenElse`, `UninterpretedFunction`, and `NaN` are unsupported and throw:
 
 ```cpp
 default:
-    throw std::runtime_error(
-        "translate_expr: unsupported ExpressionKind " + ...);
+    throw std::runtime_error("to_capd_string: unsupported ExpressionKind");
 ```
 
-If translation fails, `build_ode_fn` returns `std::nullopt` and the contractor silently skips
-integration (returns without pruning). There is no parse-time check for this limitation.
+Translation happens when the per-flow cache is built (`make_capd_ode_cache`, called from the
+`contractor_ode_lohner` constructor). If any RHS is untranslatable the build **raises**
+(`std::runtime_error`) rather than silently skipping the ODE — a deliberate fail-loud choice
+(commit `f4a6eb8da`). There is no separate parse-time check.
 
 ---
 
@@ -271,7 +275,7 @@ const bool time_is_zero =
 
 If the upper bound of the time variable is exactly `0.0`, the contractor intersects each
 `vars_0[i]` with `vars_t[i]` in-place (since a zero-duration trajectory means initial = final
-state). This avoids a Codac call when the time domain is already pinned to zero.
+state). This avoids a CAPD integration call when the time domain is already pinned to zero.
 
 ### 4.5 Direction: FWD vs. BWD
 
@@ -291,18 +295,30 @@ if (m_dir == ode_direction::FWD) {
 }
 ```
 
-In both cases, `m_vars_0` is passed as the initial condition to `run_lohner_integration` and
-`m_vars_t` is the target. Since `CtcLohner` runs `FWD_BWD` internally regardless, both contractor
-instances effectively contract both endpoints. The FWD vs. BWD distinction in dReal controls
-_which endpoint is considered the "initial" state_ for the outer ICP loop.
+In both cases, `m_vars_0` is the initial condition for the CAPD integration and `m_vars_t` is the
+target. `run_capd_fwd` integrates `f(x)` forward from `m_vars_0` to narrow the terminal `m_vars_t`,
+then integrates the negated `-f(x)` backward from the narrowed `m_vars_t` to narrow `m_vars_0` — so
+a single call narrows **both** endpoints (recovering the joint narrowing that Codac's `CtcLohner`
+FWD_BWD did in one shot). The FWD vs. BWD distinction in dReal controls _which endpoint is
+considered the "initial" state_ for the outer ICP loop.
 
 ---
 
 ## 5. `forall_t`: Invariant Constraints
 
+> **⚠ PITFALL — `forall_t` ≠ `forall` (`forall-vs-forall_t`).** This section is the ODE
+> trajectory invariant (`FormulaKind::ForallT`, checked per-slice inside the ODE contractor
+> `contractor_ode_lohner` / `Kind::ODE_LOHNER`). The similarly-named **`forall`** is the
+> unrelated ∃∀ NRA quantifier (`Formula::Forall` → `ContractorForall`); see §7 below and the
+> canonical side-by-side in `docs/forall-semantics.md` §7. Never conflate them.
+
 ```smt2
 (forall_t 1 [0 time_0] (< s1_0_t (+ s2_0_t (* v2_0_t 2.0))))
 ```
+
+This section covers `forall_t` **syntax, linking, and AST**. For how a linked invariant is
+*enforced* — the CAPD per-slice trajectory tube fed through IBEX HC4 invariant contractors —
+see `docs/ode-integration.md` § "The `ForallT` invariant mechanism (CAPD tube × IBEX HC4)".
 
 ### 5.1 Grammar
 
@@ -459,9 +475,14 @@ quantification over trajectory time). In dReal4, this constraint is **ignored**:
 nothing to the contractor or the satisfiability result. The solver may return delta-SAT on a
 formula that is actually unsatisfiable because of such a negated ODE constraint.
 
-This is a **soundness limitation for negated ODE formulas**. It is documented at `WARN` level in
-the contractor, and at `DEBUG` level in the linking function. Users must not rely on negated ODE
-constraints being enforced.
+This is a **completeness limitation (incompleteness) for negated ODE formulas** — COMPLETENESS
+(the solver returns `delta-sat` / asserts φ^δ is *T-satisfiable* on a φ that is *T-unsatisfiable*
+because of the dropped negated-ODE constraint — a missed refutation). It is **not** a soundness
+violation: no false-`unsat` is produced (dropping a constraint can only *widen* the feasible set,
+never prune a real solution), consistent with the "sound … but incomplete" framing used for the
+CAPD-divergence skip later in this doc. It is
+documented at `WARN` level in the contractor, and at `DEBUG` level in the linking function. Users
+must not rely on negated ODE constraints being enforced. (See `docs/soundness-vs-completeness.md`.)
 
 ### 6.4 `OdeFormulaEvaluator` also returns vacuously valid
 
@@ -503,7 +524,8 @@ Grammar:
       else $$ = forall(quantified_variables, imply(domain, body)); }
 ```
 
-This is completely separate from `forall_t`. Key differences:
+This is completely separate from `forall_t` (`forall-vs-forall_t`; canonical side-by-side:
+`docs/forall-semantics.md` §7). Key differences:
 - `forall` uses `variable_sort_list`, which creates variables with domain bounds; `forall_t` uses
   a numeric flow ID.
 - `forall` produces a `Formula::Forall` AST node; `forall_t` produces `FormulaKind::ForallT`.
@@ -580,7 +602,7 @@ in the productions for `TK_LT`, `TK_LTE`, `TK_GT`, `TK_GTE`, and `TK_AND`.
   Step 2: T=0 case → intersect state vars
   Step 3: check invariants at X_0 via ibex contractors
            (negated invariants silently skipped)
-  Step 4: run_lohner_integration() via CtcLohner FWD_BWD
+  Step 4: run_capd_fwd() — forward f(x), then backward -f(x) sweep
            → narrow [x_0, x_t, time_0]
 ```
 
@@ -674,20 +696,25 @@ to `(pow x 2)`.
 `driver.LookupOde(double id)` asserts `id >= 0` and `is_integer(id)`. Fractional or negative
 numeric IDs will trigger a `DREAL_ASSERT` failure at runtime.
 
-### 10.9 `GlobalEnclosureError` from Codac
+### 10.9 CAPD integration divergence
 
-If `CtcLohner` cannot find a global enclosure (the trajectory tube is too stiff or the time step
-too large), it throws `codac2::GlobalEnclosureError`. The contractor catches this and returns
-without pruning:
+If CAPD's `IOdeSolver` cannot maintain step-control (the trajectory tube is too stiff or the
+over-approximation explodes), it throws. `run_capd_fwd` / `run_capd_bwd` catch the integrator
+exception **internally** and report failure via `CapdOdeResult::found == false` rather than
+propagating:
 
 ```cpp
-} catch (const codac2::GlobalEnclosureError&) {
-    // Integration failed to find a global enclosure; return conservatively
+try {
+    // ... CAPD IOdeSolver / ITimeMap integration ...
+} catch (const std::exception&) {
+    // Integration diverged — return no narrowing (found stays false).
 }
 ```
 
-This is sound (no incorrect pruning) but incomplete (the ODE constraint is not enforced for that
-Prune call). It can happen on long time horizons or highly nonlinear RHS.
+The contractor then does `if (!res.found) return;` and skips narrowing for that `Prune` call. This
+is sound (no incorrect pruning) but incomplete (the ODE constraint is not enforced for that call).
+It can happen on long time horizons or highly nonlinear RHS. (Distinct from an *untranslatable* RHS,
+which raises at cache-build time — see §3.)
 
 ---
 

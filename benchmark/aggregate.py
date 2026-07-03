@@ -14,13 +14,45 @@ import os
 import sys
 from datetime import datetime, timezone
 
+from odeexpr import family_of, FAMILY_WEIGHTS
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 REGRESSION_RATIO = 1.5   # PAR2 time > 1.5x baseline → regression
 EXCEPTIONAL_RATIO = 0.6  # PAR2 time < 0.6x baseline → exceptional
 
-SOLVER_TIMEOUT_S = 300   # must match run_batch.sh `timeout 300`
-PAR2_PENALTY_S = 2 * SOLVER_TIMEOUT_S  # 600 s
+SOLVER_TIMEOUT_S = 600   # must match run_batch.sh `timeout 600`
+PAR2_PENALTY_S = 2 * SOLVER_TIMEOUT_S  # 1200 s
+
+# Timing resolution / noise floors. gtime reports CPU time to ~0.01 s, so ratios
+# below that are meaningless. NEGLIGIBLE_S: when BOTH baseline and current are
+# this fast, skip the ratio check entirely (sub-0.1 s jitter on a multi-tenant
+# box is noise, not a regression). TIME_FLOOR_S: clamp the divisor so a genuine
+# instant→seconds jump still divides (and flags) instead of hitting 0.
+NEGLIGIBLE_S = 0.1
+TIME_FLOOR_S = 0.01
+
+
+def safe_ratio(cur: float, base: float) -> float:
+    """PAR2 ratio with both operands floored at the measurement resolution."""
+    return max(cur, TIME_FLOOR_S) / max(base, TIME_FLOOR_S)
+
+# odeexpr baseline lives in its own CSV (the other three are in baseline.csv /
+# baseline_local.csv); produced by do_baseline_odeexpr.sh.
+ODEEXPR_BASELINE = os.path.join(SCRIPT_DIR, "baseline_odeexpr.csv")
+
+
+def row_time(row: dict) -> float | None:
+    """Primary timing for a result/baseline row: CPU time (cpu_time_s) if
+    present, else wall_time_s (older baselines predate the cpu_time_s column)."""
+    for col in ("cpu_time_s", "wall_time_s"):
+        val = row.get(col, "")
+        if val not in (None, ""):
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                pass
+    return None
 
 
 def par2_time(result: str, wall_time_s: float | None) -> float:
@@ -43,10 +75,7 @@ def load_baseline(baseline_csv: str, column: str = "DRPM_0L") -> dict[str, dict]
             if not row or not row.get("benchmark_name", "").strip():
                 continue
             name = row["benchmark_name"].strip().removesuffix(".smt2")
-            try:
-                time_s = float(row.get("wall_time_s", ""))
-            except (ValueError, TypeError):
-                time_s = None
+            time_s = row_time(row)
             result = row.get("solver_result", "").strip()
             ground_truth = row.get("ground_truth", "").strip()
             baseline[name] = {"time_s": time_s, "result": result,
@@ -115,25 +144,32 @@ def load_summary(summary_csv: str) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def family_of(name: str) -> str | None:
-    if name.startswith("1mhz_"):
-        return "saradc"
-    if name.startswith("github_oct5_"):
-        return "github"
-    if name.startswith("tacas_c2e2_"):
-        return "tacas"
-    return None
+# Report ordering: correctness first, then the high-priority odeexpr family,
+# then ordinary solve→fail (HIGH) and plain timing regressions.
+_PRIORITY_ORDER = ["SOUNDNESS", "ODEEXPR-HIGH", "ODEEXPR", "HIGH", "TIMING"]
+
+
+def priority_rank(priority: str) -> int:
+    return _PRIORITY_ORDER.index(priority) if priority in _PRIORITY_ORDER else len(_PRIORITY_ORDER)
 
 
 def compute_family_comparison(frozen_csv: str, local_summary: list[dict]) -> dict:
     """Compare per-family PAR2 averages between frozen baseline and new local run.
 
     Every benchmark present in both sets contributes its PAR2 time (actual time
-    if solved, PAR2_PENALTY_S=600 s if TIM/OOM/ERR). This ensures that
+    if solved, PAR2_PENALTY_S=1200 s if TIM/OOM/ERR). This ensures that
     formerly-TIM'd benchmarks that now solve lower the average rather than
     appearing to raise it.
+
+    Families are weighted (FAMILY_WEIGHTS) into a `weighted_overall` PAR2 so the
+    high-priority odeexpr family dominates the single-number summary.
     """
     frozen = load_baseline(frozen_csv, "DRPM_0L")
+    # The odeexpr family is not in the frozen DRPM_0L CSV; pull its reference
+    # from baseline_odeexpr.csv (new format).
+    if os.path.exists(ODEEXPR_BASELINE):
+        for name, entry in load_baseline(ODEEXPR_BASELINE).items():
+            frozen.setdefault(name, entry)
 
     from collections import defaultdict
     frozen_par2: dict[str, list[float]] = defaultdict(list)
@@ -148,25 +184,41 @@ def compute_family_comparison(frozen_csv: str, local_summary: list[dict]) -> dic
         if base is None:
             continue
         cur_result = row.get("solver_result", "")
-        cur_time = float(row["wall_time_s"]) if row.get("wall_time_s") else None
+        cur_time = row_time(row)
         local_par2[fam].append(par2_time(cur_result, cur_time))
         frozen_par2[fam].append(par2_time(base["result"], base["time_s"]))
 
     result = {}
-    for fam in ("saradc", "github", "tacas"):
+    weighted_local_num = weighted_frozen_num = weight_den = 0.0
+    for fam in ("saradc", "github", "tacas", "odeexpr"):
         lp = local_par2.get(fam, [])
         fp = frozen_par2.get(fam, [])
         if lp and fp:
             local_avg = sum(lp) / len(lp)
             frozen_avg = sum(fp) / len(fp)
+            w = FAMILY_WEIGHTS.get(fam, 1)
+            weighted_local_num += w * local_avg
+            weighted_frozen_num += w * frozen_avg
+            weight_den += w
             result[fam] = {
                 "frozen_avg_par2": round(frozen_avg, 2),
                 "local_avg_par2": round(local_avg, 2),
-                "ratio": round(local_avg / frozen_avg, 3),
+                "ratio": round(safe_ratio(local_avg, frozen_avg), 3),
                 "n": len(lp),
+                "weight": w,
             }
         else:
-            result[fam] = {"frozen_avg_par2": None, "local_avg_par2": None, "ratio": None, "n": 0}
+            result[fam] = {"frozen_avg_par2": None, "local_avg_par2": None,
+                           "ratio": None, "n": 0, "weight": FAMILY_WEIGHTS.get(fam, 1)}
+
+    if weight_den:
+        wl = weighted_local_num / weight_den
+        wf = weighted_frozen_num / weight_den
+        result["weighted_overall"] = {
+            "frozen_avg_par2": round(wf, 2),
+            "local_avg_par2": round(wl, 2),
+            "ratio": round(wl / wf, 3) if wf else None,
+        }
     return result
 
 
@@ -219,6 +271,13 @@ def main():
                 # Local baseline lacks ground_truth for this row — fill from frozen.
                 baseline[name]["ground_truth"] = fentry.get("ground_truth", "")
 
+    # Merge the odeexpr baseline as a REAL timing reference (same machine, same
+    # 600 s budget) — unlike the frozen rows above, these carry a usable time_s,
+    # so the full PAR2 timing comparison applies to odeexpr benchmarks.
+    if os.path.exists(ODEEXPR_BASELINE):
+        for name, oentry in load_baseline(ODEEXPR_BASELINE).items():
+            baseline[name] = oentry  # authoritative for odeexpr rows
+
     summary = load_summary(summary_csv)
 
     regressions = []       # {name, reason, baseline_time, current_time, baseline_result, current_result}
@@ -236,7 +295,7 @@ def main():
     for row in summary:
         name = row["benchmark_name"]
         cur_result = row["solver_result"]
-        cur_time = float(row["wall_time_s"]) if row["wall_time_s"] else None
+        cur_time = row_time(row)
 
         base = baseline.get(name)
         if base is None:
@@ -295,18 +354,28 @@ def main():
         # --- PAR2 timing comparison ---
         # Skipped for from_frozen rows (different machine, timing unreliable) and
         # correctness flips (already classified above).
-        # PAR2 time = actual wall time if solved, PAR2_PENALTY_S (600 s) otherwise.
+        # PAR2 time = actual CPU time if solved, PAR2_PENALTY_S (1200 s) otherwise.
         # This unifies solve→TIM regressions, TIM→solve improvements, and plain
         # timing regressions/speedups into a single ratio check.
         if not from_frozen and not result_flip:
             par2_base = par2_time(base_result, base_time)
             par2_cur  = par2_time(cur_result, cur_time)
-            ratio = par2_cur / par2_base
             raw_note = (f" [raw: {cur_time:.1f}s]" if cur_time is not None else " [TIM/OOM/ERR]")
 
+            if par2_cur < NEGLIGIBLE_S and par2_base < NEGLIGIBLE_S:
+                ratio = 1.0  # both below measurement resolution — not comparable
+            else:
+                ratio = safe_ratio(par2_cur, par2_base)
+
             if ratio > REGRESSION_RATIO:
-                priority = ("HIGH" if base_result in ("SAT", "UNSAT")
-                            and cur_result in ("TIM", "OOM", "ERR") else "TIMING")
+                solve_to_fail = (base_result in ("SAT", "UNSAT")
+                                 and cur_result in ("TIM", "OOM", "ERR"))
+                # odeexpr is the high-priority target: its regressions outrank
+                # ordinary ones so the report/skill lead with them.
+                if family_of(name) == "odeexpr":
+                    priority = "ODEEXPR-HIGH" if solve_to_fail else "ODEEXPR"
+                else:
+                    priority = "HIGH" if solve_to_fail else "TIMING"
                 regressions.append({
                     "name": name,
                     "priority": priority,
@@ -341,7 +410,7 @@ def main():
 
         if regressions:
             f.write(f"=== REGRESSIONS ({len(regressions)}) ===\n")
-            for r in sorted(regressions, key=lambda x: x["priority"]):
+            for r in sorted(regressions, key=lambda x: priority_rank(x["priority"])):
                 f.write(f"  [{r['priority']}] {r['name']}\n")
                 f.write(f"    {r['reason']}\n")
         else:

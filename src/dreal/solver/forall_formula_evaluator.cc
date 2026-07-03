@@ -25,6 +25,7 @@
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"
+#include "dreal/util/rounded_interval.h"
 #include "dreal/util/optional.h"
 
 namespace dreal {
@@ -98,7 +99,7 @@ ForallFormulaEvaluator::ForallFormulaEvaluator(Formula f, const double epsilon,
 }
 
 FormulaEvaluationResult ForallFormulaEvaluator::operator()(
-    const Box& box) const {
+    const Box& box, const UpwardRounding& ur) const {
   Context& context{GetContext()};
   for (const Variable& v : box.variables()) {
     context.SetInterval(v, box[v].lb(), box[v].ub());
@@ -113,12 +114,12 @@ FormulaEvaluationResult ForallFormulaEvaluator::operator()(
     }
     double max_diam = 0.0;
     for (const RelationalFormulaEvaluator& evaluator : evaluators_) {
-      const FormulaEvaluationResult eval_result = evaluator(*counterexample);
+      const FormulaEvaluationResult eval_result = evaluator(*counterexample, ur);
       double diam_i{0.0};
       if (eval_result.type() == FormulaEvaluationResult::Type::UNSAT) {
         diam_i = eval_result.evaluation().mag();
       } else {
-        diam_i = eval_result.evaluation().diam();
+        diam_i = safe_diam(eval_result.evaluation(), ur);
       }
       if (diam_i > max_diam) {
         max_diam = diam_i;

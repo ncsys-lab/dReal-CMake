@@ -47,7 +47,7 @@ class ContractorInteger : public ContractorCell {
   /// Default destructor.
   ~ContractorInteger() override = default;
 
-  void Prune(ContractorStatus* contractor_status) const override;
+  void Prune(ContractorStatus* contractor_status, const UpwardRounding& ur) const override;
   std::ostream& display(std::ostream& os) const override;
 
  private:

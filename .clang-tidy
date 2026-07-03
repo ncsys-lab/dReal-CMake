@@ -1,0 +1,74 @@
+# clang-tidy gate config — the type-aware companion to the regex lint.py.
+#
+# Three concerns, all things a regex lint structurally cannot see (they are
+# *semantic*, type-dependent), run via ./copy_lint.sh (incremental by default,
+# --all for a full sweep; it adds --warnings-as-errors and the macOS -isysroot fixup):
+#
+#   1. Accidental by-value COPIES of heavy types (Box, capd::IMap, Environment,
+#      IntervalVector, ...). This solver is memory-bound; a stray copy where a
+#      const& / move belongs is a silent regression. Covered by the performance-*
+#      copy subset (unnecessary-value-param, for-range-copy,
+#      unnecessary-copy-initialization, move-const-arg, implicit-conversion-in-loop).
+#
+#   2. Other PERFORMANCE pitfalls (avoid-endl, inefficient-vector-operation,
+#      noexcept-move, etc.) — the rest of performance-*.
+#
+#   3. UNDEFINED BEHAVIOR / memory-safety / segfault-class bugs — an explicit
+#      allow-list of the bugprone-* checks whose findings are genuine UB or memory
+#      corruption (use-after-move, dangling-handle, undefined-memory-manipulation,
+#      ptr/array mismatches, sizeof misuse, ...). The whole tree is currently clean
+#      on every one of these, so they cost zero noise and exist purely to catch a
+#      future regression. NOT the style/intent bugprone checks (easily-swappable-
+#      parameters, narrowing-conversions, branch-clone, ...) — those are noise here.
+#
+# Findings are resolved by fixing (const& / move / the real bug) or, when genuinely
+# intended, justified inline with // NOLINT(<check>) <reason> — the type-aware twin
+# of lint.py's `// lint: allow`.
+#
+# Two deliberately-excluded checks (see ./copy_lint.sh history):
+#   -performance-enum-size            micro-opt only (smaller enum base); 12 core
+#                                     enums, mild serialization/arithmetic risk, no
+#                                     correctness value.
+#   -bugprone-unchecked-optional-access  crash-class but FP-prone; its only hits are
+#                                     in the semi-dead pattern_matching trie code.
+#
+# No WarningsAsErrors here on purpose: editors/clangd surface these as plain
+# warnings; the hard fail is the gate script's job (copy_lint.sh adds it).
+Checks: >
+  -*,
+  performance-*,
+  -performance-enum-size,
+  bugprone-bitwise-pointer-cast,
+  bugprone-bool-pointer-implicit-conversion,
+  bugprone-casting-through-void,
+  bugprone-dangling-handle,
+  bugprone-dynamic-static-initializers,
+  bugprone-fold-init-type,
+  bugprone-incorrect-roundings,
+  bugprone-invalid-enum-default-initialization,
+  bugprone-misplaced-operator-in-strlen-in-alloc,
+  bugprone-misplaced-pointer-arithmetic-in-alloc,
+  bugprone-misplaced-widening-cast,
+  bugprone-multi-level-implicit-pointer-conversion,
+  bugprone-multiple-new-in-one-expression,
+  bugprone-not-null-terminated-result,
+  bugprone-pointer-arithmetic-on-polymorphic-object,
+  bugprone-raw-memory-call-on-non-trivial-type,
+  bugprone-return-const-ref-from-parameter,
+  bugprone-shared-ptr-array-mismatch,
+  bugprone-signed-char-misuse,
+  bugprone-sizeof-container,
+  bugprone-sizeof-expression,
+  bugprone-string-constructor,
+  bugprone-string-literal-with-embedded-nul,
+  bugprone-stringview-nullptr,
+  bugprone-suspicious-memory-comparison,
+  bugprone-suspicious-memset-usage,
+  bugprone-suspicious-realloc-usage,
+  bugprone-suspicious-stringview-data-usage,
+  bugprone-unhandled-self-assignment,
+  bugprone-undefined-memory-manipulation,
+  bugprone-unique-ptr-array-mismatch,
+  bugprone-unused-raii,
+  bugprone-use-after-move
+HeaderFilterRegex: 'src/dreal/.*'
