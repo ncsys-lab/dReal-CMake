@@ -204,8 +204,8 @@ namespace dreal::drake::symbolic
           vec_0_{std::move(vec_0)},
           vec_t_{std::move(vec_t)},
           flow_{flow} {
-        DREAL_ASSERT(is_variable(time_0_) || is_constant(time_0_));
-        DREAL_ASSERT(is_variable(time_t_) || is_constant(time_t_));
+        DREAL_ASSERT(is_variable(time_0_) || is_constant(time_0_) || is_real_constant(time_0_));
+        DREAL_ASSERT(is_variable(time_t_) || is_constant(time_t_) || is_real_constant(time_t_));
 
         if (vec_0_.size() != vec_t_.size())
             throw DREAL_RUNTIME_ERROR("vec_0.size() != vec_t.size()");

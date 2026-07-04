@@ -18,11 +18,13 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <cstdint>
 
 #include "rounding_mode_guard.h"
 #include "dreal/util/exception.h"
 
 using std::int64_t;
+using std::uint64_t;
 using std::modf;
 using std::numeric_limits;
 
@@ -56,6 +58,13 @@ double convert_int64_to_double(const int64_t v) {
     throw DREAL_RUNTIME_ERROR("Fail to convert a int64_t value {} to double",
                               v);
   }
+}
+
+uint64_t fast_random_next(uint64_t& state) {
+  uint64_t z = (state += UINT64_C(0x9E3779B97F4A7C15));
+  z = (z ^ (z >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
+  z = (z ^ (z >> 27)) * UINT64_C(0x94D049BB133111EB);
+  return z ^ (z >> 31);
 }
 
 }  // namespace dreal

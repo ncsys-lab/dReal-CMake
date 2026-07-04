@@ -234,6 +234,18 @@ void MainProgram::AddOptions() {
            1 /* Number of args expected. */,
            0 /* Delimiter if expecting multiple args. */,
            "Set a seed for the random number generator.", "--random-seed");
+
+  opt_.add("0" /* Default */, false /* Required? */,
+           1 /* Number of args expected. */,
+           0 /* Delimiter if expecting multiple args. */,
+           "Set maximum lemma size to pattern match. (default = 0)", "--drpm-max-size", positive_int_option_validator);
+
+  const string kDefaultDrpmMaxTime{fmt::format("{}", Config::kDefaultDrpmMaxTime)};
+  opt_.add(kDefaultDrpmMaxTime.c_str() /* Default */, false /* Required? */,
+           1 /* Number of args expected. */,
+           0 /* Delimiter if expecting multiple args. */,
+           fmt::format("Set pattern matching timeout in seconds. (default = {})", kDefaultDrpmMaxTime).c_str(),
+           "--drpm-max-time", positive_double_option_validator);
 }
 
 bool MainProgram::ValidateOptions() {
@@ -431,6 +443,21 @@ void MainProgram::ExtractOptions() {
     DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --random-seed = {}",
                     config_.random_seed());
   }
+
+  if (opt_.isSet("--drpm-max-size")) {
+    int drpm{0};
+    opt_.get("--drpm-max-size")->getInt(drpm);
+    config_.mutable_drpm_max_size().set_from_command_line(drpm);
+    DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --drpm-max-size= {}",
+                    config_.drpm_max_size());
+  }
+  if (opt_.isSet("--drpm-max-time")) {
+    double drpm{0};
+    opt_.get("--drpm-max-time")->getDouble(drpm);
+    config_.mutable_drpm_max_time().set_from_command_line(drpm);
+    DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --drpm-max-time = {}",
+                    config_.drpm_max_time());
+  }
 }
 
 int MainProgram::Run() {
@@ -498,11 +525,12 @@ int main(int argc, const char* argv[]) {
   rl.rlim_cur = 0;
   getrlimit(RLIMIT_STACK, &rl);
   if (rl.rlim_cur < desired_stack_size) {
+    // `DREAL_LOG_*` functions have not been initialized yet.
     std::cerr << "Failed to configure desired stack size limit. Exiting." << std::endl;
     std::cerr << "\tCurrent Size = " << rl.rlim_cur << std::endl;
     std::cerr << "\tMaximum Size = " << rl.rlim_max << std::endl;
     std::cerr << "\tDesired Size = " << desired_stack_size << std::endl;
-    exit(-1);
+    // exit(-1);
   }
 
   std::signal(SIGINT, HandleSigInt);

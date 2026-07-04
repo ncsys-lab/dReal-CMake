@@ -154,6 +154,11 @@ class Config {
   /// Returns a mutable OptionValue for `random_seed`.
   OptionValue<uint32_t>& mutable_random_seed();
 
+  int drpm_max_size() const;
+  OptionValue<int>& mutable_drpm_max_size();
+  std::chrono::duration<double, std::chrono::seconds::period> drpm_max_time() const;
+  OptionValue<double>& mutable_drpm_max_time();
+
   /// Returns if it's smtlib2_compliant mode.
   bool smtlib2_compliant() const;
 
@@ -167,6 +172,7 @@ class Config {
   static constexpr double kDefaultNloptFtolAbs{1e-6};
   static constexpr int kDefaultNloptMaxEval{100};
   static constexpr double kDefaultNloptMaxTime{0.01};
+  static constexpr double kDefaultDrpmMaxTime{0.222};
 
  private:
   // NOTE: Make sure to match the default values specified here with the ones
@@ -229,6 +235,9 @@ class Config {
 
   // Seed for Random Number Generator.
   OptionValue<uint32_t> random_seed_{0};
+
+  OptionValue<int> drpm_max_size_{0};
+  OptionValue<double> drpm_max_time_{0.222};
 
   // Brancher to use. By default it uses `BranchLargestFirst`.
   OptionValue<Brancher> brancher_{BranchLargestFirst};

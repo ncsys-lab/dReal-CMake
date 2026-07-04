@@ -17,8 +17,6 @@
 
 #include <memory>
 #include <string>
-#include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "dreal/smt2/logic.h"
@@ -27,7 +25,6 @@
 #include "dreal/util/box.h"
 #include "dreal/util/optional.h"
 #include "dreal/util/scoped_vector.h"
-#include "dreal/version.h"
 
 namespace dreal {
 

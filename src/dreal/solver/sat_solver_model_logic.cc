@@ -1,5 +1,4 @@
-#include <dreal/version.h>
-
+#include "dreal/version.h"
 #include "dreal/solver/sat_solver.h"
 
 namespace dreal {

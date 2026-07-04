@@ -317,7 +317,7 @@ double BinaryExpressionCell::Evaluate(const Environment& env) const {
 ExpressionVar::ExpressionVar(const Variable& v)
     : ExpressionCell{ExpressionKind::Var,
                      hash_value<Variable>{}(v),
-                     41,
+                     hash_combine(41, v.get_type()),
                      true,
                      false,
                      {v}},
@@ -516,11 +516,10 @@ Expression ExpressionNaN::Differentiate(const Variable&) const {
 
 ostream& ExpressionNaN::Display(ostream& os) const { return os << "NaN"; }
 
-size_t alpha_hash_map(const map<Expression, double> &map) {
-  size_t seed{};
-  for (const auto& [k,v] : map)
-    seed = hash_combine(seed, k.get_al_hash(), v);
-  return seed;
+size_t alpha_hash_map(const map<Expression, double>& map) {
+  std::multiset<size_t> hashes;
+  for (const auto& [k,v] : map) hashes.insert(hash_combine(k.get_al_hash(), v));
+  return hash_range(hashes.cbegin(), hashes.cend());
 }
 
 ExpressionAdd::ExpressionAdd(const double constant,
@@ -782,11 +781,10 @@ ExpressionAddFactory& ExpressionAddFactory::AddMap(
   return *this;
 }
 
-size_t alpha_hash_map(const map<Expression, Expression> &map) {
-  size_t seed{};
-  for (const auto& [k,v] : map)
-    seed = hash_combine(seed, k.get_al_hash(), v.get_al_hash());
-  return seed;
+size_t alpha_hash_map(const map<Expression, Expression>& map) {
+  std::multiset<size_t> hashes;
+  for (const auto& [k,v] : map) hashes.insert(hash_combine(k.get_al_hash(), v.get_al_hash()));
+  return hash_range(hashes.cbegin(), hashes.cend());
 }
 
 ExpressionMul::ExpressionMul(const double constant,

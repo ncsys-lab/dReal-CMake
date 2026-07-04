@@ -9,15 +9,18 @@
 #include <limits>
 #include <ostream>
 #include <sstream>
+#include <string_view>
 #include <unordered_set>
 #include <dreal/symbolic/prefix_printer.h>
 #include <dreal/symbolic/symbolic_formula_cell.h>
 
 #include <fmt/format.h>
+#include <utility>
 
 #include "dreal/solver/filter_assertion.h"
 #include "dreal/util/assert.h"
 #include "dreal/util/logging.h"
+#include "dreal/util/pattern_matching/substitutions_map.h"
 #include "dreal/version.h"
 #include "dreal/symbolic/odes/symbolic_odes_cell.h"
 #include "nlohmann/json.hpp"
@@ -137,9 +140,12 @@ namespace dreal
 
     void pm_dump_all(
         const std::vector<Formula>& base_conflict,
-        const std::vector<std::pair<std::vector<Formula>, substitutions_map>>& all_matches
+        const std::vector<std::pair<std::vector<Formula>, std::optional<substitutions_map>>>& all_matches,
+        const std::vector<std::string_view>& metadata_tags, const std::vector<bool>& was_not_added
     ) {
         DREAL_ASSERT(DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED);
+        DREAL_ASSERT(metadata_tags.size() == all_matches.size() || metadata_tags.empty());
+        DREAL_ASSERT(was_not_added.size() == was_not_added.size() || was_not_added.empty());
 
         nlohmann::json dump;
 
@@ -152,17 +158,21 @@ namespace dreal
         for (const auto& a : base_conflict) base_conflict_str.emplace_back(a.to_string());
         dump["base_conflict"] = base_conflict_str;
 
-        std::vector<std::pair<std::vector<std::string>, std::map<std::string, std::string>>> all_matches_json;
+        std::vector<std::tuple<std::vector<std::string>, std::map<std::string, std::string>, std::string_view, bool>> all_matches_json;
         all_matches_json.reserve(all_matches.size());
-        for (const auto& [match_conflict, subs] : all_matches) {
+        for (int i = 0; i < all_matches.size(); i++) {
+            const auto& [match_conflict, subs] = all_matches[i];
             std::vector<std::string> match_conflict_str;
             match_conflict_str.reserve(match_conflict.size());
             for (const auto& a : match_conflict) match_conflict_str.emplace_back(a.to_string());
 
             std::map<std::string, std::string> subs_strs;
-            for (const auto& [a,b] : subs.get_map()) subs_strs[a.get_name()] = b.get_name();
+            for (const auto& [a,b] : subs->get_map()) subs_strs[a.get_name()] = b.get_name();
 
-            all_matches_json.emplace_back(match_conflict_str, subs_strs);
+            const auto& tag = metadata_tags.empty() ? "?" : metadata_tags.at(i);
+            const auto& wna = was_not_added.empty() ? false : was_not_added.at(i);
+
+            all_matches_json.emplace_back(match_conflict_str, subs_strs, tag, wna);
         }
         dump["all_matches"] = all_matches_json;
         const auto dump_str = dump.dump(-1, ' ', true);

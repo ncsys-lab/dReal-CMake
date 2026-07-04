@@ -29,4 +29,16 @@ int convert_int64_to_int(std::int64_t v);
 /// @throw std::runtime_error if this conversion result in a loss of precision.
 double convert_int64_to_double(std::int64_t v);
 
+
+/**
+ * This is a fixed-increment version of Java 8's SplittableRandom generator.
+ * Taken from: https://github.com/svaarala/duktape/blob/50af773b1b32067170786c2b7c661705ec7425d4/misc/splitmix64.c#L11-L28
+ * http://dx.doi.org/10.1145/2714064.2660195
+ * http://docs.oracle.com/javase/8/docs/api/java/util/SplittableRandom.html
+ *
+ * @param state - Can be seeded with any value. Must be preserved between invocations.
+ * @return Next random value in splitmix64 sequence.
+ */
+uint64_t fast_random_next(uint64_t& state);
+
 }  // namespace dreal

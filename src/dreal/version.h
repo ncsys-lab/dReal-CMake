@@ -8,45 +8,30 @@
 #define DREAL_VERSION_MINOR    00
 #define DREAL_VERSION_REVISION  1
 
-#define DREAL_EXPERIMENTAL_PATTERN_MATCH_ALL
-// #define DREAL_EXPERIMENTAL_PATTERN_MATCH_SOME
-// #define DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
+#define DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS true
+#define DREAL_EXPERIMENTAL_THEORY_FIXEDPT_THRESHOLD   0.01
 
-#define DREAL_EXPERIMENTAL_PATTERN_MATCH_SIZE_THRESH 16
-
-#define DREAL_EXPERIMENTAL_SAT_MODEL_PARTIAL_CONSTRAINTS
-// #define DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
+#define DREAL_EXPERIMENTAL_PM_SUBSTREE_RANDOMIZE true
+#define DREAL_EXPERIMENTAL_PM_USE_MAP_IMPL
+// #define DREAL_EXPERIMENTAL_PM_USE_TRIE_IMPL
 
 #define DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED  false
 #define DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED   false
 #define DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED     false
 
-// #define DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
-
-// this is an *upper* limit for calculated timeout, 100 * TSCS
-// should be taken from data reflected in WORTH_IT_regression_*.ipynb
-#define DREAL_EXPERIMENTAL_PATTERN_MATCH_TIMEOUT (std::chrono::milliseconds(222))
+#define CAV26_FILTER_SYMMETRIES       false
+#if CAV26_FILTER_SYMMETRIES
+#define CAV26_VARNAME_PARSER          CAV26_SAR_PARSER
+#define CAV26_MATCH_PURE_TIME_SYM     false
+#define CAV26_MATCH_PURE_LOGIC_SYM    false
+#endif
 
 // check that options are required and mutually exclusive
-#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_ALL
-constexpr int pattern_matching_mode = 2;
+#ifdef DREAL_EXPERIMENTAL_PM_USE_TRIE_IMPL
+constexpr int pm_impl_mode = 0;
 #endif
-#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_SOME
-constexpr int pattern_matching_mode = 1;
-#endif
-#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
-constexpr int pattern_matching_mode = 0;
-#endif
-
-#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_PARTIAL_CONSTRAINTS
-constexpr int partial_model_mode = 1;
-#endif
-#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
-constexpr int partial_model_mode = 0;
-#endif
-
-#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
-static_assert(pattern_matching_mode == 2);
+#ifdef DREAL_EXPERIMENTAL_PM_USE_MAP_IMPL
+constexpr int pm_impl_mode = 1;
 #endif
 
 #endif //VERSION_H

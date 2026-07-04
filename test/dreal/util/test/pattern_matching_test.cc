@@ -13,13 +13,10 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 */
-#include <dreal/util/pattern_matching/pattern_matching_trie.h>
+#include <dreal/util/pattern_matching/trie_based/pattern_matching_trie.h>
+#include <dreal/util/pattern_matching/map_based/DeBruijnCanonicalizer.h>
 #include <dreal/symbolic/symbolic_formula_cell.h>
-
-#include "dreal/solver/filter_assertion.h"
-
 #include <gtest/gtest.h>
-
 #include "dreal/symbolic/symbolic.h"
 
 namespace dreal
@@ -88,12 +85,18 @@ namespace dreal
             const T1& pattern, const std::vector<T1>& matches, const std::vector<T1>& misses1,
             const std::vector<T2>& misses2 = {}
         ) {
-            PatternMatchingTrie trie;
+            // PatternMatchingTrie trie;
+            // PatternMatchingTrie &trie2 = trie;
+            uint64_t random_state = 0;
+            DeBruijnCanonicalizer<T1> trie;
+            DeBruijnCanonicalizer<T2> trie2;
             for (const auto& match : matches) trie.insert(match);
             for (const auto& miss : misses1) trie.insert(miss);
-            for (const auto& miss : misses2) trie.insert(miss);
+            for (const auto& miss : misses2) trie2.insert(miss);
             std::set<T1> found;
-            for (const auto& [form, subs] : trie.find_matches(pattern, Box{}).first) {
+            for (const auto& [form, op_subs] : trie.find_matches(pattern, Box{}, true, random_state).first) {
+                EXPECT_TRUE(op_subs.has_value()); // trie.find_matches(..., return_subs_maps=true)
+                const auto& subs = *op_subs;
                 // check substitutions are correct and injective:
                 EXPECT_TRUE(substitutions_map::apply_substitution(form, subs, false).EqualTo(pattern));
                 EXPECT_TRUE(substitutions_map::apply_substitution(pattern, subs, true).EqualTo(form));
@@ -118,13 +121,14 @@ namespace dreal
             for (const auto& miss : misses1) {
                 EXPECT_EQ(found.count(miss), 0);
                 std::cout << pattern << " MISSES " << miss << std::endl;
-                // EXPECT_NE(miss.get_al_hash(), pattern.get_al_hash());
+                // EXPECT_NE(miss.get_al_hash(), pattern.get_al_hash()); // Close!! but not quite for valid reasons...
             }
         }
 
         // tests.
         TEST_F(PatternMatchingTest, SimpleClauseFinder) {
-            PatternMatchingTrie trie;
+            // PatternMatchingTrie trie;
+            DeBruijnCanonicalizer<Formula> trie;
             std::set literals{
                 y1 == sin(x1),
                 y2 == sin(x2),
@@ -133,11 +137,13 @@ namespace dreal
             };
             for (const auto& lit : literals) trie.insert(lit);
             const auto [related_clauses, stats] = trie.find_matches(
-                {y1 == sin(x1), y1 == atan(x1)}, Box{}
+                {y1 == sin(x1), y1 == atan(x1)}, Box{}, false
             );
-            EXPECT_EQ(stats.misses.bc_bij, 2);
+            EXPECT_EQ(stats.misses_bc.at(substitutions_map::substitution_status::BIJ_MISS), 2);
             EXPECT_EQ(stats.matches, 2);
             EXPECT_EQ(related_clauses.size(), 2);
+            EXPECT_EQ(related_clauses[0].second, std::nullopt);  // trie.find_matches(..., return_subs_maps=false)
+            EXPECT_EQ(related_clauses[1].second, std::nullopt);
             // EXPECT_EQ(trie.estimate_branches(y1 == sin(x1)), 12);
 
             // todo: make less brittle... depends on hash values.
@@ -148,7 +154,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, ForallTExpressions) {
-            PatternMatchingTrie trie;
             auto pattern = forallT(flow1, 0, t1, (x1 < 2) && (y1 > 3));
 
             std::vector matches{
@@ -179,7 +184,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, IntegralExpressions) {
-            PatternMatchingTrie trie;
             auto pattern = integral(t0, t1, {x1, x2}, {y1, y2}, flow2);
 
             std::vector matches{
@@ -211,7 +215,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, ComplicatedIteExpression) {
-            PatternMatchingTrie trie;
             auto fs_monster = if_then_else(
                 if_then_else(Formula{b1}, x1, x2) < 5,
                 if_then_else(Formula{b2}, y1, y2),
@@ -285,7 +288,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, SimpleIteExpression) {
-            PatternMatchingTrie trie;
             auto pattern = if_then_else(x1 > x2, y1 * 2, tanh(z1 / 3 + 4));
 
             std::vector matches{
@@ -304,7 +306,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, ComplicatedBooleanFormulas) {
-            PatternMatchingTrie trie;
             auto epattern = (x1 < x2) || (x2 > x1) || !((y1 <= y2) && (y2 >= y1));
             auto pattern = !(b1 && b2) || !(b2 || b3) && (b4 || epattern);
 
@@ -364,7 +365,6 @@ namespace dreal
 
             // aims to find Continuation-Passing-Style related bugs in lambda capture of iterator references/objects
             // like those found in `NaryOpMatchHelper` by `ComplicatedBooleanFormulas` test. 
-            PatternMatchingTrie trie;
             auto epattern = (x1 / x2) + max(x2, x1) + -(atan2(y1, y2) * min(y2, y1));
             auto pattern = -(z1 * z2) + -(z2 + z3) * (z4 + epattern);
 
@@ -410,8 +410,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, SimpleBooleanFormulas) {
-            PatternMatchingTrie trie;
-
             auto pattern = (b1 || !b2 || !b3) && b2 && b3;
             std::vector matches{
                 (b1 || !b2 || !b3) && b2 && b3,
@@ -435,9 +433,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, ComplicatedMultiplicationExpression) {
-            GTEST_SKIP(); // broken after adding alpha hashing due to order of construction
-
-            PatternMatchingTrie trie;
             std::vector es{
                 tanh(4 * x1 + 3),
                 atan2((y2 - y1), (x2 - x1)),
@@ -500,7 +495,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, SimpleMultiplicationExpression) {
-            PatternMatchingTrie trie;
             auto pattern = 3 * pow(x1, 4) * pow(5, x2);
 
             std::vector matches{
@@ -519,7 +513,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, ComplicatedAdditionExpression) {
-            PatternMatchingTrie trie;
             auto pattern = 10 + 15 * x1 + 13.5 * tan(y1) + 8 + 45 * (z1 / pow(z1, x1));
 
             std::vector matches{
@@ -541,7 +534,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, SimpleRealConstantAdditionExpression) {
-            PatternMatchingTrie trie;
             auto pattern = 3 + rc(4, true) * x1 + 5 * x2;
 
             std::vector matches{
@@ -561,7 +553,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, SimpleAdditionExpression) {
-            PatternMatchingTrie trie;
             auto pattern = 3 + 4 * x1 + 5 * x2;
 
             std::vector matches{
@@ -579,7 +570,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, BinaryExpression) {
-            PatternMatchingTrie trie;
             auto pattern = x1 / pow(1 + y1, z1);
 
             std::vector matches{
@@ -601,7 +591,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, SimpleRealConstantExpression) {
-            PatternMatchingTrie trie;
             auto pattern = tan(x1 / rc(0.5));
 
             std::vector matches{
@@ -620,7 +609,8 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, BinaryAndUnaryOpsComplete) {
-            PatternMatchingTrie trie;
+            uint64_t random_state = 0;
+            DeBruijnCanonicalizer<Expression> trie;
             std::vector es{ // for coverage... make sure we didn't mess up call of the unary/binary op helper functions.
                 x1 / x2, log(x1), abs(x1), exp(x1), sqrt(x1), pow(x1, x2), sin(x1), cos(x1), tan(x1), asin(x1),
                 acos(x1), atan(x1), atan2(x1, x2), sinh(x1), cosh(x1), tanh(x1), min(x1, x2), max(x1, x2)
@@ -638,12 +628,13 @@ namespace dreal
                     pattern.Substitute({{x1, p1}, {x2, p2}}),
                 };
                 for (const auto& match : matches) {
-                    const auto found = trie.find_matches(match, Box{}).first;
+                    const auto found = trie.find_matches(match, Box{}, false, random_state).first;
                     EXPECT_EQ(found.size(), 1);
+                    EXPECT_EQ(found[0].second, std::nullopt); // trie.find_matches(..., return_subs_maps=false)
                     std::cout << pattern << " MATCHES " << match << std::endl;
                 }
                 for (const auto& miss : misses) {
-                    const auto found = trie.find_matches(miss, Box{}).first;
+                    const auto found = trie.find_matches(miss, Box{}, false, random_state).first;
                     EXPECT_EQ(found.size(), 0);
                     std::cout << pattern << " MISSES " << miss << std::endl;
                 }
@@ -651,7 +642,6 @@ namespace dreal
         }
 
         TEST_F(PatternMatchingTest, UnaryExpression) {
-            PatternMatchingTrie trie;
             auto pattern = tan(x1);
 
             std::vector matches{

@@ -57,7 +57,7 @@ TEST_F(VariableTest, GetName) {
 
 TEST_F(VariableTest, MoveCopyPreserveId) {
   Variable x{"x"};
-  const size_t x_id{x.get_id()};
+  const int x_id{x.get_id()};
   const size_t x_hash{x.get_hash()};
   const Variable x_copied{x};
   const Variable x_moved{std::move(x)};

@@ -17,10 +17,11 @@
 
 #include <unordered_map>
 #include <vector>
-#include <dreal/util/pattern_matching/pattern_matching_trie.h>
+#include "pattern_matching/trie_based/pattern_matching_trie.h"
 
-#include "predicate_heuristic.h"
+#include <dreal/version.h>
 #include "dreal/symbolic/symbolic.h"
+#include "pattern_matching/map_based/DeBruijnCanonicalizer.h"
 
 namespace dreal
 {
@@ -30,18 +31,11 @@ namespace dreal
         Formula Convert(const Formula& f);
 
         [[nodiscard]] std::pair<
-            std::vector<std::pair<std::vector<Formula>, substitutions_map>>, PatternMatchingTrie::
-            matching_stats_t
-        >
-        FindSimilar(
-            const std::vector<Formula>& ordered_clause,
-            const Box& b, std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
+            std::vector<std::pair<std::vector<Formula>, std::optional<substitutions_map>>>, matching_stats_t
+        > FindSimilar(
+            const std::vector<Formula>& ordered_clause, const Box& b,
+            bool return_subs_maps, std::chrono::duration<uint64_t, std::micro> timeout = std::chrono::microseconds{-1}
         ) const;
-
-        // useless heuristic
-        // uint64_t EstimateMatchingCost(const std::set<Formula>& f);
-
-        PredicateHeuristic heuristic; // todo: make private?
 
     private:
         Formula VisitFalse(const Formula& f);
@@ -61,7 +55,15 @@ namespace dreal
         Formula VisitIntegral(const Formula& f);
 
         std::unordered_map<Formula, Formula> cache;
+
+#ifdef DREAL_EXPERIMENTAL_PM_USE_TRIE_IMPL
         PatternMatchingTrie trie;
+        static_assert(pm_impl_mode == 0);
+#endif
+#ifdef DREAL_EXPERIMENTAL_PM_USE_MAP_IMPL
+        DeBruijnCanonicalizer<Formula> trie;
+        static_assert(pm_impl_mode == 1);
+#endif
 
         friend Formula drake::symbolic::VisitFormula<
             Formula, PredicateNormalizer>(PredicateNormalizer*, const Formula&);

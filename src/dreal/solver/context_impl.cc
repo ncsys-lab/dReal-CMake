@@ -16,9 +16,8 @@
 #include "dreal/solver/context_impl.h"
 
 #include <algorithm>
-#include <cmath>
-#include <limits>
-#include <ostream>
+#include <chrono>
+#include <iostream>
 #include <random>
 #include <set>
 #include <sstream>
@@ -26,11 +25,11 @@
 #include <utility>
 #include <dreal/symbolic/prefix_printer.h>
 #include <dreal/symbolic/symbolic_formula_cell.h>
-#include <dreal/util/predicate_heuristic.h>
-#include <dreal/util/pattern_matching/pattern_matching_heuristic.h>
 
 #include <fmt/format.h>
 
+#include "dreal/util/pattern_matching/substitutions_map.h"
+#include "dreal/version.h"
 #include "dreal/solver/auditor.h"
 #include "dreal/solver/filter_assertion.h"
 #include "dreal/util/assert.h"
@@ -38,7 +37,6 @@
 #include "dreal/util/if_then_else_eliminator.h"
 #include "dreal/util/interrupt.h"
 #include "dreal/util/logging.h"
-#include "dreal/version.h"
 
 namespace dreal {
 
@@ -137,36 +135,43 @@ void Context::Impl::Assert(const Formula& f) {
   }
 }
 
+void drpm_benchmark_log(
+  const bool fully_constrained_model,
+  const double sat_solve_elapsed_ms,
+  const double theory_solve_elapsed_ms,
+  const unsigned lemma_size,
+  const char mode,
+  const double pm_elapsed_ms,
+  const unsigned num_pm,
+#if CAV26_FILTER_SYMMETRIES
+  const unsigned CAV26_pm_num_not_pure_time,
+  const unsigned CAV26_pm_num_not_pure_logic,
+  const unsigned CAV26_pm_num_not_pure_any,
+#endif
+  std::ostream& out
+) {
+  out << ".\t";
+  out << " S.FCM " << fully_constrained_model;
+  out << " S.ms " << sat_solve_elapsed_ms;
+  out << " T.ms " << theory_solve_elapsed_ms;
+  out << '\t';
+  out << " L " << lemma_size;
+  out << ' ' << mode;
+  out << "\t";
+  out << " PM.ms " << pm_elapsed_ms;
+  out << " PM " << num_pm;
+#if CAV26_FILTER_SYMMETRIES
+  out << '\t';
+  out << " C26.npT " << CAV26_pm_num_not_pure_time;
+  out << " C26.npL " << CAV26_pm_num_not_pure_logic;
+  out << " C26.np* " << CAV26_pm_num_not_pure_any;
+#endif
+  out << '\n';
+}
+
 optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
                                           Box box,
                                           SatSolver* const sat_solver) {
-  ////////////////////////////////////////////////////////////////////////////////
-#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
-  std::ofstream myfile;
-  {
-    std::ostringstream s;
-    s << "./kunal_paper_data_epoch";
-    s << std::chrono::system_clock::now().time_since_epoch().count();
-
-    // Seed random number generator with high-resolution clock
-    static std::mt19937 rng(std::chrono::high_resolution_clock::now().time_since_epoch().count());
-    static std::uniform_int_distribution dist(1000, 9999); // random 4-digit numbers
-
-    s << "_random" << dist(rng) << dist(rng) << dist(rng) << dist(rng);;
-    s << ".csv";
-    const auto file_name = s.str();
-
-    std::cout << "Logging statistics to " << file_name << std::endl;
-    std::cerr << "Logging statistics to " << file_name << std::endl;
-
-    myfile.open(file_name, std::ios::app);
-    if (!myfile) throw DREAL_RUNTIME_ERROR("Failed to open log file");
-  }
-#endif
-
-  PatternMatchingHeuristic::statistics kunal_paper_data{0};
-  ////////////////////////////////////////////////////////////////////////////////
-
   DREAL_LOG_DEBUG("ContextImpl::CheckSatCore()");
   DREAL_LOG_TRACE("ContextImpl::CheckSat: Box =\n{}", box);
   if (box.empty()) return {};
@@ -177,54 +182,8 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
     DREAL_LOG_DEBUG("ContextImpl::CheckSatCore() - Found Model\n{}", box);
     return box;
   }
-
-  ////////////////////////////////////////////////////////////////////////////////
-#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
-  {
-    std::ostringstream s;
-    s << "box_continuous_count,";
-    s << "box_integer_count,";
-    s << "box_boolean_count,";
-    s << "assertions_size,";
-    s << PredicateHeuristic::predicate_stats_csv_header("assertions_stats_") << ',';
-    s << PredicateHeuristic::predicate_stats_csv_header("biggest_assertion_stats_") << ',';
-    s << PredicateHeuristic::predicate_stats_csv_header("middle_assertion_stats_") << ',';
-    s << PredicateHeuristic::predicate_stats_csv_header("smallest_assertion_stats_") << ',';
-    s << "theory_checksat_ms,";
-    s << "lemma_size,";
-    s << PredicateHeuristic::predicate_stats_csv_header("lemma_stats_") << ',';
-    s << PredicateHeuristic::predicate_stats_csv_header("biggest_literal_stats_") << ',';
-    s << PredicateHeuristic::predicate_stats_csv_header("middle_literal_stats_") << ',';
-    s << PredicateHeuristic::predicate_stats_csv_header("smallest_literal_stats_") << ',';
-    s << "estimated_matching_cost,";
-    s << "pattern_match_ms,";
-    s << PatternMatchingTrie::matching_stats_csv_header("pattern_matching_stats_");
-    myfile << s.str() << std::endl;
-  }
-#endif
-  ////////////////////////////////////////////////////////////////////////////////
-
-// #ifndef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
-//   static_assert(pattern_matching_mode != 0);
-//   sat_solver->AddBox(pn_, box);
-// #endif
-
-  ////////////////////////////////////////////////////////////////////////////////
-  for (const auto & variable : box.variables()) {
-    if (variable.get_type() == Variable::Type::CONTINUOUS) kunal_paper_data.box_continuous_count++;
-    else if (variable.get_type() == Variable::Type::INTEGER) kunal_paper_data.box_integer_count++;
-    else if (variable.get_type() == Variable::Type::BOOLEAN) kunal_paper_data.box_boolean_count++;
-    else if (variable.get_type() == Variable::Type::BINARY) kunal_paper_data.box_boolean_count++;
-    else DREAL_UNREACHABLE();
-  }
-  ////////////////////////////////////////////////////////////////////////////////
-
   DREAL_LOG_INFO("Initialized. Beginning SAT <=> Theory cycles.");
-  DREAL_LOG_INFO(
-    "{} continuous variables. {} integer variables. {} boolean variables. Fully Constrained: {}",
-    kunal_paper_data.box_continuous_count, kunal_paper_data.box_integer_count, kunal_paper_data.box_boolean_count,
-    recent_under_constrained_deltasat > 0
-  );
+  std::cerr << std::setprecision(3);
   while (true) {
     // Note that 'DREAL_CHECK_INTERRUPT' is only defined in setup.py,
     // when we build dReal python package.
@@ -235,22 +194,21 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
     }
 #endif
 
-#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
-    static_assert(partial_model_mode == 0);
-    constexpr bool request_fully_constrained = true;
-#endif
-#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_PARTIAL_CONSTRAINTS
-    static_assert(partial_model_mode == 1);
-    const bool request_fully_constrained = recent_under_constrained_deltasat > 0;
-#endif
+    const bool request_fully_constrained =
+      DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS ||
+      recent_under_constrained_deltasat > 0;
 
+    /* ################################ START MEASURING TIME ################################ */
+    const auto scs_start = std::chrono::high_resolution_clock::now();
     const auto optional_model_and_fully_constrained = sat_solver->CheckSat(request_fully_constrained);
+    const auto scs_end = std::chrono::high_resolution_clock::now();
+    const std::chrono::duration<double, std::milli> scs_elapsed_ms = scs_end - scs_start;
+    /* ################################ STOP MEASURING TIME ################################ */
+
     if (optional_model_and_fully_constrained) {
       const auto& [optional_model, is_full_constrained] = *optional_model_and_fully_constrained;
       if (request_fully_constrained) DREAL_ASSERT(is_full_constrained);
-#ifdef DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS
-      DREAL_ASSERT(request_fully_constrained && is_full_constrained);
-#endif
+      if (DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS) DREAL_ASSERT(request_fully_constrained && is_full_constrained);
 
       const vector<pair<Variable, bool>>& boolean_model{optional_model.first};
       const vector<pair<Variable, bool>>& theory_model{optional_model.second};
@@ -272,27 +230,12 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           return a.GetFreeVariables().size() < b.GetFreeVariables().size(); // ascending
         });
 
-        ////////////////////////////////////////////////////////////////////////////////
-        kunal_paper_data.assertions_size = assertions.size();
-
-#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
-        const auto ranking_start1 = std::chrono::high_resolution_clock::now();
-        std::set assertions_set(assertions.begin(), assertions.end());
-        kunal_paper_data.assertions_stats = pn_.heuristic.collect_statistics(make_conjunction_SKIP_CHECKS_KUNAL_HACK(std::move(assertions_set)));
-        // cheap because cached.
-        kunal_paper_data.smallest_assertion_stats = pn_.heuristic.collect_statistics(assertions[0]);
-        kunal_paper_data.middle_assertion_stats = pn_.heuristic.collect_statistics(assertions[assertions.size()/2]);
-        kunal_paper_data.biggest_assertion_stats = pn_.heuristic.collect_statistics(assertions[assertions.size()-1]);
-        const auto ranking_end1 = std::chrono::high_resolution_clock::now();
-        const std::chrono::duration<double, std::milli> ranking_elapsed1 = ranking_end1 - ranking_start1;
-#endif
-
-        const auto tscs_start = std::chrono::high_resolution_clock::now();
+        /* ################################ START MEASURING TIME ################################ */
+        const auto tcs_start = std::chrono::high_resolution_clock::now();
         const auto tscs_result = theory_solver_.CheckSat(box, assertions);
-        const auto tscs_end = std::chrono::high_resolution_clock::now();
-        const std::chrono::duration<double, std::milli> tscs_elapsed = tscs_end - tscs_start;
-        kunal_paper_data.theory_checksat_ms = tscs_elapsed.count();
-        ////////////////////////////////////////////////////////////////////////////////
+        const auto tcs_end = std::chrono::high_resolution_clock::now();
+        const std::chrono::duration<double, std::milli> tcs_elapsed_ms = tcs_end - tcs_start;
+        /* ################################ STOP MEASURING TIME ################################ */
 
         if (tscs_result && !is_full_constrained) {
           // SAT from TheorySolver.
@@ -300,6 +243,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           // or, we get a fully constrained deltasat, in which case we are done :)
           recent_under_constrained_deltasat = recent_under_constrained_deltasat_limit;
           DREAL_LOG_WARN("ContextImpl::CheckSatCore() - Underconstrained Theory Check = delta-SAT. Exponential Backoff = {}", recent_under_constrained_deltasat_limit);
+          // todo: log scs_elapsed_ms, tcs_elapsed_ms
           recent_under_constrained_deltasat_limit *= 2; // exponential backoff
           return CheckSatCore(stack, std::move(box), sat_solver);
         } else if (tscs_result && is_full_constrained) {
@@ -321,123 +265,55 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
           // ordering the literals like this makes pattern matching fast.
           // todo: abstract this away better. should not happen at the top-level like it is now.
           std::sort(explanation.begin(), explanation.end(), [](const Formula &a, const Formula &b) {
-              return a.GetFreeVariables().size() < b.GetFreeVariables().size(); // descending
+              return a.GetFreeVariables().size() > b.GetFreeVariables().size(); // descending
           });
 
-          ////////////////////////////////////////////////////////////////////////////////
-          kunal_paper_data.lemma_size = explanation.size();
-
-#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
-          const auto ranking_start2 = std::chrono::high_resolution_clock::now();
-          // kunal_paper_data.lemma_stats = pn_.heuristic.collect_statistics(!make_conjunction_SKIP_CHECKS_KUNAL_HACK(explanation.first));
-          // doing individual literals doesn't cost extra because they cache hit after running the entire conjunction
-          kunal_paper_data.biggest_literal_stats = pn_.heuristic.collect_statistics(explanation[0]);
-          kunal_paper_data.middle_literal_stats = pn_.heuristic.collect_statistics(explanation[explanation.size() / 2]);
-          kunal_paper_data.smallest_literal_stats = pn_.heuristic.collect_statistics(explanation[explanation.size()-1]);
-          const float predicted_is_worth_it = PatternMatchingHeuristic::calculate(kunal_paper_data);
-          const auto ranking_end2 = std::chrono::high_resolution_clock::now();
-          const std::chrono::duration<double, std::milli> ranking_elapsed2 = ranking_end2 - ranking_start2;
-#endif
-
-#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_ALL
-          static_assert(pattern_matching_mode == 2);
-          if (true
-            // && explanation.size() < 384 /* stack overflows around size=960 on x86 */
-            // && tscs_elapsed > std::chrono::milliseconds(3)
-            && explanation.size() < DREAL_EXPERIMENTAL_PATTERN_MATCH_SIZE_THRESH /* stack overflows around size=960 on x86 */
-            // && tscs_elapsed > std::chrono::milliseconds(3)
-            ) {
-#endif
-#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_SOME
-          static_assert(pattern_matching_mode == 1);
-          if (predicted_is_worth_it >= 0.5 && explanation.size() < 96) {
-#endif
-#ifdef DREAL_EXPERIMENTAL_PATTERN_MATCH_NONE
-          static_assert(pattern_matching_mode == 0);
-          if (false) {
-#endif
-            const auto alcp_start = std::chrono::high_resolution_clock::now();
-            const auto alcp_result = sat_solver->AddLearnedClausePattern(
-              pn_, explanation, box,
-#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
-              std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::seconds(20))
-#else
-              std::min( // based on information from WORTH_IT_regression_4.ipynb
-                std::chrono::duration_cast<std::chrono::microseconds>(100 * tscs_elapsed),
-                std::chrono::duration_cast<std::chrono::microseconds>(DREAL_EXPERIMENTAL_PATTERN_MATCH_TIMEOUT)
-              )
-#endif
+          if (explanation.size() < config().drpm_max_size()
+            /*&& explanation.size() < 384 /* stack overflows around size=960 on x86 #1#
+            && tscs_elapsed > std::chrono::milliseconds(3)*/) {
+            /* ################################ START MEASURING TIME ################################ */
+#define TO_MICROS(x) ( std::chrono::duration_cast<std::chrono::microseconds>((x)) )
+            auto pm_timeout = TO_MICROS(scs_elapsed_ms + tcs_elapsed_ms);
+            pm_timeout += std::min( // for edge-case of very, very long-running lemmas. try HARD to match those.
+              99 * pm_timeout, // `+=`, so 100
+              TO_MICROS(config().drpm_max_time())
             );
+            const auto pm_start = std::chrono::high_resolution_clock::now();
+            const auto pm_result = sat_solver->AddLearnedClausePattern(pn_, explanation, box, pm_timeout);
+            const auto pm_end = std::chrono::high_resolution_clock::now();
+            const std::chrono::duration<double, std::milli> pm_elapsed = pm_end - pm_start;
+            /* ################################ STOP MEASURING TIME ################################ */
 
-            // the pattern matching is kinda best-effort now.
-            // it breaks down when one clause pattern matches into 1000s of permutations of itself
-            // just make the best effort, and at the very minimum make sure the original at least gets inserted
-            sat_solver->AddLearnedClauseDirect(explanation, box); // just to be sure, sound because this is unmatched, straight from theory solver.
-
-            const auto alcp_end = std::chrono::high_resolution_clock::now();
-            const std::chrono::duration<double, std::milli> alcp_elapsed = alcp_end - alcp_start;
-
-            kunal_paper_data.pattern_match_ms = alcp_elapsed.count();
-            kunal_paper_data.pattern_matching_stats = alcp_result;
-
-            std::cerr << std::setprecision(3);
-            // std::cerr << "P(is W.I.)=" << predicted_is_worth_it;
-            std::cerr << ".\tM " << alcp_result.matches << " s " << explanation.size() << " i " << alcp_elapsed.count();
-            std::cerr << " m.\tT " << tscs_elapsed.count() << " m.\t";
-            std::cerr << "F c = " << is_full_constrained << '\n';
-            // std::cerr << explanation << '\n';
-
-            // const double bb_lpms = 1 / tscs_elapsed.count();
-            // const double pm_lpms = (std::max(alcp_result.matches, 1u) - 0.999) / alcp_elapsed.count();
-            // const double actual_worth_it = pm_lpms / bb_lpms;
-            // const double actual_log2_worth_it = log2(actual_worth_it);
-            // const bool overestimated = (actual_log2_worth_it < 1) && (predicted_is_worth_it > 0.5);
-            // const bool valid_over = (actual_log2_worth_it > 1) && (predicted_is_worth_it > 0.5);
-            // const bool valid_under = (actual_log2_worth_it < 1) && (predicted_is_worth_it < 0.5);
-            // const bool underestimated = (actual_log2_worth_it > 1) && (predicted_is_worth_it < 0.5);
-          } else {
-            // std::cerr << std::setprecision(3);
-            // std::cerr << "P(is W.I.)=" << predicted_is_worth_it;
-            // std::cerr << ".\tA 1 s " << explanation.size() << " d.\t";
-            // std::cerr << "T " << tscs_elapsed.count() << " m.\t";
-            // std::cerr << "F c = " << is_full_constrained << '\n';
+            // The pattern matching may time out. At the very minimum, make sure the original at least gets inserted.
             sat_solver->AddLearnedClauseDirect(explanation, box);
-          }
-          ////////////////////////////////////////////////////////////////////////////////
 
-          ///////////////////////////////////////////////////////////////////////////////////
-#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
-          {
-            std::ostringstream s;
-            s << kunal_paper_data.box_continuous_count << ',';
-            s << kunal_paper_data.box_integer_count << ',';
-            s << kunal_paper_data.box_boolean_count << ',';
-            s << kunal_paper_data.assertions_size << ',';
-            s << kunal_paper_data.assertions_stats << ',';
-            s << kunal_paper_data.biggest_assertion_stats << ',';
-            s << kunal_paper_data.middle_assertion_stats << ',';
-            s << kunal_paper_data.smallest_assertion_stats << ',';
-            s << kunal_paper_data.theory_checksat_ms << ',';
-            s << kunal_paper_data.lemma_size << ',';
-            s << kunal_paper_data.lemma_stats << ',';
-            s << kunal_paper_data.biggest_literal_stats << ',';
-            s << kunal_paper_data.middle_literal_stats << ',';
-            s << kunal_paper_data.smallest_literal_stats << ',';
-            s << kunal_paper_data.estimated_matching_cost << ',';
-            s << kunal_paper_data.pattern_match_ms << ',';
-            s << kunal_paper_data.pattern_matching_stats;
-            myfile << s.str() << std::endl; // also flushes
-          }
+            drpm_benchmark_log(
+              is_full_constrained, scs_elapsed_ms.count(), tcs_elapsed_ms.count(), explanation.size(),
+              'M',
+              pm_elapsed.count(), pm_result.matches,
+#if CAV26_FILTER_SYMMETRIES
+              pm_result.misses_bc.at(substitutions_map::substitution_status::CAV26_NOT_PURE_TIME),
+              pm_result.misses_bc.at(substitutions_map::substitution_status::CAV26_NOT_PURE_LOGIC),
+              pm_result.misses_bc.at(substitutions_map::substitution_status::CAV26_NOT_PURE_ANY),
 #endif
-
-          {
-            typeof(kunal_paper_data) reset_data{0};
-            reset_data.box_boolean_count = kunal_paper_data.box_boolean_count;
-            reset_data.box_integer_count = kunal_paper_data.box_integer_count;
-            reset_data.box_continuous_count = kunal_paper_data.box_continuous_count;
-            kunal_paper_data = reset_data;
+              std::cerr
+            );
           }
-          ///////////////////////////////////////////////////////////////////////////////////
+          else {
+            if (DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED) pm_dump_all(explanation, {}, {}, {});
+            sat_solver->AddLearnedClauseDirect(explanation, box);
+            drpm_benchmark_log(
+              is_full_constrained, scs_elapsed_ms.count(), tcs_elapsed_ms.count(), explanation.size(),
+              'A',
+              0 /*pm_elapsed.count()*/, 0 /*pm_result.matches*/,
+#if CAV26_FILTER_SYMMETRIES
+              0 /*pm_result.misses_bc.at(substitutions_map::substitution_status::CAV26_NOT_PURE_TIME)*/,
+              0 /*pm_result.misses_bc.at(substitutions_map::substitution_status::CAV26_NOT_PURE_LOGIC)*/,
+              0 /*pm_result.misses_bc.at(substitutions_map::substitution_status::CAV26_NOT_PURE_ANY)*/,
+#endif
+              std::cerr
+            );
+          }
 
           if (DREAL_LOG_TRACE_ENABLED) {
             for (const auto& f_i : stack.get_vector())

@@ -17,10 +17,10 @@
 
 #include <utility>
 
+#include "dreal/version.h"
 #include "dreal/solver/context_impl.h"
 #include "dreal/util/exception.h"
 #include "dreal/util/logging.h"
-#include "dreal/version.h"
 
 using std::make_unique;
 using std::string;
@@ -120,16 +120,35 @@ string Context::version() {
   oss << DREAL_VERSION_MINOR << '.';
   oss << DREAL_VERSION_REVISION << '.';
 
-  oss << "patmat" << pattern_matching_mode << '.';
-  oss << "parmod" << partial_model_mode << '.';
+#ifdef DREAL_EXPERIMENTAL_PM_USE_TRIE_IMPL
+  oss << "PM_trie_";
+#endif
+#ifdef DREAL_EXPERIMENTAL_PM_USE_MAP_IMPL
+  oss << "PM_map_";
+#endif
+#if DREAL_EXPERIMENTAL_PM_SUBSTREE_RANDOMIZE
+  oss << "rand.";
+#else
+  oss << "sequ.";
+#endif
 
-  oss << "audit" <<
-    static_cast<int>(DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED) <<
-    static_cast<int>(DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED) <<
-    static_cast<int>(DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED);
+  oss << "full_models" << (DREAL_EXPERIMENTAL_SAT_MODEL_FULL_CONSTRAINTS ? 1 : 0) << '.';
 
-#ifdef DREAL_EXPERIMENTAL_GENERATE_HEURISTICS_CSV
-  oss << ".GENERATE_CSV";
+  oss << "audit_pm_dump" << (DREAL_EXPERIMENTAL_PM_DUMP_ALL_ENABLED ? 1 : 0) << '.';
+  oss << "audit_theory" << (DREAL_EXPERIMENTAL_THEORY_AUDIT_ENABLED ? 1 : 0) << '.';
+  oss << "audit_sat" << (DREAL_EXPERIMENTAL_SAT_AUDIT_ENABLED ? 1 : 0);
+
+#if CAV26_FILTER_SYMMETRIES
+#define STRINGIFY(x) #x
+#define STR(x) STRINGIFY(x)
+  oss << ".CAV26_";
+  if (CAV26_MATCH_PURE_TIME_SYM && CAV26_MATCH_PURE_LOGIC_SYM) oss << "PURE";
+  if (CAV26_MATCH_PURE_TIME_SYM && !CAV26_MATCH_PURE_LOGIC_SYM) oss << "TIME";
+  if (!CAV26_MATCH_PURE_TIME_SYM && CAV26_MATCH_PURE_LOGIC_SYM) oss << "LOGIC";
+  if (!CAV26_MATCH_PURE_TIME_SYM && !CAV26_MATCH_PURE_LOGIC_SYM) oss << "MIXED";
+  oss << "_SYM_using_" STR(CAV26_VARNAME_PARSER);
+#undef STR
+#undef STRINGIFY
 #endif
 
   return oss.str();

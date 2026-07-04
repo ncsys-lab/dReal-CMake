@@ -12,33 +12,26 @@
 #include <dreal/util/logging.h>
 #include <cmath>
 
+#include "dreal/util/exception.h"
+#include "dreal/util/pattern_matching/matching_stats_t.h"
+
 namespace dreal
 {
-    void handle_misses_reason(
-        PatternMatchingTrie::matching_stats_t& stats,
-        const substitutions_map::substitution_status& status
-    ) {
-        // TYPE_MISS, BOX_MISS, BIJ_MISS, CONST_MISS
-        if (status == substitutions_map::TYPE_MISS) stats.misses.bc_type++;
-        if (status == substitutions_map::BOX_MISS) stats.misses.bc_box++;
-        if (status == substitutions_map::BIJ_MISS) stats.misses.bc_bij++;
-        if (status == substitutions_map::CONST_MISS) stats.misses.bc_const++;
-    }
-
-    std::pair<std::vector<std::pair<std::vector<Formula>, substitutions_map>>, PatternMatchingTrie::matching_stats_t>
+    std::pair<std::vector<std::pair<std::vector<Formula>, std::optional<substitutions_map>>>, matching_stats_t>
     PatternMatchingTrie::find_matches(
-        const std::vector<Formula>& literals, const Box& box,
+        const std::vector<Formula>& literals, const Box& box, const bool return_subs_maps,
         const std::chrono::duration<uint64_t, std::micro> timeout
     ) const {
         matching_stats_t stats = {0};
         std::vector<Formula> matches_vec;
-        std::vector<std::pair<std::vector<Formula>, substitutions_map>> result;
+        std::vector<std::pair<std::vector<Formula>, std::optional<substitutions_map>>> result;
         matches_vec.reserve(literals.size());
 
         const auto start_time = std::chrono::steady_clock::now();
 
-        const f_misses_vec misses = [&](const auto& reason) { handle_misses_reason(stats, reason); };
-        const f_partial_matches_vec partial_matches = PM_CONT_LAMBDA(n, s) {
+        const f_misses_vec misses = [&](const auto& reason) { ++stats.misses_bc.at(reason); };
+        const f_partial_matches_vec partial_matches = PM_CONT_LAMBDA(n, s)
+        {
             DREAL_LOG_ERROR("Unterminated partial matching?");
             DREAL_UNREACHABLE(); // everything should AT LEAST match itself !?!?!
         };
@@ -50,7 +43,7 @@ namespace dreal
         std::unordered_set<Formula> seen_truncateds; // lexo-compare for nary goes one by one...
         seen_truncateds.reserve(1024 * literals.size());
         std::function<
-            std::function<void(const Formula& f, substitutions_map& s)>(typeof(ibegin))
+            std::function<void(const Formula& f, substitutions_map& s)> (typeof(ibegin))
         > match_next_literal = [&](const auto& it1) {
             return [&, /*copy*/ it1](const auto& f, auto& s2) {
                 if (did_time_out || std::chrono::steady_clock::now() - start_time > timeout) {
@@ -84,7 +77,8 @@ namespace dreal
                     // ) == 1);
                     // }
                     stats.matches++;
-                    result.emplace_back(matches_vec, s2);
+                    if (return_subs_maps) result.emplace_back(matches_vec, s2);
+                    else result.emplace_back(matches_vec, std::nullopt);
                 }
                 else recMatchForm(*it2, f_root, s2, match_next_literal(it2), partial_matches, misses);
                 matches_vec.pop_back();
@@ -111,83 +105,55 @@ namespace dreal
         return {result, stats};
     }
 
-    std::pair<std::vector<std::pair<Formula, substitutions_map>>, PatternMatchingTrie::matching_stats_t>
+    std::pair<std::vector<std::pair<Formula, std::optional<substitutions_map>>>, matching_stats_t>
     PatternMatchingTrie::find_matches(
-        const Formula& f,
-        substitutions_map& substitutions
+        const Formula& f, substitutions_map& substitutions, const bool return_subs_maps
     ) const {
         const auto init_size = substitutions.size();
         DREAL_LOG_TRACE("Finding matches for formula {}", fmt::streamed(f));
         matching_stats_t stats = {0};
-        std::vector<std::pair<Formula, substitutions_map>> match_vec;
+        std::vector<std::pair<Formula, std::optional<substitutions_map>>> match_vec;
         recMatchForm(
             f, f_root, substitutions,
             PM_CONT_LAMBDA(m, s) {
                 stats.matches++;
-                match_vec.emplace_back(m, s);
+                if (return_subs_maps) match_vec.emplace_back(m, s);
+                else match_vec.emplace_back(m, std::nullopt);
             },
             PM_CONT_LAMBDA(n, s) {
                 stats.partial_matches++;
                 DREAL_LOG_ERROR("Unterminated partial matching? Not sure if this should ever be reachable.");
             },
-            [&](const auto& reason) { handle_misses_reason(stats, reason); }
+            [&](const auto& reason) { ++stats.misses_bc.at(reason); }
         );
         DREAL_ASSERT(substitutions.size() == init_size);
         return {match_vec, stats};
     }
 
-    std::pair<std::vector<std::pair<Expression, substitutions_map>>, PatternMatchingTrie::matching_stats_t>
+    std::pair<std::vector<std::pair<Expression, std::optional<substitutions_map>>>, matching_stats_t>
     PatternMatchingTrie::find_matches(
-        const Expression& e,
-        substitutions_map& substitutions
+        const Expression& e, substitutions_map& substitutions, const bool return_subs_maps
     ) const {
         const auto init_size = substitutions.size();
         DREAL_LOG_TRACE("Finding matches for expression {}", fmt::streamed(e));
         matching_stats_t stats = {0};
-        std::vector<std::pair<Expression, substitutions_map>> match_vec;
+        std::vector<std::pair<Expression, std::optional<substitutions_map>>> match_vec;
         recMatchExpr(
             e, e_root, substitutions,
             PM_CONT_LAMBDA(m, s) {
                 stats.matches++;
-                match_vec.emplace_back(m, s);
+                if (return_subs_maps) match_vec.emplace_back(m, s);
+                else match_vec.emplace_back(m, std::nullopt);
             },
             PM_CONT_LAMBDA(n, s) {
                 stats.partial_matches++;
                 DREAL_LOG_ERROR("Unterminated partial matching? Not sure if this should ever be reachable.");
             },
-            [&](const auto& reason) { handle_misses_reason(stats, reason); }
+            [&](const auto& reason) { ++stats.misses_bc.at(reason); }
         );
         DREAL_ASSERT(substitutions.size() == init_size);
         return {match_vec, stats};
     }
-
-    // uint64_t PatternMatchingTrie::estimate_branches(const Formula& f) {
-    //     const auto it = f_branch_est_cache.find(f);
-    //     if (it != f_branch_est_cache.end()) return it->second;
-    //
-    //     uint64_t branches = 1;
-    //     const f_est_continuation_vec partial_matches = EST_CONT_LAMBDA(n) {
-    //         DREAL_LOG_ERROR("Unterminated partial matching?");
-    //         DREAL_UNREACHABLE(); // everything should AT LEAST match itself !?!?!
-    //     };
-    //     recEstForm(f, f_root, branches, partial_matches);
-    //     f_branch_est_cache.emplace(f, branches);
-    //     return branches;
-    // }
-    //
-    // uint64_t PatternMatchingTrie::estimate_branches(const Expression& e) {
-    //     const auto it = e_branch_est_cache.find(e);
-    //     if (it != e_branch_est_cache.end()) return it->second;
-    //
-    //     uint64_t branches = 1;
-    //     const e_est_continuation_vec partial_matches = EST_CONT_LAMBDA(n) {
-    //         DREAL_LOG_ERROR("Unterminated partial matching?");
-    //         DREAL_UNREACHABLE(); // everything should AT LEAST match itself !?!?!
-    //     };
-    //     recEstExpr(e, e_root, branches, partial_matches);
-    //     e_branch_est_cache.emplace(e, branches);
-    //     return branches;
-    // }
 
     void PatternMatchingTrie::insert(const Formula& f) {
         // if (f_already_inserted.count(f)) return; // was relevant during c_unique() attempt.

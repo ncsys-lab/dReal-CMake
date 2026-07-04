@@ -35,6 +35,13 @@ Variable::Variable(string name, const Type type)
   assert(id_ > 0);
 }
 
+Variable::Variable(const Id dummy_id, const Type type)
+      : id_{dummy_id},
+        type_{type},
+        name_{make_shared<string>("%_DUMMY"+std::to_string(-dummy_id)+"_%")} {
+  assert(dummy_id < 0);
+}
+
 Variable::Variable(string name, const Type type, bool)
     : Variable{std::move(name), type} {}
 

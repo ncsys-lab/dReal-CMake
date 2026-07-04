@@ -1,0 +1,16 @@
+dReal
+Copyright 2017 Toyota Research Institute
+
+This product includes software developed at Toyota Research Institute
+(https://github.com/dreal/dreal4), licensed under the Apache License,
+Version 2.0.
+
+This distribution is a research fork maintained by the ncsys-lab group at
+Stanford University (https://github.com/ncsys-lab/dReal-CMake), packaged as
+the FMCAD26 artifact. Modifications are covered by the same Apache License,
+Version 2.0 (see the LICENSE file), and are noted in the source history.
+
+Third-party components are redistributed under their own licenses, including
+IBEX (LGPL-3.0), CAPD, Drake symbolic (BSD-3-Clause), fmt (MIT), spdlog (MIT),
+nlopt, libcds, and a vendored ThreadPool. See the respective source trees for
+their full license texts.
