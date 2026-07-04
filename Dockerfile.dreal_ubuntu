@@ -88,6 +88,12 @@ COPY src/ /dreal/src
 COPY test/ /dreal/test
 COPY CMakeLists.txt /dreal/CMakeLists.txt
 COPY FULL_BUILD.sh /dreal/FULL_BUILD.sh
-RUN /dreal/FULL_BUILD.sh
+# Linker flags applied to the top-level dreal4 executable ONLY (not the FILIB/CAPD
+# autotools sub-builds, which break under a global LDFLAGS=-static). Build with
+#   --build-arg DREAL_EXE_LINKER_FLAGS=-static
+# to produce a fully static dreal4 (portable binary for the FMCAD26 release).
+# Empty default preserves the normal (dynamic) image build.
+ARG DREAL_EXE_LINKER_FLAGS=""
+RUN /dreal/FULL_BUILD.sh -DCMAKE_EXE_LINKER_FLAGS="${DREAL_EXE_LINKER_FLAGS}"
 
 WORKDIR /dreal/gcc_build/
