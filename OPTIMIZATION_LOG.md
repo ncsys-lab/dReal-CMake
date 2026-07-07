@@ -509,6 +509,52 @@ survives (odeexpr_v1, flat families byte-identical) and ODE/`forall_t` still ski
   here**, so the "prefer smearsum, avoid smearsumrel" caveat is v1-specific. `smearsum` remains a safe
   default (tied-best coverage). Thin margin — the 9-vs-8 hinges on one benchmark.
 
+### Pre-contractor assertion simplification (zero-width sub + CSE inlining) — REJECTED (2026-07-06)
+
+**Motivation.** `ode_expressivity_energy` PERF-002 (`docs/dreal-bugs.md` there): a pure-∀
+translation-family co-descent query times out at 300 s when the CSE'd form keeps a truth-cancelling
+`+t−t` textual, even with `t` boxed to `[0,0]`; the structurally-cancelled identity twin is `unsat`
+in ~2.4 s. The filed diagnosis was "ibex can't handle `t−t` / dReal doesn't combine like terms." I
+built a pre-contractor pass (`TheorySolver::CheckSat`, off by default via `--simplify`) that
+substitutes value-determined variables out of the formulas the contractor sees: (a) point-pinned
+box vars, (b) CSE aux vars `v == e` inlined with chains resolved to a fixpoint (generalizing
+`seed.cc`'s `DerivedSubstitution`), plus a `RepairExplanation` step to keep learned clauses over
+registered literals. **Reverted** — the whole premise was wrong. Three findings, each isolated:
+
+1. **The filed diagnosis is refuted (don't retry "combine like terms in sums").** Drake's symbolic
+   layer *already* cancels additive `x + tx − tx → x` at PARSE time (its `ExpressionAdd` is a
+   `{term→coeff}` map that erases zero-coeff entries; `symbolic_expression_cell.cc`). `tx` survives in
+   PERF-002 **only** because sympy-CSE fractured the cancelling pair across an aux-variable boundary
+   (`cse_23 = −tx`; `cse_24 = x2_px + tx + cse_23` — `cse_23` is opaque, so `tx` can't cancel against
+   it). So it's a *generator* (CSE) artifact, not a dReal addition-handling gap.
+
+2. **Removing the fragmentation does NOT help — the real wall is the nonlinear kernel (PERF-002 ≈
+   PERF-001).** Inlining the CSE chain (`cse_24 → x2_px`, letting Drake re-cancel `tx` out of the
+   kernel; measured total var-occurrences **152 → 120**) still times out (>150 s). **Fully eliminating**
+   every CSE aux var (dropping the `cse_k == …` defs, not just inlining uses) *also* times out. The
+   identity baseline has no CSE and is ~2.4 s. So the CSE/`t` surface is only ~20% of the occurrences
+   and its removal doesn't cross the tractability threshold — the residual cost is the composite
+   pair-force kernel `q·(q²+c)^(−3/2)` itself (PERF-001's dependency wall). **Lesson: a fast
+   structurally-cancelled twin does NOT prove the un-cancelled form's slowness is the cancellation —
+   the two queries differ in irreducible size too. Isolate by actually removing the suspected cause
+   (I did; it didn't help) before believing it.**
+
+3. **A/B settled the policy question anyway (for the record, if this is ever revived for a query where
+   CSE *is* the bottleneck).** Inline-which-CSE policies: **affine** (inline `v==e` where `e` is affine)
+   *regressed the baseline* 2.4 s → timeout (blindly inlines a harmful multi-use affine term).
+   **Occurrence-count** (inline iff it doesn't raise total var-occurrences) is safe and beat affine —
+   but note strict-decrease is *too weak*: inlining a CSE that resolves to a single variable
+   (`cse_24→x2_px`) is occurrence-**neutral** yet is the useful move, so the bar must be
+   *non-increasing* (`≤`), not `<`. Also: zero-width substitution never fired on assertion-pinned vars
+   — their bounds are `FilterAssertion`-folded into the box (removed as literals) before `CheckSat`, so
+   a literal-support gate finds nothing. All verdict-preserving (COMPLETENESS-only; the pins/CSE-defs
+   are equals-for-equals). Code was reverted clean; a quick odeexpr_v2 probe showed no win either.
+
+**Takeaway for future perf work here:** treat PERF-002 as a PERF-001 instance (attack the
+composite-kernel enclosure — range-aware univariate composition for `u·(u²+c)^(−3/2)`, or naming the
+kernel argument as a first-class branching variable — see PERF-001 §Root cause), NOT the term/CSE
+structure. Assertion-level normalization is a dead end for this family.
+
 ---
 
 ## Open avenues (deferred — post-timer-fix)
