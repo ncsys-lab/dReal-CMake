@@ -188,6 +188,49 @@ definitional binding (negated `integral`) — specified as aspirational `GTEST_S
 live: `PosForallT_NoIntegral_ShouldReject`, `PosForallT_InvariantOverFlowVar_ShouldReject`). Full
 mechanism: `docs/ode-integration.md` §"Constraint forms accepted, and the silent drops (BUG-002)".
 
+## ODE formula evaluator: δ-honest witnesses are flag-gated (`--ode-refine-witness`, default off)
+
+**Decision:** `OdeFormulaEvaluator::operator()` (`src/dreal/solver/odes/ode_formula_evaluator.cc`)
+keeps the historical fast accept by default — every ODE atom reports `VALID/[0,0]`, so ICP
+accepts delta-sat at tube granularity with no ODE-driven branching. Under
+`--ode-refine-witness`, a **positive** ODE atom (`integral`/`forall_t`) instead reports
+`UNKNOWN` with evaluation interval `[0, w]`, `w` = the widest of the atom's variables in the
+box — so `EvaluateBox` keeps those variables branching until every one is below δ, each split
+re-entering the tube contractor. A **negated** ODE literal (normal DPLL(T) product; unenforced
+by design, see the entry above) stays `VALID/[0,0]` in both regimes — branching it would
+enforce nothing.
+
+**Why the honest mode exists:** the evaluator had been a stub (`TODO: IMPLEMENT CAPD STUFF
+HERE`) returning `VALID/[0,0]` unconditionally since the TRI-era port. Any box that survived
+tube pruning was declared "exactly satisfied": ICP exited delta-sat with **zero branching**,
+freezing the box at tube-hull granularity, and the `Tighten` model post-pass presented each
+dimension's **hull midpoint ± δ/2** as the witness. Any *un-pinned* ODE dimension therefore got
+a fabricated witness — surfaced as simulink-to-dreal **BUG-011**: `dx/dt = 1`, `x(0) = 0`,
+endpoint pinned `x(τ) = 0.38` ⇒ τ = 0.38 uniquely, yet `--model` reported τ ≈ [0.437, 0.438]
+(the hull midpoint; hull-grid-dependent: grid 4 → 0.4375, 32 → 0.378, 512 → ∋ 0.38), a box the
+solver itself **refutes** when asserted a priori. The stub semantics also weaken the
+δ-contract: delta-sat is emitted for boxes where φ^δ was never established at δ granularity —
+**COMPLETENESS** hazard (asserts φ^δ T-satisfiable without establishing it — missed
+refutation), never false-`unsat` (the evaluator refutes nothing; `set_empty` stays with the
+sound tube contractor).
+
+**Why it is not the default — measured, then owner-decided (2026-07-13):** the fast accept is
+load-bearing for deep-BMC SAT. At accept time the box is *mostly unrefined* — on
+`github water k32` (0.4 s solve), **626 of 703 dims were wider than δ** (median width 5, many
+at full declared range): the tube only pins what the constraint chain constrains, and SAT
+reachability instances leave per-step dwell times and states legitimately wide. δ-refining them
+all turns a 0-branch accept into a 10³–10⁴-bisection descent whose every step re-enters CAPD
+(on `gen-1`: 0 → 7,367 branches, 223k → 9.4M contractor prunes, 2.4 s → 65 s). Full-corpus A/B
+(119 ODE jobs, `results/ab_20260713_132033`): **github PAR2 4.89×** with 18 SAT→TIM,
+**saradc 1.99×**, tacas 1.05×, zero SAT↔UNSAT flips. Not an implementation artifact — the cost
+is the refinement work itself. Options weighed: adopt globally (rejected by the numbers),
+revert + document (loses the honest mode), flag-gate (chosen; user decision after escalation).
+
+**Regression guard:** `DrealBugsRegression.Bug011_FreeEndpointTauWitness_Accurate`, run with
+the flag ON (fail-first verified: stub witness box is [0.437, 0.438] ∌ 0.38). Default-mode
+witnesses of un-pinned ODE dims keep the documented midpoint caveat (the translator-side
+workaround: pin crossings on state variables, or enable the flag).
+
 ## Branching split-ratio 0.56 is a symmetry-break, not magic; order has no robust winner
 
 **Context:** the `--split-ratio 0.56` + "alternating" traversal default gave a huge speedup on

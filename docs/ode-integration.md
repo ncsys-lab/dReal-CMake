@@ -121,6 +121,8 @@ CAPD became the sole ODE backend after benchmarking confirmed it was at or below
 
 See `docs/decisions.md` "ODE backend" for the CAPD-vs-Codac finding and `OPTIMIZATION_LOG.md` for the order-tuning and full optimization timeline.
 
+**Witness fidelity (`--ode-refine-witness`, default off).** ICP accepts an ODE delta-sat at tube granularity: `OdeFormulaEvaluator` reports ODE atoms satisfied as-is, so the accepted box legitimately keeps un-pinned ODE dimensions wide (on `github water k32`, 626 of 703 dims were wider than δ at accept), and the `--model` post-pass reports their unrefined-hull **midpoints** — internally inconsistent values for dims the constraints actually pin transitively (BUG-011: a free endpoint-time τ reported ≈0.4375 when the only solution was 0.38). `--ode-refine-witness` makes the evaluator report each positive ODE atom's widest variable, so ICP branches every ODE dimension below δ before accepting — δ-honest witnesses, at the measured cost of 4.89× github PAR2 (18 SAT→TIM) / 1.99× saradc corpus-wide. Enable it for queries that read `--model` values of un-pinned ODE dims; verdicts are unaffected either way (zero A/B flips). Full record: `docs/decisions.md` §"ODE formula evaluator".
+
 ---
 
 ## CAPD build wiring

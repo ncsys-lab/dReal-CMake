@@ -110,7 +110,8 @@ class FormulaEvaluator {
 
   friend FormulaEvaluator make_relational_formula_evaluator(const Formula& f);
 
-  friend FormulaEvaluator make_ode_formula_evaluator(const Formula& f);
+  friend FormulaEvaluator make_ode_formula_evaluator(const Formula& f,
+                                                     bool refine_witness);
 
   friend FormulaEvaluator make_forall_formula_evaluator(const Formula& f,
                                                         double epsilon,
@@ -121,7 +122,13 @@ class FormulaEvaluator {
 /// Creates FormulaEvaluator for a relational formula @p f using @p variables.
 FormulaEvaluator make_relational_formula_evaluator(const Formula& f);
 
-FormulaEvaluator make_ode_formula_evaluator(const Formula& f);
+/// Creates FormulaEvaluator for an ODE formula @p f. With @p refine_witness
+/// (--ode-refine-witness), a positive ODE atom reports its widest variable so
+/// ICP refines every ODE dimension below delta before accepting delta-sat;
+/// without it, ODE atoms are reported satisfied as-is (fast accept at tube
+/// granularity — un-pinned dims keep unrefined-hull midpoint witnesses).
+FormulaEvaluator make_ode_formula_evaluator(const Formula& f,
+                                            bool refine_witness);
 
 /// Creates FormulaEvaluator for a universally quantified formula @p f
 /// using @p variables, @p epsilon, @p delta, and @p number_of_jobs.

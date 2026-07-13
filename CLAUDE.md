@@ -151,6 +151,11 @@ fix (`HULL_COMPLETENESS.md`) the per-slice range is mean-value-in-time, so the d
 near CAPD precision and hull-grid is no longer a completeness knob; raise to 16+ only for
 pathologically sharp invariants),
 `--ode-backward` (true), `--ode-abs-tol`/`--ode-rel-tol` (1e-10), `--ode-max-step` (0=adaptive).
+`--ode-refine-witness` (default off): δ-honest `--model` witnesses for un-pinned ODE dims (e.g. a
+free endpoint-time τ) — default-off keeps the fast tube-granularity accept, whose witnesses for
+such dims are unrefined-hull **midpoints** (BUG-011 class); enabling it δ-refines every ODE dim
+and measured 4.89× github PAR2 (18 SAT→TIM) corpus-wide, so it's opt-in for witness-reading
+queries. `docs/decisions.md` §"ODE formula evaluator".
 Full flag list + performance rationale: `docs/ode-integration.md` §Performance. 2026-06 retuning
 campaign: `OPTIMIZATION_LOG.md`.
 

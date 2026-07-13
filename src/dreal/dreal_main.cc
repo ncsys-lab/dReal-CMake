@@ -334,6 +334,12 @@ void MainProgram::AddOptions() {
   opt_.add(fmt::format("{}", Config::kDefaultOdeMaxStep).c_str(), false, 1, 0,
            "CAPD max integration step cap; 0 = fully adaptive. (default = 0)",
            "--ode-max-step", nonneg_double_option_validator);
+  opt_.add("false", false, 0, 0,
+           "Refine every ODE dimension below delta before accepting delta-sat, "
+           "so --model witnesses of un-pinned ODE variables (e.g. a free "
+           "endpoint time) are delta-honest instead of unrefined-hull "
+           "midpoints. Costly on deep BMC (default = off).\n",
+           "--ode-refine-witness");
 
   auto* const constraint_order_validator =
       new ez::ezOptionValidator("t", "in", "none,asc,desc", false);
@@ -641,6 +647,11 @@ void MainProgram::ExtractOptions() {
     double v{0};
     opt_.get("--ode-max-step")->getDouble(v);
     config_.mutable_ode_max_step().set_from_command_line(v);
+  }
+  if (opt_.isSet("--ode-refine-witness")) {
+    config_.mutable_ode_refine_witness().set_from_command_line(true);
+    DREAL_LOG_DEBUG("MainProgram::ExtractOptions() --ode-refine-witness = {}",
+                    config_.ode_refine_witness());
   }
   if (opt_.isSet("--constraint-order")) {
     string v;

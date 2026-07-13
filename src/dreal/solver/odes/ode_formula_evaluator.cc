@@ -15,26 +15,57 @@
 */
 #include "ode_formula_evaluator.h"
 
+#include <algorithm>
 #include <utility>
 
 #include "dreal/util/assert.h"
 #include "dreal/util/exception.h"
+#include "dreal/util/rounded_interval.h"
 
 namespace dreal {
 
 using std::ostream;
 
-OdeFormulaEvaluator::OdeFormulaEvaluator(Formula f)
-    : FormulaEvaluatorCell{std::move(f)} {}
+OdeFormulaEvaluator::OdeFormulaEvaluator(Formula f, const bool refine_witness)
+    : FormulaEvaluatorCell{std::move(f)}, refine_witness_{refine_witness} {}
 
 OdeFormulaEvaluator::~OdeFormulaEvaluator() {
   DREAL_LOG_TRACE("OdeFormulaEvaluator::~OdeFormulaEvaluator()");
 }
 
 FormulaEvaluationResult OdeFormulaEvaluator::operator()(
-    const Box& box, const UpwardRounding& /*ur*/) const {
-  // TODO: IMPLEMENT CAPD STUFF HERE
-  return FormulaEvaluationResult{FormulaEvaluationResult::Type::VALID, Box::Interval(0.0, 0.0)};
+    const Box& box, const UpwardRounding& ur) const {
+  // An ODE atom has no cheap interval evaluation — the tube contractor is the
+  // sole refuter. Two regimes:
+  //
+  // Default (fast accept): report the atom satisfied as-is. ICP then accepts
+  // delta-sat at tube granularity with no ODE-driven branching — load-bearing
+  // for deep BMC, where the accepted box legitimately keeps most per-step
+  // dims (dwell times, weakly-constrained states) wide: on water k32, 626 of
+  // 703 dims were wider than δ at accept, and δ-refining them all costs 10³–
+  // 10⁴ extra branch+fixpoint passes (A/B: 4.89× github PAR2, 18 SAT→TIM).
+  // The cost of the fast accept: --model witnesses of un-pinned ODE dims are
+  // unrefined-hull midpoints (Tighten), e.g. a free endpoint-time τ reported
+  // ≈0.4375 when the sole solution was 0.38 — a box the solver itself refutes
+  // when asserted a priori (BUG-011). This also applies to a NEGATED ODE
+  // literal (normal DPLL(T) product, unenforced by design — the documented §6
+  // drop, docs/ode-integration.md BUG-002): branching it would enforce
+  // nothing, in either regime.
+  if (!refine_witness_ || is_negation(formula())) {
+    return FormulaEvaluationResult{FormulaEvaluationResult::Type::VALID,
+                                   Box::Interval(0.0, 0.0)};
+  }
+  // --ode-refine-witness (δ-honest witnesses): report an interval whose
+  // diameter is the widest ODE dimension, so EvaluateBox keeps the atom's
+  // variables branching until every one is below δ — each split re-enters the
+  // tube contractor, which prunes the wrong half. Use when --model values of
+  // un-pinned ODE dims will be read (e.g. the free-τ crossing probes).
+  double w{0.0};
+  for (const Variable& v : variables()) {
+    w = std::max(w, safe_diam(box[v], ur));
+  }
+  return FormulaEvaluationResult{FormulaEvaluationResult::Type::UNKNOWN,
+                                 Box::Interval(0.0, w)};
 }
 
 ostream& OdeFormulaEvaluator::Display(ostream& os) const {

@@ -258,6 +258,8 @@ class Config {
   OptionValue<bool>& mutable_ode_backward();
   double ode_max_step() const;
   OptionValue<double>& mutable_ode_max_step();
+  bool ode_refine_witness() const;
+  OptionValue<bool>& mutable_ode_refine_witness();
   /// @}
 
   /// Returns if it's smtlib2_compliant mode.
@@ -392,6 +394,16 @@ class Config {
   OptionValue<OdeC0SetType> ode_c0_set_{OdeC0SetType::Rect2};
   OptionValue<bool> ode_backward_{true};
   OptionValue<double> ode_max_step_{kDefaultOdeMaxStep};
+  // δ-honest ODE witnesses (--ode-refine-witness): make OdeFormulaEvaluator
+  // report a positive ODE atom's widest variable, so ICP branches every ODE
+  // dimension below δ before accepting delta-sat. Default OFF — the fast
+  // accept-at-tube-granularity is load-bearing for deep-BMC SAT (A/B: ON costs
+  // 4.89× github PAR2 with 18 SAT→TIM, 1.99× saradc; a 0-branch accept becomes
+  // a ~10³–10⁴-bisection refinement descent). Turn ON for queries that read
+  // --model values of un-pinned ODE dimensions (e.g. a free endpoint-time τ):
+  // OFF, those witnesses are unrefined-hull midpoints (BUG-011).
+  // docs/decisions.md §"ODE formula evaluator".
+  OptionValue<bool> ode_refine_witness_{false};
 
   // ICP fixpoint constraint ordering (default kNone = declaration order).
   OptionValue<ConstraintOrder> constraint_order_{ConstraintOrder::kNone};

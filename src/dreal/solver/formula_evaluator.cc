@@ -89,8 +89,9 @@ FormulaEvaluator make_relational_formula_evaluator(const Formula& f) {
   return FormulaEvaluator{make_shared<RelationalFormulaEvaluator>(f)};
 }
 
-FormulaEvaluator make_ode_formula_evaluator(const Formula& f) {
-  return FormulaEvaluator{make_shared<OdeFormulaEvaluator>(f)};
+FormulaEvaluator make_ode_formula_evaluator(const Formula& f,
+                                            const bool refine_witness) {
+  return FormulaEvaluator{make_shared<OdeFormulaEvaluator>(f, refine_witness)};
 }
 
 FormulaEvaluator make_forall_formula_evaluator(const Formula& f,

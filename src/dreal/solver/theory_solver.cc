@@ -329,7 +329,8 @@ vector<FormulaEvaluator> TheorySolver::BuildFormulaEvaluator(
         formula_evaluators.push_back(make_forall_formula_evaluator(
             f, epsilon, inner_delta, config_.number_of_jobs()));
       } else if (f.include_ode()) {
-        formula_evaluators.push_back(make_ode_formula_evaluator(f));
+        formula_evaluators.push_back(
+            make_ode_formula_evaluator(f, config_.ode_refine_witness()));
       } else {
         formula_evaluators.push_back(make_relational_formula_evaluator(f));
       }

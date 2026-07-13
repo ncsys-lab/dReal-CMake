@@ -258,7 +258,8 @@ TEST(SeedAllRelationalTest, FalseWhenOdePresent) {
       "flow", vector<std::pair<Variable, Expression>>{{fx, -fx}})};
   const Formula ic{integral(0.0, t0, {x0}, {xt}, ode)};
   ASSERT_TRUE(ic.include_ode());  // precondition: this really is an ODE formula
-  const vector<FormulaEvaluator> fes{make_ode_formula_evaluator(ic)};
+  const vector<FormulaEvaluator> fes{
+      make_ode_formula_evaluator(ic, /*refine_witness=*/false)};
   EXPECT_FALSE(AllRelational(fes));
 }
 

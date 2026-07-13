@@ -30,7 +30,7 @@ namespace dreal {
 /// Evaluator for Ode formulas.
 class OdeFormulaEvaluator : public FormulaEvaluatorCell {
  public:
-  explicit OdeFormulaEvaluator(Formula f);
+  OdeFormulaEvaluator(Formula f, bool refine_witness);
 
   /// Deleted copy-constructor.
   OdeFormulaEvaluator(const OdeFormulaEvaluator&) = delete;
@@ -55,5 +55,9 @@ class OdeFormulaEvaluator : public FormulaEvaluatorCell {
   const Variables& variables() const override {
     return f_.GetFreeVariables();
   }
+
+ private:
+  // --ode-refine-witness (see make_ode_formula_evaluator).
+  const bool refine_witness_;
 };
 }  // namespace dreal

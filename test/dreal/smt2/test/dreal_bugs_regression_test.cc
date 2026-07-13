@@ -11,6 +11,7 @@
 //   BUG-006  unsat (integral …) formula                      -> unsat (not false delta-sat)
 //   BUG-008  endpoint asserted below its true value          -> unsat (not false delta-sat)
 //   BUG-009  seed pre-pass on a constraint that folds to True -> delta-sat (not a crash)
+//   BUG-011  --model witness of a free integral endpoint-time -> contains the true crossing
 //
 // BUG-002 is NOT here: the silent drop of a negated (integral …)/(forall_t …)
 // is a design gap, not a settled behavior to regression-guard. Its DESIRED
@@ -23,6 +24,7 @@
 
 #include "dreal/smt2/driver.h"
 
+#include <cstdio>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -50,9 +52,12 @@ struct CoutRedirect {
 // Parse an SMT2 string (its (check-sat) prints the verdict to std::cout, and
 // the model too when produce_models is set) and return the captured output.
 // Default Config precision is 0.001 — the delta the bug doc's reproducers use.
-std::string RunSmt2String(const std::string& smt2, bool produce_models = false) {
+std::string RunSmt2String(const std::string& smt2, bool produce_models = false,
+                          bool ode_refine_witness = false) {
   Config config;
   if (produce_models) config.mutable_produce_models().set_from_command_line(true);
+  if (ode_refine_witness)
+    config.mutable_ode_refine_witness().set_from_command_line(true);
   Smt2Driver driver{Context{config}};
   std::ostringstream captured;
   const CoutRedirect redirect{captured.rdbuf()};
@@ -186,6 +191,62 @@ TEST(DrealBugsRegression, Bug008_SubTrueEndpoint_Unsat) {
       "(check-sat)\n")};
   EXPECT_NE(out.find("unsat"), std::string::npos) << "got: " << out;
   EXPECT_EQ(out.find("delta-sat"), std::string::npos) << "got: " << out;
+}
+
+// Extracts the printed model interval for @p var — "var : [lb, ub]" (a point
+// interval prints as "var : <lb, ub>"). Returns false if the line is absent or
+// malformed.
+bool ParseModelInterval(const std::string& out, const std::string& var,
+                        double* lb, double* ub) {
+  const std::string key{var + " : "};
+  const std::size_t pos{out.find(key)};
+  if (pos == std::string::npos) return false;
+  char open{};
+  return std::sscanf(out.c_str() + pos + key.size(), " %c%lf, %lf", &open, lb,
+                     ub) == 3;
+}
+
+// BUG-011 — the --model witness of a FREE integral endpoint-time variable.
+// dx/dt = 1 from x(0) = 0 with the endpoint state pinned x(τ) = 0.38 admits
+// exactly one solution, τ = 0.38. The stub OdeFormulaEvaluator (VALID/[0,0])
+// let ICP declare delta-sat with ZERO branching, freezing τ at tube-hull
+// granularity — [0.375, 0.5] at the default --ode-hull-grid 4 — and the model
+// post-pass (Tighten) then reported the hull MIDPOINT ±δ/2, τ ≈ [0.437, 0.438]:
+// a box the solver itself refutes when asserted a priori. Under
+// --ode-refine-witness the witness box must contain the true crossing to
+// within delta. (The flag is OFF by default — the fast tube-granularity accept
+// is load-bearing for deep BMC, where δ-refining every ODE dim measured 4.89×
+// github PAR2 with 18 SAT→TIM — so default-mode witnesses of un-pinned ODE
+// dims keep the documented midpoint caveat.)
+TEST(DrealBugsRegression, Bug011_FreeEndpointTauWitness_Accurate) {
+  const std::string out{RunSmt2String(
+      "(set-logic QF_NRA_ODE)\n"
+      "(declare-fun x0 () Real)\n"
+      "(declare-fun xt () Real)\n"
+      "(declare-fun tau () Real)\n"
+      "(assert (>= x0 (- 10.0)))\n"
+      "(assert (<= x0 10.0))\n"
+      "(assert (>= xt (- 10.0)))\n"
+      "(assert (<= xt 10.0))\n"
+      "(assert (>= tau 0.0))\n"
+      "(assert (<= tau 1.0))\n"
+      "(declare-fun x () Real)\n"
+      "(assert (>= x (- 10.0)))\n"
+      "(assert (<= x 10.0))\n"
+      "(define-ode flow_1 ((= d/dt[x] 1.0)))\n"
+      "(assert (= x0 0.0))\n"
+      "(assert (= [xt] (integral 0. tau [x0] flow_1)))\n"
+      "(assert (= xt 0.38))\n"
+      "(check-sat)\n",
+      /*produce_models=*/true, /*ode_refine_witness=*/true)};
+  ASSERT_NE(out.find("delta-sat"), std::string::npos) << "got: " << out;
+  double lb{0.0};
+  double ub{0.0};
+  ASSERT_TRUE(ParseModelInterval(out, "tau", &lb, &ub)) << "got: " << out;
+  const double delta{0.001};  // the run's --precision
+  EXPECT_TRUE(lb - delta <= 0.38 && 0.38 <= ub + delta)
+      << "tau witness [" << lb << ", " << ub
+      << "] does not contain the sole solution 0.38; got: " << out;
 }
 
 // BUG-009 — the seed-and-verify pre-pass (NRA-only, on by default) substitutes
