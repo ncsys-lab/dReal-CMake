@@ -130,10 +130,12 @@ The metric is **CPU time (user+sys)**, not wall clock — the machine is multi-t
 clock is noisy. Solver runs under `nice -n 1`. `timeout` stays wall-clock at **600 s** (TIM
 detection keys on exit code 124). Operational rules for any batch / A-B / sweep:
 
-- **≤12 concurrent solvers, one pool at a time.** The `run_batch.sh` / `do_sweep.sh` throttle
-  (count `pgrep -x dreal4`, not `-f`) and `do_sweep`'s shuffled 12-way pool already enforce this
-  and keep the cores saturated — see those bullets above. Never overlap two pools, and start no
-  ad-hoc `dreal4` while a pool is live.
+- **≤12 concurrent solvers, one pool at a time.** The `run_batch.sh` throttle (its own shell
+  jobs via `jobs -r`, so it works for any `DREAL_BINARY` name) and `do_sweep`'s shuffled 12-way
+  pool already enforce this and keep the cores saturated — see those bullets above. Never
+  overlap two pools, and start no ad-hoc `dreal4` while a pool is live. (When *checking* on a
+  live pool, count executables — `ps -axo comm | grep -c 'dreal4[^ ]*$'` — not `ps aux | grep`,
+  whose gtime/timeout wrapper lines triple the apparent count.)
 - **SIGKILL ⇒ blacklist, never restart.** The machine runs `oom_killer`/`swap_killer` daemons
   that SIGKILL any process over **8 GB RAM**. A solver exit *by signal* (exit code **137** =
   128+SIGKILL, or "Killed") is a memory event, not a result: do not retry it; append it to
