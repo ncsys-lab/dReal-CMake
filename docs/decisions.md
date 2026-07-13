@@ -226,10 +226,20 @@ all turns a 0-branch accept into a 10³–10⁴-bisection descent whose every st
 is the refinement work itself. Options weighed: adopt globally (rejected by the numbers),
 revert + document (loses the honest mode), flag-gate (chosen; user decision after escalation).
 
-**Regression guard:** `DrealBugsRegression.Bug011_FreeEndpointTauWitness_Accurate`, run with
-the flag ON (fail-first verified: stub witness box is [0.437, 0.438] ∌ 0.38). Default-mode
-witnesses of un-pinned ODE dims keep the documented midpoint caveat (the translator-side
-workaround: pin crossings on state variables, or enable the flag).
+**Model reporting must be idempotent (`Tighten` exempts ODE dims, 2026-07-13):** the reported
+`--model` box, re-asserted as bounds over the same constraints, must stay delta-sat. `Tighten`'s
+midpoint±δ/2 shrink is sound for dims whose constraints EvaluateBox certified by interval
+evaluation over the whole box (inclusion-monotone ⇒ every sub-box inherits the certificate),
+but for ODE-atom dims the fast-accept regime certifies nothing — the midpoint slice can exclude
+every real solution (the BUG-011 τ = [0.437, 0.438] slice re-fed → `unsat`). `Tighten` now
+skips every dim occurring in an ODE atom: default mode reports those dims' **whole theory
+interval** (honest-wide, idempotent — τ : [0.375, 0.5] ∋ 0.38); `--ode-refine-witness` buys
+δ-tightness on top.
+
+**Regression guards:** `DrealBugsRegression.Bug011_FreeEndpointTauWitness_Accurate` (flag ON:
+witness contains 0.38 AND is δ-tight) and `Bug011_DefaultModelIdempotent` (default: witness
+contains 0.38, and the full reported box re-fed as bounds stays delta-sat) — both fail-first
+verified against the pre-fix behavior.
 
 ## Branching split-ratio 0.56 is a symmetry-break, not magic; order has no robust winner
 

@@ -201,7 +201,21 @@ Formula EliminatePointUniversals(const Formula& f) {
 // is larger than delta when the given constraints are not tight.
 // This function tighten the box @p box so that every dimension has a
 // width smaller than delta.
-void Tighten(Box* box, const double delta) {
+//
+// Shrinking to the midpoint ±delta/2 is SOUND for a dimension whose
+// constraints were all certified by EvaluateBox's interval evaluation over
+// the whole box: interval evaluation is inclusion-monotone, so every sub-box
+// (the midpoint slice included) inherits the delta-certificate. It is
+// FABRICATION for a dimension of an ODE atom: OdeFormulaEvaluator certifies
+// nothing over the box (default fast-accept regime), so the theory box
+// legitimately keeps such dims wide and a midpoint slice can exclude every
+// real solution — the reported model then FAILS when re-fed as bounds
+// (BUG-011: tau reported [0.437, 0.438] when the sole solution was 0.38,
+// re-feed unsat). The reported box must stay delta-sat under re-feeding
+// (idempotence), so @p ode_vars dims are reported as their WHOLE theory
+// interval, never a slice. (Under --ode-refine-witness they are already
+// below delta and this exclusion is a no-op.)
+void Tighten(Box* box, const double delta, const Variables& ode_vars) {
   // This runs as delta-sat post-processing from Context::Impl::CheckSat(),
   // whose ambient FPU mode is undefined (whatever CheckSatCore left — and once
   // CAPD is linked, that is FE_TONEAREST). safe_diam/safe_mid and the gaol `&=`
@@ -220,6 +234,7 @@ void Tighten(Box* box, const double delta) {
           interval = 1.0;
           break;
         case Variable::Type::CONTINUOUS: {
+          if (ode_vars.include(var)) continue;  // see the header comment
           // Sound outward-rounded [mid - delta/2, mid + delta/2]. The previous
           // hand-built `Box::Interval(mid - half, mid + half)` was mis-rounded
           // under every single rounding mode (the lower endpoint pulled inward,
@@ -509,8 +524,13 @@ optional<Box> Context::Impl::CheckSat() {
   RejectUnlinkedForallT(stack_);
   auto result = CheckSatCore(stack_, box(), &sat_solver_);
   if (result) {
-    // In case of delta-sat, do post-processing.
-    Tighten(&(*result), config_.precision());
+    // In case of delta-sat, do post-processing. Dims occurring in ODE atoms
+    // are exempt from the midpoint shrink (see Tighten's header comment).
+    Variables ode_vars;
+    for (const Formula& f : stack_.get_vector()) {
+      if (f.include_ode()) ode_vars.insert(f.GetFreeVariables());
+    }
+    Tighten(&(*result), config_.precision(), ode_vars);
     DREAL_LOG_DEBUG("ContextImpl::CheckSat() - Found Model\n{}", *result);
     model_ = ExtractModel(*result);
     return model_;

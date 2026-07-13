@@ -25,6 +25,7 @@
 #include "dreal/smt2/driver.h"
 
 #include <cstdio>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -206,6 +207,27 @@ bool ParseModelInterval(const std::string& out, const std::string& var,
                      ub) == 3;
 }
 
+// The bug011 reproducer without its (check-sat), so tests can append extra
+// assertions (the idempotence re-feed) before checking.
+const char* const kBug011Query =
+    "(set-logic QF_NRA_ODE)\n"
+    "(declare-fun x0 () Real)\n"
+    "(declare-fun xt () Real)\n"
+    "(declare-fun tau () Real)\n"
+    "(assert (>= x0 (- 10.0)))\n"
+    "(assert (<= x0 10.0))\n"
+    "(assert (>= xt (- 10.0)))\n"
+    "(assert (<= xt 10.0))\n"
+    "(assert (>= tau 0.0))\n"
+    "(assert (<= tau 1.0))\n"
+    "(declare-fun x () Real)\n"
+    "(assert (>= x (- 10.0)))\n"
+    "(assert (<= x 10.0))\n"
+    "(define-ode flow_1 ((= d/dt[x] 1.0)))\n"
+    "(assert (= x0 0.0))\n"
+    "(assert (= [xt] (integral 0. tau [x0] flow_1)))\n"
+    "(assert (= xt 0.38))\n";
+
 // BUG-011 — the --model witness of a FREE integral endpoint-time variable.
 // dx/dt = 1 from x(0) = 0 with the endpoint state pinned x(τ) = 0.38 admits
 // exactly one solution, τ = 0.38. The stub OdeFormulaEvaluator (VALID/[0,0])
@@ -216,29 +238,13 @@ bool ParseModelInterval(const std::string& out, const std::string& var,
 // --ode-refine-witness the witness box must contain the true crossing to
 // within delta. (The flag is OFF by default — the fast tube-granularity accept
 // is load-bearing for deep BMC, where δ-refining every ODE dim measured 4.89×
-// github PAR2 with 18 SAT→TIM — so default-mode witnesses of un-pinned ODE
-// dims keep the documented midpoint caveat.)
+// github PAR2 with 18 SAT→TIM — so default-mode witnesses of ODE dims are the
+// whole un-refined theory interval; see Bug011_DefaultModelIdempotent.)
 TEST(DrealBugsRegression, Bug011_FreeEndpointTauWitness_Accurate) {
-  const std::string out{RunSmt2String(
-      "(set-logic QF_NRA_ODE)\n"
-      "(declare-fun x0 () Real)\n"
-      "(declare-fun xt () Real)\n"
-      "(declare-fun tau () Real)\n"
-      "(assert (>= x0 (- 10.0)))\n"
-      "(assert (<= x0 10.0))\n"
-      "(assert (>= xt (- 10.0)))\n"
-      "(assert (<= xt 10.0))\n"
-      "(assert (>= tau 0.0))\n"
-      "(assert (<= tau 1.0))\n"
-      "(declare-fun x () Real)\n"
-      "(assert (>= x (- 10.0)))\n"
-      "(assert (<= x 10.0))\n"
-      "(define-ode flow_1 ((= d/dt[x] 1.0)))\n"
-      "(assert (= x0 0.0))\n"
-      "(assert (= [xt] (integral 0. tau [x0] flow_1)))\n"
-      "(assert (= xt 0.38))\n"
-      "(check-sat)\n",
-      /*produce_models=*/true, /*ode_refine_witness=*/true)};
+  const std::string out{RunSmt2String(std::string(kBug011Query) +
+                                          "(check-sat)\n",
+                                      /*produce_models=*/true,
+                                      /*ode_refine_witness=*/true)};
   ASSERT_NE(out.find("delta-sat"), std::string::npos) << "got: " << out;
   double lb{0.0};
   double ub{0.0};
@@ -247,6 +253,52 @@ TEST(DrealBugsRegression, Bug011_FreeEndpointTauWitness_Accurate) {
   EXPECT_TRUE(lb - delta <= 0.38 && 0.38 <= ub + delta)
       << "tau witness [" << lb << ", " << ub
       << "] does not contain the sole solution 0.38; got: " << out;
+  // What the flag buys over the default: the witness is delta-TIGHT, not just
+  // honest-wide (refinement branches every ODE dim below delta).
+  EXPECT_LE(ub - lb, 2 * delta)
+      << "tau witness [" << lb << ", " << ub << "] not refined to delta";
+}
+
+// BUG-011 (reporting half) — the --model box must be IDEMPOTENT: re-asserting
+// the reported per-variable intervals as bounds over the same constraints must
+// stay delta-sat. The Tighten post-pass shrinks every >δ dimension to its
+// midpoint ±δ/2 — sound for pure-NRA dims (EvaluateBox's certificate is an
+// interval evaluation over the whole box, so every sub-box inherits it) but
+// FABRICATION for ODE dims, whose stub evaluator established nothing: in
+// default (fast-accept) mode the theory box legitimately keeps ODE dims wide,
+// and the midpoint slice τ = [0.437, 0.438] excludes the sole solution 0.38 —
+// the solver itself refutes the re-fed box. ODE-constrained dims must report
+// the WHOLE theory interval instead.
+TEST(DrealBugsRegression, Bug011_DefaultModelIdempotent) {
+  const std::string out{RunSmt2String(std::string(kBug011Query) +
+                                          "(check-sat)\n",
+                                      /*produce_models=*/true)};
+  ASSERT_NE(out.find("delta-sat"), std::string::npos) << "got: " << out;
+  const double delta{0.001};
+  std::ostringstream refeed;
+  refeed << std::setprecision(17) << kBug011Query;
+  for (const char* var : {"x0", "xt", "tau", "x"}) {
+    double lb{0.0};
+    double ub{0.0};
+    ASSERT_TRUE(ParseModelInterval(out, var, &lb, &ub))
+        << "no " << var << " in model; got: " << out;
+    refeed << "(assert (>= " << var << " " << lb << "))\n"
+           << "(assert (<= " << var << " " << ub << "))\n";
+  }
+  // The un-refined ODE dim must report its whole interval, which contains the
+  // sole solution — not a midpoint slice that excludes it.
+  double tau_lb{0.0};
+  double tau_ub{0.0};
+  ASSERT_TRUE(ParseModelInterval(out, "tau", &tau_lb, &tau_ub));
+  EXPECT_TRUE(tau_lb - delta <= 0.38 && 0.38 <= tau_ub + delta)
+      << "tau witness [" << tau_lb << ", " << tau_ub
+      << "] excludes the sole solution 0.38; got: " << out;
+  // Idempotence: the reported box, fed back as bounds, is still delta-sat.
+  refeed << "(check-sat)\n";
+  const std::string out2{RunSmt2String(refeed.str())};
+  EXPECT_NE(out2.find("delta-sat"), std::string::npos)
+      << "reported model box is NOT delta-sat when re-fed: " << out2
+      << "\noriginal model: " << out;
 }
 
 // BUG-009 — the seed-and-verify pre-pass (NRA-only, on by default) substitutes
