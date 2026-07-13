@@ -28,6 +28,7 @@
 
 #include <fmt/format.h>
 
+#include "dreal/contractor/odes/contractor_odes.h"
 #include "dreal/util/pattern_matching/substitutions_map.h"
 #include "dreal/version.h"
 #include "dreal/solver/auditor.h"
@@ -98,6 +99,51 @@ void RejectUnsupportedForall(const Formula& f) {
         "dReal only supports a top-level positive forall (exists-forall); this "
         "negated/nested/disjoined forall is unsupported: {}",
         f);
+  }
+}
+
+// A user-asserted positive (forall_t …) is enforced ONLY by being attached to
+// a companion positive (integral …) — same flow, invariant over the integral's
+// endpoint (vec_t) variables (forallt_links_to_integral). One that can link to
+// NO asserted integral is silently omitted by link_integral_invariants, so the
+// "invariant" constrains nothing and the query returns a spurious delta-sat —
+// COMPLETENESS (asserts φ^δ T-satisfiable on a T-unsatisfiable φ — missed
+// refutation), never false unsat. It bit simulink-to-dreal as BUG-010: an
+// invariant written over the flow-template var x instead of the endpoint var
+// x_t. Malformed input ⇒ fail loud here instead.
+//
+// This rejection cannot live in link_integral_invariants itself: that runs
+// inside the DPLL(T) loop on the SAT solver's transient literal subset, where
+// a positive forall_t legitimately appears without its companion integral
+// (another mode/step is active — throwing there crashes the github airplane
+// BMC family). Only here, against the full assertion stack, is "links to NO
+// integral anywhere" distinguishable from a transient search state. A forall_t
+// nested under a disjunction/negation is not collected by the conjunction
+// traversal and keeps the documented BUG-002 silent-drop behavior (design
+// axes 1–2 in test/dreal/smt2/test/dreal_future.cc).
+void RejectUnlinkedForallT(const ScopedVector<Formula>& stack) {
+  vector<Formula> int_ctrs;
+  vector<Formula> inv_ctrs;
+  for (const auto& a : stack.get_vector()) {
+    for (const auto& f : unroll_conjunctions(a)) {
+      if (is_integral(f)) int_ctrs.push_back(f);
+      else if (is_forallT(f)) inv_ctrs.push_back(f);
+    }
+  }
+  for (const auto& fc : inv_ctrs) {
+    const bool linked =
+        std::any_of(int_ctrs.begin(), int_ctrs.end(), [&fc](const Formula& ic) {
+          return forallt_links_to_integral(fc, ic);
+        });
+    if (!linked) {
+      throw DREAL_RUNTIME_ERROR(
+          "(forall_t …) invariant cannot be linked to any asserted "
+          "(integral …) and would be silently ignored: {}. It needs a "
+          "companion integral over the same flow, with the invariant written "
+          "over that integral's endpoint variables (e.g. x_t, not the "
+          "flow-template variable x).",
+          fc);
+    }
   }
 }
 
@@ -460,6 +506,7 @@ optional<Box> Context::Impl::CheckSatCore(const ScopedVector<Formula>& stack,
 }
 
 optional<Box> Context::Impl::CheckSat() {
+  RejectUnlinkedForallT(stack_);
   auto result = CheckSatCore(stack_, box(), &sat_solver_);
   if (result) {
     // In case of delta-sat, do post-processing.

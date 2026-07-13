@@ -97,9 +97,31 @@ namespace dreal
 
     std::vector<Formula> unroll_conjunctions(const Formula& f);
 
+    // The ONE canonical ForallT↔Integral link test, shared by
+    // link_integral_invariants (DPLL(T)-loop pairing) and the check-sat-time
+    // unlinked-forall_t rejection (context_impl.cc RejectUnlinkedForallT):
+    // fc attaches to ic iff they name the same flow AND every invariant
+    // variable is one of the integral's endpoint (vec_t) variables — i.e. the
+    // invariant must be written over x_t, not the flow-template var x.
+    inline bool forallt_links_to_integral(const Formula& fc, const Formula& ic) {
+        const auto* const fcc = to_forallT(fc);
+        const auto* const icc = to_integral(ic);
+        if (fcc->get_flow()->name != icc->get_flow()->name) return false;
+        Variables vars_t_in_ic;
+        for (const auto& vec_t : icc->get_vec_t()) vars_t_in_ic.insert(vec_t.GetVariables());
+        return vars_t_in_ic.IsSupersetOf(fcc->get_bound_vars());
+    }
+
     // Given a collection of assertions, finds all Integral formulas and links
     // each with its associated ForallT invariants (matching by flow name and
     // variable scope). Returns a vector of (Integral, [ForallT]) pairs.
+    //
+    // A ForallT that links to NO integral is silently omitted here — REQUIRED
+    // in this DPLL(T)-loop context, where the assertion set is the SAT
+    // solver's transient literal subset and a forall_t legitimately appears
+    // without its companion integral (another mode/step active). A forall_t
+    // that is unlinkable against the FULL problem is instead rejected up
+    // front by RejectUnlinkedForallT (context_impl.cc).
     template <typename FormulaCollection>
     std::vector<ode_constraint> link_integral_invariants(const FormulaCollection& assertions) {
         std::vector<std::pair<Formula, std::vector<Formula>>> result;
@@ -121,21 +143,8 @@ namespace dreal
 
         for (const auto& ic : int_ctrs) {
             std::vector<Formula> local_invs;
-            Variables vars_t_in_ic;
-            const auto* const icc = to_integral(ic);
-            for (const auto& vec_t : icc->get_vec_t()) vars_t_in_ic.insert(vec_t.GetVariables());
             for (const auto& fc : inv_ctrs) {
-                const auto* const fcc = to_forallT(fc);
-                // Link ForallTConstraint fc with IntegralConstraint ic, if
-                //    fc.flow == ic.flow
-                //    vars(fc.inv) ⊆ ic.vars_t
-                if (fcc->get_flow()->name == icc->get_flow()->name) {
-                    const auto vars_in_fc = fcc->get_bound_vars();
-                    bool const included = vars_t_in_ic.IsSupersetOf(vars_in_fc);
-                    if (included) {
-                        local_invs.push_back(fc);
-                    }
-                }
+                if (forallt_links_to_integral(fc, ic)) local_invs.push_back(fc);
             }
             result.emplace_back(ic, local_invs);
         }

@@ -48,20 +48,24 @@
 //       filter evaluates that endpoint var against EACH trajectory slice, so
 //       "x_t ≤ c" means "the state ≤ c at every time", not merely at the endpoint.
 //
-//       DESIRED: this silent drop should be a HARD ERROR (Group A2 below pins
-//       it). But it CANNOT be enforced inside link_integral_invariants, because
-//       that function runs in the DPLL(T) loop on the SAT solver's CURRENT literal
-//       subset — where a positive forall_t routinely appears WITHOUT its companion
-//       integral (a different flow/step is active, or the integral atom is
-//       unassigned in this node). Throwing there crashes legitimate multi-step BMC
-//       benchmarks (empirically: the github airplane family). Distinguishing a
-//       genuinely-unlinkable (malformed) forall_t from a transiently-unlinked
-//       (valid search) one needs the GLOBAL set of integrals, available only at the
-//       parse / Context::Assert layer — so the throw belongs there, unimplemented.
-//       The NEGATED forall_t / integral drops (BUG-002 proper, Axis 1/2 below) sit
-//       on the is_negation branch and have the SAME constraint: a negated ODE
-//       literal is a normal product of DPLL(T) search, so rejecting a user-asserted
-//       hard negation likewise belongs at the parse layer, not here.
+//       This silent drop is now a HARD ERROR for user assertions (Group A2
+//       below pins it; live since 2026-07-13). It CANNOT be enforced inside
+//       link_integral_invariants, because that function runs in the DPLL(T)
+//       loop on the SAT solver's CURRENT literal subset — where a positive
+//       forall_t routinely appears WITHOUT its companion integral (a different
+//       flow/step is active, or the integral atom is unassigned in this node).
+//       Throwing there crashes legitimate multi-step BMC benchmarks
+//       (empirically: the github airplane family). Distinguishing a genuinely-
+//       unlinkable (malformed) forall_t from a transiently-unlinked (valid
+//       search) one needs the GLOBAL set of integrals — so the throw lives in
+//       RejectUnlinkedForallT (context_impl.cc), run once per check-sat over
+//       the full assertion stack, sharing the linker's predicate
+//       (forallt_links_to_integral, contractor_odes.h).
+//       The NEGATED forall_t / integral drops (BUG-002 proper, Axis 1/2 below)
+//       sit on the is_negation branch and have the SAME in-loop constraint: a
+//       negated ODE literal is a normal product of DPLL(T) search, so rejecting
+//       a user-asserted hard negation likewise needs global scope — still
+//       unimplemented (Axis 1/2 semantics deliberately open).
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // DESIGN AXIS 2 — negated integral: deliberately left OPEN; both rival semantics
@@ -236,36 +240,32 @@ TEST(Bug002NegatedOde, PosForallT_InvariantViolated_Unsat) {
 }
 
 // =============================================================================
-// Group A2 — silent-unlink SHOULD be a hard error (skipped; aspirational).
-// A positive forall_t whose invariant cannot be linked to a companion (integral …)
-// over the same flow is silently dropped, returning a spurious delta-sat — a
-// BUG-002-class hazard (COMPLETENESS: a dropped invariant only enlarges the box →
-// missed refutation / false delta-sat, never false unsat). DESIRED: reject it.
+// Group A2 — silent-unlink IS a hard error (LIVE since 2026-07-13; previously
+// aspirational). A positive forall_t whose invariant cannot be linked to a
+// companion (integral …) over the same flow used to be silently dropped,
+// returning a spurious delta-sat — a BUG-002-class hazard (COMPLETENESS: a
+// dropped invariant only enlarges the box → missed refutation / false
+// delta-sat, never false unsat); it surfaced downstream as simulink-to-dreal
+// BUG-010.
 //
-// WHY THESE ARE SKIPPED, NOT A SIMPLE FIX. The obvious fix — throw from
-// link_integral_invariants when a forall_t fails to link — is WRONG: that
-// function runs inside the DPLL(T) loop on the SAT solver's current literal
-// subset, where a positive forall_t routinely appears WITHOUT its companion
-// integral (another flow/step is active, or the integral atom is unassigned in
-// this search node). Throwing there crashes legitimate multi-step BMC benchmarks
-// (empirically confirmed on the github airplane family). Telling a genuinely-
-// malformed forall_t (its variable is in NO integral anywhere in the problem)
-// apart from a transiently-unlinked one (valid mid-search) requires the GLOBAL
-// integral set, which only the parse / Context::Assert layer has. So the correct
-// home for this rejection is parse-time validation — unimplemented. These tests
-// assert the desired throw; today the body returns delta-sat (silent drop).
+// WHY THE THROW IS NOT IN link_integral_invariants. That function runs inside
+// the DPLL(T) loop on the SAT solver's current literal subset, where a positive
+// forall_t routinely appears WITHOUT its companion integral (another flow/step
+// is active, or the integral atom is unassigned in this search node). Throwing
+// there crashes legitimate multi-step BMC benchmarks (empirically confirmed on
+// the github airplane family). Telling a genuinely-malformed forall_t (its
+// variable is in NO integral anywhere in the problem) apart from a transiently-
+// unlinked one (valid mid-search) requires the GLOBAL integral set — so the
+// throw lives in RejectUnlinkedForallT (context_impl.cc), run once per
+// check-sat over the full assertion stack, sharing the linker's predicate
+// (forallt_links_to_integral, contractor_odes.h).
 // =============================================================================
 
 // A positive forall_t with NO companion integral at all: no trajectory tube,
-// nothing to check the invariant against ⇒ SHOULD throw rather than vacuously
+// nothing to check the invariant against ⇒ throws rather than vacuously
 // delta-sat. (Contrast NegForallT_NoIntegral_DesignGap below — the *negated*
 // form on the separate negation path.)
 TEST(Bug002NegatedOde, PosForallT_NoIntegral_ShouldReject) {
-  GTEST_SKIP() << "ASPIRATIONAL (BUG-002, defect #2): desired RAISE (positive "
-                  "forall_t with no integral), current delta-sat (silently "
-                  "dropped). Throw belongs at the parse layer, not "
-                  "link_integral_invariants (see Group A2 header). Remove skip "
-                  "to exercise.";
   EXPECT_ANY_THROW(RunSmt2String(
       std::string(kDecayPreamble) +
       "(assert (and\n"
@@ -277,16 +277,12 @@ TEST(Bug002NegatedOde, PosForallT_NoIntegral_ShouldReject) {
 
 // A positive forall_t whose invariant ranges over the bare flow-template var `x`
 // instead of the integral's endpoint var `x_t`: the integral IS present, but the
-// link test vars(inv)={x} ⊆ vars_t={x_t} fails, so the invariant is silently
-// unlinked. This is the exact mistake that slipped through as a false delta-sat
-// (it is how the initial draft of PosForallT_InvariantViolated failed to refute).
-// SHOULD throw at parse time — `x` appears in no integral's vars_t anywhere, so
-// this one IS distinguishable from a transient search drop, given global scope.
+// link test vars(inv)={x} ⊆ vars_t={x_t} fails, so the invariant can never link.
+// This is the exact mistake that slipped through as a false delta-sat (it is how
+// the initial draft of PosForallT_InvariantViolated failed to refute, and how
+// simulink-to-dreal BUG-010 arose). Throws — `x` appears in no integral's vars_t
+// anywhere, so this IS distinguishable from a transient search drop at global scope.
 TEST(Bug002NegatedOde, PosForallT_InvariantOverFlowVar_ShouldReject) {
-  GTEST_SKIP() << "ASPIRATIONAL (BUG-002, defect #2): desired RAISE (invariant "
-                  "over flow var x, unlinkable in any assignment), current "
-                  "delta-sat (silently dropped). Parse-layer check. Remove skip "
-                  "to exercise.";
   EXPECT_ANY_THROW(RunSmt2String(
       std::string(kDecayPreamble) +
       "(assert (and\n"

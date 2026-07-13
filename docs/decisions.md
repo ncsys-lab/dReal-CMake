@@ -156,19 +156,25 @@ direction handling in `qf_nra_ode_semantics.md` §4.5.
 
 ---
 
-## Negated / unlinked ODE constraints are dropped, and rejection must be parse-layer
+## Negated / unlinked ODE constraints: negations dropped in-loop, unlinked forall_t rejected globally
 
-**Decision:** A negated `integral`/`forall_t` literal, and a positive `forall_t` that fails to
-link to a companion integral, are silently dropped in `link_integral_invariants` — *not* turned
-into a loud error. The silent drop of negated ODE atoms is the documented §6 behavior and the
-root of **BUG-002** (a user-asserted negation is silently removed).
+**Decision:** A negated `integral`/`forall_t` literal is silently dropped in
+`link_integral_invariants` — *not* turned into a loud error. The silent drop of negated ODE
+atoms is the documented §6 behavior and the root of **BUG-002** (a user-asserted negation is
+silently removed). A positive `forall_t` that links to no integral anywhere in the problem
+(same-flow + invariant-over-endpoint-vars test) is **rejected with a throw at check-sat time**
+(`RejectUnlinkedForallT`, `context_impl.cc`, 2026-07-13; it previously fell through the same
+silent drop — surfaced as simulink-to-dreal **BUG-010**, an invariant written over the flow
+var `x` instead of `x_t`). The link predicate is shared with the linker:
+`forallt_links_to_integral` (`contractor_odes.h`).
 
-**Why:** `link_integral_invariants` runs inside the DPLL(T) loop on the SAT solver's *transient*
-literal subset, where a negated ODE literal or an unlinked positive `forall_t` is a normal
-product of search — so a throw there crashes valid multi-step BMC benchmarks (github
+**Why the split:** `link_integral_invariants` runs inside the DPLL(T) loop on the SAT solver's
+*transient* literal subset, where a negated ODE literal or an unlinked positive `forall_t` is a
+normal product of search — so a throw there crashes valid multi-step BMC benchmarks (github
 `airplane`/`gen`). Distinguishing malformed *user input* from a valid transient state needs the
-global problem scope, which only the parse / `Context::Assert` layer has — so any rejection
-belongs there, and is unimplemented. These drops are **COMPLETENESS** hazards (missed refutation
+global problem scope — hence the rejection lives in `Context::Impl::CheckSat`, which sees the
+full assertion stack (a `forall_t` nested under a disjunction/negation is not collected there
+and keeps the silent-drop behavior). These drops are **COMPLETENESS** hazards (missed refutation
 / false `delta-sat`), never soundness (a removed constraint only enlarges the box). Full
 transient-literal mechanism: `docs/ode-integration.md` §"Constraint forms accepted, and the
 silent drops (BUG-002)".
@@ -177,8 +183,9 @@ silent drops (BUG-002)".
 and (b) unlinked positive `forall_t` — both reverted after crashing legitimate benchmarks.
 
 **Desired future semantics + roadmap:** genuine `∃t ¬φ` (negated `forall_t`); disequality vs.
-definitional binding (negated `integral`); parse-layer rejection of unlinkable assertions — all
-specified as aspirational `GTEST_SKIP` tests in `test/dreal/smt2/test/dreal_future.cc`. Full
+definitional binding (negated `integral`) — specified as aspirational `GTEST_SKIP` tests in
+`test/dreal/smt2/test/dreal_future.cc` (the unlinked-forall_t rejection tests there are now
+live: `PosForallT_NoIntegral_ShouldReject`, `PosForallT_InvariantOverFlowVar_ShouldReject`). Full
 mechanism: `docs/ode-integration.md` §"Constraint forms accepted, and the silent drops (BUG-002)".
 
 ## Branching split-ratio 0.56 is a symmetry-break, not magic; order has no robust winner

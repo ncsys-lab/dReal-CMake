@@ -561,7 +561,7 @@ but speedup is encoding-fragile and never cracks the pinned δ) is in
 | Quantified over | real-valued SMT variables | ODE time parameter |
 | Bounds notation | `(y Real [lb, ub])` in variable list | `[lb ub]` as a time interval |
 | Contractor | `ContractorForall` | `contractor_ode_lohner` invariant check |
-| Requires linking | no | yes — must match an `integral` formula |
+| Requires linking | no | yes — must match an `integral` formula (an unlinkable one throws at check-sat: `RejectUnlinkedForallT`, `context_impl.cc`) |
 | `NaiveCnfizer` | recursively CNFizes body | passes through unchanged |
 | `DeltaStrengthen` | throws if nested inside another body | passes through unchanged |
 | Logic tag | `QF_NRA` | `QF_NRA_ODE` |
