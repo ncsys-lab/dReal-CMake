@@ -10,6 +10,7 @@
 //   BUG-005  --model value of the (integral …) endpoint var  -> accurate (not scrambled)
 //   BUG-006  unsat (integral …) formula                      -> unsat (not false delta-sat)
 //   BUG-008  endpoint asserted below its true value          -> unsat (not false delta-sat)
+//   BUG-009  seed pre-pass on a constraint that folds to True -> delta-sat (not a crash)
 //
 // BUG-002 is NOT here: the silent drop of a negated (integral …)/(forall_t …)
 // is a design gap, not a settled behavior to regression-guard. Its DESIRED
@@ -185,6 +186,26 @@ TEST(DrealBugsRegression, Bug008_SubTrueEndpoint_Unsat) {
       "(check-sat)\n")};
   EXPECT_NE(out.find("unsat"), std::string::npos) << "got: " << out;
   EXPECT_EQ(out.find("delta-sat"), std::string::npos) << "got: " << out;
+}
+
+// BUG-009 — the seed-and-verify pre-pass (NRA-only, on by default) substitutes
+// derived (equality-defined) variables into every constraint before handing
+// them to COBYLA; here `(<= (sin x) y)` with derived `y == (sin x)` collapses
+// to `sin x ≤ sin x` → True, which reached NloptOptimizer::AddConstraint and
+// killed the process ("Unsupported formula True"). Post-fix the pre-pass skips
+// Boolean-constant constraints (no feasibility gradient; the box-verify remains
+// the arbiter): the formula is trivially satisfiable, so delta-sat.
+TEST(DrealBugsRegression, Bug009_SeedTrueCollapse_NoCrash) {
+  const std::string out{RunSmt2String(
+      "(set-logic QF_NRA)\n"
+      "(declare-fun x () Real)\n"
+      "(declare-fun y () Real)\n"
+      "(assert (>= x -10.0))\n"
+      "(assert (<= x 10.0))\n"
+      "(assert (= y (sin x)))\n"
+      "(assert (<= (sin x) y))\n"
+      "(check-sat)\n")};
+  EXPECT_NE(out.find("delta-sat"), std::string::npos) << "got: " << out;
 }
 
 }  // namespace

@@ -172,6 +172,13 @@ vector<vector<double>> NloptSeeds(
     // relational so ConstraintViolation sees a positive `>`/`<` (else the
     // objective is empty and nlopt aborts with "NULL args").
     const Formula f_sub{nnfizer.Convert(f.Substitute(derived), true)};
+    if (is_true(f_sub) || is_false(f_sub)) {
+      // Substitution can collapse a relational to a Boolean constant (e.g.
+      // `e ≤ y` with derived `y == e` becomes `e ≤ e` → True), which
+      // AddConstraint rejects. No feasibility gradient either way; the
+      // box-verify (EvaluateBox) remains the arbiter. Skip.
+      continue;
+    }
     objective += ConstraintViolation(f_sub);
     opt.AddConstraint(f_sub);
   }
