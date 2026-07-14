@@ -57,7 +57,7 @@ class OdeFormulaEvaluator : public FormulaEvaluatorCell {
   }
 
  private:
-  // --ode-refine-witness (see make_ode_formula_evaluator).
+  // --refine-witness (see make_ode_formula_evaluator).
   const bool refine_witness_;
 };
 }  // namespace dreal

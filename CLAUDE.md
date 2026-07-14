@@ -151,13 +151,15 @@ fix (`HULL_COMPLETENESS.md`) the per-slice range is mean-value-in-time, so the d
 near CAPD precision and hull-grid is no longer a completeness knob; raise to 16+ only for
 pathologically sharp invariants),
 `--ode-backward` (true), `--ode-abs-tol`/`--ode-rel-tol` (1e-10), `--ode-max-step` (0=adaptive).
-`--ode-refine-witness` (default off): δ-**tight** `--model` witnesses for un-pinned ODE dims
-(e.g. a free endpoint-time τ). Default-off keeps the fast tube-granularity accept; its `--model`
-then reports ODE dims as their **whole theory interval** (`Tighten` exempts ODE-atom dims from
-the midpoint shrink — the reported box must stay delta-sat when re-fed as bounds; the old
-midpoint slice violated that, BUG-011). Enabling the flag δ-refines every ODE dim — measured
-4.89× github PAR2 (18 SAT→TIM) corpus-wide, so it's opt-in for precision-critical
-witness-reading queries. `docs/decisions.md` §"ODE formula evaluator".
+`--refine-witness` (default off): δ-**tight** `--model` witnesses. By default `--model` reports
+the **raw terminating box** — the exact region ICP certified, idempotent when re-fed as bounds
+(the old always-on midpoint±δ/2 `Tighten` slice destroyed the certified-region information and,
+for un-refined ODE dims, fabricated witnesses the solver itself refutes — BUG-011; only
+don't-care Boolean dims are still pinned, since `get-value`/`(get-model)` need a definite truth
+value). The flag shrinks continuous/integer dims to midpoint±δ/2 at report time (sound by
+inclusion monotonicity) and δ-refines every ODE dim during search — measured 4.89× github PAR2
+(18 SAT→TIM) corpus-wide, so it's opt-in for precision-critical witness-reading queries.
+`docs/decisions.md` §"ODE formula evaluator".
 Full flag list + performance rationale: `docs/ode-integration.md` §Performance. 2026-06 retuning
 campaign: `OPTIMIZATION_LOG.md`.
 

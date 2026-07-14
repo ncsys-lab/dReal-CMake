@@ -53,12 +53,8 @@ struct CoutRedirect {
 // Parse an SMT2 string (its (check-sat) prints the verdict to std::cout, and
 // the model too when produce_models is set) and return the captured output.
 // Default Config precision is 0.001 — the delta the bug doc's reproducers use.
-std::string RunSmt2String(const std::string& smt2, bool produce_models = false,
-                          bool ode_refine_witness = false) {
-  Config config;
-  if (produce_models) config.mutable_produce_models().set_from_command_line(true);
-  if (ode_refine_witness)
-    config.mutable_ode_refine_witness().set_from_command_line(true);
+std::string RunSmt2String(const std::string& smt2,
+                          const Config& config = Config{}) {
   Smt2Driver driver{Context{config}};
   std::ostringstream captured;
   const CoutRedirect redirect{captured.rdbuf()};
@@ -122,6 +118,8 @@ TEST(DrealBugsRegression, Bug003_ZohParameterCoupling_DeltaSat) {
 // the true value and excludes the bug's 61.597. (Same defect locus as BUG-008,
 // also covered by PinnedDecayTest in contractor_odes_semantic_test.cc.)
 TEST(DrealBugsRegression, Bug005_ModelEndpointValue_Accurate) {
+  Config config;
+  config.mutable_produce_models().set_from_command_line(true);
   const std::string out{RunSmt2String(
       "(set-logic QF_NRA_ODE)\n"
       "(declare-fun x () Real [0.000000, 100.000000])\n"
@@ -138,7 +136,7 @@ TEST(DrealBugsRegression, Bug005_ModelEndpointValue_Accurate) {
       "  (<= x_0_t 100)\n"
       "))\n"
       "(check-sat)\n",
-      /*produce_models=*/true)};
+      config)};
   ASSERT_NE(out.find("delta-sat"), std::string::npos) << "got: " << out;
   // The model line for x_0_t must report a box around 60.6531, not the bug's
   // 61.597 (off by ~1, outside the printed delta-width box).
@@ -232,19 +230,20 @@ const char* const kBug011Query =
 // dx/dt = 1 from x(0) = 0 with the endpoint state pinned x(τ) = 0.38 admits
 // exactly one solution, τ = 0.38. The stub OdeFormulaEvaluator (VALID/[0,0])
 // let ICP declare delta-sat with ZERO branching, freezing τ at tube-hull
-// granularity — [0.375, 0.5] at the default --ode-hull-grid 4 — and the model
-// post-pass (Tighten) then reported the hull MIDPOINT ±δ/2, τ ≈ [0.437, 0.438]:
-// a box the solver itself refutes when asserted a priori. Under
-// --ode-refine-witness the witness box must contain the true crossing to
+// granularity — [0.375, 0.5] at the default --ode-hull-grid 4 — and the then
+// unconditional model post-pass (Tighten) reported the hull MIDPOINT ±δ/2,
+// τ ≈ [0.437, 0.438]: a box the solver itself refutes when asserted a priori.
+// Under --refine-witness the witness box must contain the true crossing to
 // within delta. (The flag is OFF by default — the fast tube-granularity accept
 // is load-bearing for deep BMC, where δ-refining every ODE dim measured 4.89×
-// github PAR2 with 18 SAT→TIM — so default-mode witnesses of ODE dims are the
-// whole un-refined theory interval; see Bug011_DefaultModelIdempotent.)
+// github PAR2 with 18 SAT→TIM — so default-mode witnesses are the raw
+// terminating box; see Bug011_DefaultModelIdempotent.)
 TEST(DrealBugsRegression, Bug011_FreeEndpointTauWitness_Accurate) {
-  const std::string out{RunSmt2String(std::string(kBug011Query) +
-                                          "(check-sat)\n",
-                                      /*produce_models=*/true,
-                                      /*ode_refine_witness=*/true)};
+  Config config;
+  config.mutable_produce_models().set_from_command_line(true);
+  config.mutable_refine_witness().set_from_command_line(true);
+  const std::string out{RunSmt2String(
+      std::string(kBug011Query) + "(check-sat)\n", config)};
   ASSERT_NE(out.find("delta-sat"), std::string::npos) << "got: " << out;
   double lb{0.0};
   double ub{0.0};
@@ -261,18 +260,19 @@ TEST(DrealBugsRegression, Bug011_FreeEndpointTauWitness_Accurate) {
 
 // BUG-011 (reporting half) — the --model box must be IDEMPOTENT: re-asserting
 // the reported per-variable intervals as bounds over the same constraints must
-// stay delta-sat. The Tighten post-pass shrinks every >δ dimension to its
-// midpoint ±δ/2 — sound for pure-NRA dims (EvaluateBox's certificate is an
-// interval evaluation over the whole box, so every sub-box inherits it) but
-// FABRICATION for ODE dims, whose stub evaluator established nothing: in
-// default (fast-accept) mode the theory box legitimately keeps ODE dims wide,
-// and the midpoint slice τ = [0.437, 0.438] excludes the sole solution 0.38 —
-// the solver itself refutes the re-fed box. ODE-constrained dims must report
-// the WHOLE theory interval instead.
+// stay delta-sat. The formerly unconditional Tighten post-pass shrank every >δ
+// dimension to its midpoint ±δ/2 — sound for pure-NRA dims (EvaluateBox's
+// certificate is an interval evaluation over the whole box, so every sub-box
+// inherits it) but FABRICATION for ODE dims, whose stub evaluator established
+// nothing: in default (fast-accept) mode the theory box legitimately keeps ODE
+// dims wide, and the midpoint slice τ = [0.437, 0.438] excludes the sole
+// solution 0.38 — the solver itself refutes the re-fed box. The default model
+// is now the raw terminating box, idempotent by construction.
 TEST(DrealBugsRegression, Bug011_DefaultModelIdempotent) {
-  const std::string out{RunSmt2String(std::string(kBug011Query) +
-                                          "(check-sat)\n",
-                                      /*produce_models=*/true)};
+  Config config;
+  config.mutable_produce_models().set_from_command_line(true);
+  const std::string out{RunSmt2String(
+      std::string(kBug011Query) + "(check-sat)\n", config)};
   ASSERT_NE(out.find("delta-sat"), std::string::npos) << "got: " << out;
   const double delta{0.001};
   std::ostringstream refeed;
@@ -299,6 +299,64 @@ TEST(DrealBugsRegression, Bug011_DefaultModelIdempotent) {
   EXPECT_NE(out2.find("delta-sat"), std::string::npos)
       << "reported model box is NOT delta-sat when re-fed: " << out2
       << "\noriginal model: " << out;
+}
+
+// Model-reporting contract (default): --model is the RAW TERMINATING BOX —
+// the exact region ICP certified (every constraint VALID or δ-thin over it),
+// not a midpoint±δ/2 slice of it. Collapsing to the midpoint is a downstream
+// presentation choice; making it here destroys the certified-region
+// information. Here every constraint is VALID over x = [0, 10], so ICP accepts
+// the full box with zero branching and the model must report all of it.
+// (Seeding is disabled: the seed-and-verify pre-pass would legitimately return
+// a small verified box around a proposed point instead.)
+TEST(DrealBugsRegression, ModelDefault_RawTerminatingBox) {
+  Config config;
+  config.mutable_produce_models().set_from_command_line(true);
+  config.mutable_seed_samples().set_from_command_line(0);
+  const std::string out{RunSmt2String(
+      "(set-logic QF_NRA)\n"
+      "(declare-fun x () Real)\n"
+      "(assert (>= x 0.0))\n"
+      "(assert (<= x 10.0))\n"
+      "(assert (>= x -1.0))\n"
+      "(check-sat)\n",
+      config)};
+  ASSERT_NE(out.find("delta-sat"), std::string::npos) << "got: " << out;
+  double lb{0.0};
+  double ub{0.0};
+  ASSERT_TRUE(ParseModelInterval(out, "x", &lb, &ub)) << "got: " << out;
+  EXPECT_GT(ub - lb, 5.0) << "x reported [" << lb << ", " << ub
+                          << "], not the raw terminating box [0, 10]; got: "
+                          << out;
+}
+
+// Model-reporting contract (--refine-witness): the same instance reports a
+// δ-tight witness — Tighten shrinks continuous dims to midpoint ±δ/2, sound
+// post-hoc because EvaluateBox's interval-evaluation certificate is
+// inclusion-monotone. (The flag's ODE half is exercised by
+// Bug011_FreeEndpointTauWitness_Accurate.)
+TEST(DrealBugsRegression, RefineWitness_TightensNraDims) {
+  Config config;
+  config.mutable_produce_models().set_from_command_line(true);
+  config.mutable_seed_samples().set_from_command_line(0);
+  config.mutable_refine_witness().set_from_command_line(true);
+  const std::string out{RunSmt2String(
+      "(set-logic QF_NRA)\n"
+      "(declare-fun x () Real)\n"
+      "(assert (>= x 0.0))\n"
+      "(assert (<= x 10.0))\n"
+      "(assert (>= x -1.0))\n"
+      "(check-sat)\n",
+      config)};
+  ASSERT_NE(out.find("delta-sat"), std::string::npos) << "got: " << out;
+  double lb{0.0};
+  double ub{0.0};
+  ASSERT_TRUE(ParseModelInterval(out, "x", &lb, &ub)) << "got: " << out;
+  const double delta{0.001};  // the run's --precision
+  EXPECT_LE(ub - lb, 2 * delta)
+      << "x witness [" << lb << ", " << ub << "] not refined to delta";
+  EXPECT_TRUE(lb <= 5.0 && 5.0 <= ub)
+      << "x witness [" << lb << ", " << ub << "] is not the midpoint slice";
 }
 
 // BUG-009 — the seed-and-verify pre-pass (NRA-only, on by default) substitutes

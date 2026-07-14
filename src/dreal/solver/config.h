@@ -258,9 +258,12 @@ class Config {
   OptionValue<bool>& mutable_ode_backward();
   double ode_max_step() const;
   OptionValue<double>& mutable_ode_max_step();
-  bool ode_refine_witness() const;
-  OptionValue<bool>& mutable_ode_refine_witness();
   /// @}
+
+  /// Returns whether --model reports a δ-tight witness instead of the raw
+  /// terminating box (--refine-witness).
+  bool refine_witness() const;
+  OptionValue<bool>& mutable_refine_witness();
 
   /// Returns if it's smtlib2_compliant mode.
   bool smtlib2_compliant() const;
@@ -394,16 +397,18 @@ class Config {
   OptionValue<OdeC0SetType> ode_c0_set_{OdeC0SetType::Rect2};
   OptionValue<bool> ode_backward_{true};
   OptionValue<double> ode_max_step_{kDefaultOdeMaxStep};
-  // δ-honest ODE witnesses (--ode-refine-witness): make OdeFormulaEvaluator
-  // report a positive ODE atom's widest variable, so ICP branches every ODE
-  // dimension below δ before accepting delta-sat. Default OFF — the fast
-  // accept-at-tube-granularity is load-bearing for deep-BMC SAT (A/B: ON costs
-  // 4.89× github PAR2 with 18 SAT→TIM, 1.99× saradc; a 0-branch accept becomes
-  // a ~10³–10⁴-bisection refinement descent). Turn ON for queries that read
-  // --model values of un-pinned ODE dimensions (e.g. a free endpoint-time τ):
-  // OFF, those witnesses are unrefined-hull midpoints (BUG-011).
-  // docs/decisions.md §"ODE formula evaluator".
-  OptionValue<bool> ode_refine_witness_{false};
+  // δ-tight --model witnesses (--refine-witness). OFF (default), the model is
+  // the raw terminating box — the exact region ICP certified, idempotent under
+  // re-feeding. ON, two refinements, one per certificate class: continuous /
+  // integer dims are shrunk to midpoint±δ/2 at report time (Tighten — sound
+  // post-hoc by inclusion monotonicity), and OdeFormulaEvaluator reports a
+  // positive ODE atom's widest variable so ICP branches every ODE dimension
+  // below δ before accepting delta-sat (an ODE certificate is not
+  // inclusion-monotone, so it cannot be post-hoc sliced). The ODE half is
+  // costly on deep-BMC SAT (A/B: 4.89× github PAR2 with 18 SAT→TIM, 1.99×
+  // saradc; a 0-branch accept becomes a ~10³–10⁴-bisection refinement
+  // descent). docs/decisions.md §"ODE formula evaluator".
+  OptionValue<bool> refine_witness_{false};
 
   // ICP fixpoint constraint ordering (default kNone = declaration order).
   OptionValue<ConstraintOrder> constraint_order_{ConstraintOrder::kNone};

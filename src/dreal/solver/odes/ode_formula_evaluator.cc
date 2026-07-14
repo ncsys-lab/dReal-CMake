@@ -45,9 +45,10 @@ FormulaEvaluationResult OdeFormulaEvaluator::operator()(
   // 703 dims were wider than δ at accept, and δ-refining them all costs 10³–
   // 10⁴ extra branch+fixpoint passes (A/B: 4.89× github PAR2, 18 SAT→TIM).
   // The cost of the fast accept: --model witnesses of un-pinned ODE dims are
-  // unrefined-hull midpoints (Tighten), e.g. a free endpoint-time τ reported
-  // ≈0.4375 when the sole solution was 0.38 — a box the solver itself refutes
-  // when asserted a priori (BUG-011). This also applies to a NEGATED ODE
+  // unrefined-hull intervals, e.g. a free endpoint-time τ reported as
+  // [0.375, 0.5] when the sole solution was 0.38 (the formerly unconditional
+  // Tighten midpoint slice of that hull was BUG-011). This also applies to a
+  // NEGATED ODE
   // literal (normal DPLL(T) product, unenforced by design — the documented §6
   // drop, docs/ode-integration.md BUG-002): branching it would enforce
   // nothing, in either regime.
@@ -55,7 +56,7 @@ FormulaEvaluationResult OdeFormulaEvaluator::operator()(
     return FormulaEvaluationResult{FormulaEvaluationResult::Type::VALID,
                                    Box::Interval(0.0, 0.0)};
   }
-  // --ode-refine-witness (δ-honest witnesses): report an interval whose
+  // --refine-witness (δ-tight witnesses): report an interval whose
   // diameter is the widest ODE dimension, so EvaluateBox keeps the atom's
   // variables branching until every one is below δ — each split re-enters the
   // tube contractor, which prunes the wrong half. Use when --model values of

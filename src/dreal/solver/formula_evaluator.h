@@ -123,10 +123,10 @@ class FormulaEvaluator {
 FormulaEvaluator make_relational_formula_evaluator(const Formula& f);
 
 /// Creates FormulaEvaluator for an ODE formula @p f. With @p refine_witness
-/// (--ode-refine-witness), a positive ODE atom reports its widest variable so
+/// (--refine-witness), a positive ODE atom reports its widest variable so
 /// ICP refines every ODE dimension below delta before accepting delta-sat;
 /// without it, ODE atoms are reported satisfied as-is (fast accept at tube
-/// granularity — un-pinned dims keep unrefined-hull midpoint witnesses).
+/// granularity — un-pinned dims keep their whole theory interval in --model).
 FormulaEvaluator make_ode_formula_evaluator(const Formula& f,
                                             bool refine_witness);
 

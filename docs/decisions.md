@@ -188,12 +188,12 @@ definitional binding (negated `integral`) — specified as aspirational `GTEST_S
 live: `PosForallT_NoIntegral_ShouldReject`, `PosForallT_InvariantOverFlowVar_ShouldReject`). Full
 mechanism: `docs/ode-integration.md` §"Constraint forms accepted, and the silent drops (BUG-002)".
 
-## ODE formula evaluator: δ-honest witnesses are flag-gated (`--ode-refine-witness`, default off)
+## ODE formula evaluator: δ-tight witnesses are flag-gated (`--refine-witness`, default off)
 
 **Decision:** `OdeFormulaEvaluator::operator()` (`src/dreal/solver/odes/ode_formula_evaluator.cc`)
 keeps the historical fast accept by default — every ODE atom reports `VALID/[0,0]`, so ICP
 accepts delta-sat at tube granularity with no ODE-driven branching. Under
-`--ode-refine-witness`, a **positive** ODE atom (`integral`/`forall_t`) instead reports
+`--refine-witness`, a **positive** ODE atom (`integral`/`forall_t`) instead reports
 `UNKNOWN` with evaluation interval `[0, w]`, `w` = the widest of the atom's variables in the
 box — so `EvaluateBox` keeps those variables branching until every one is below δ, each split
 re-entering the tube contractor. A **negated** ODE literal (normal DPLL(T) product; unenforced
@@ -226,20 +226,29 @@ all turns a 0-branch accept into a 10³–10⁴-bisection descent whose every st
 is the refinement work itself. Options weighed: adopt globally (rejected by the numbers),
 revert + document (loses the honest mode), flag-gate (chosen; user decision after escalation).
 
-**Model reporting must be idempotent (`Tighten` exempts ODE dims, 2026-07-13):** the reported
-`--model` box, re-asserted as bounds over the same constraints, must stay delta-sat. `Tighten`'s
-midpoint±δ/2 shrink is sound for dims whose constraints EvaluateBox certified by interval
-evaluation over the whole box (inclusion-monotone ⇒ every sub-box inherits the certificate),
-but for ODE-atom dims the fast-accept regime certifies nothing — the midpoint slice can exclude
-every real solution (the BUG-011 τ = [0.437, 0.438] slice re-fed → `unsat`). `Tighten` now
-skips every dim occurring in an ODE atom: default mode reports those dims' **whole theory
-interval** (honest-wide, idempotent — τ : [0.375, 0.5] ∋ 0.38); `--ode-refine-witness` buys
-δ-tightness on top.
+**Model reporting: the default `--model` is the raw terminating box (2026-07-13, user
+decision — supersedes the same-day ODE-dims-only `Tighten` exemption):** the reported box,
+re-asserted as bounds over the same constraints, must stay delta-sat (idempotence). Two
+escalating fixes landed the same day. First, `Tighten`'s always-on midpoint±δ/2 shrink was
+found to be **fabrication for ODE-atom dims** — the tube certificate is not
+inclusion-monotone, so the BUG-011 slice τ = [0.437, 0.438] excluded the sole solution 0.38
+and re-fed → `unsat` — and ODE dims were exempted. Then the user rejected the midpoint shrink
+*wholesale*: even where sound (pure-NRA dims — EvaluateBox's interval-evaluation certificate
+is inclusion-monotone, every sub-box inherits it), it destroys the certified-region
+information to manufacture a point-like witness, a presentation choice that belongs
+downstream. `--model` now reports the terminating box **verbatim** (τ : [0.375, 0.5] ∋ 0.38);
+`Tighten` survives as (a) the always-on pin of don't-care Boolean/binary dims — the SAT model
+minimizer leaves them `[0,1]`, and `get-value`/`PrintModel` need a definite truth value
+(`smt2/driver.cc`) — and (b) the `--refine-witness` midpoint±δ/2 shrink of continuous/integer
+dims, still exempting ODE-atom dims (structural idempotence; under the flag the honest
+evaluator has already branched them below δ).
 
-**Regression guards:** `DrealBugsRegression.Bug011_FreeEndpointTauWitness_Accurate` (flag ON:
-witness contains 0.38 AND is δ-tight) and `Bug011_DefaultModelIdempotent` (default: witness
-contains 0.38, and the full reported box re-fed as bounds stays delta-sat) — both fail-first
-verified against the pre-fix behavior.
+**Regression guards** (`test/dreal/smt2/test/dreal_bugs_regression_test.cc`, all fail-first
+verified): `Bug011_FreeEndpointTauWitness_Accurate` (flag ON: ODE witness contains 0.38 AND is
+δ-tight), `Bug011_DefaultModelIdempotent` (default: witness contains 0.38, full reported box
+re-fed as bounds stays delta-sat), `ModelDefault_RawTerminatingBox` (default: a vacuously-wide
+NRA dim reports its whole certified interval, not a slice), `RefineWitness_TightensNraDims`
+(flag ON: same dim reports midpoint±δ/2).
 
 ## Branching split-ratio 0.56 is a symmetry-break, not magic; order has no robust winner
 

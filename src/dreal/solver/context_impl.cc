@@ -197,25 +197,36 @@ Formula EliminatePointUniversals(const Formula& f) {
   return forall(surviving, result);  // partial elimination
 }
 
-// It is possible that a solution box has a dimension whose diameter
-// is larger than delta when the given constraints are not tight.
-// This function tighten the box @p box so that every dimension has a
-// width smaller than delta.
+// --model post-processing of a delta-sat box.
 //
-// Shrinking to the midpoint ±delta/2 is SOUND for a dimension whose
-// constraints were all certified by EvaluateBox's interval evaluation over
-// the whole box: interval evaluation is inclusion-monotone, so every sub-box
-// (the midpoint slice included) inherits the delta-certificate. It is
-// FABRICATION for a dimension of an ODE atom: OdeFormulaEvaluator certifies
-// nothing over the box (default fast-accept regime), so the theory box
-// legitimately keeps such dims wide and a midpoint slice can exclude every
+// Always: a don't-care BOOLEAN/BINARY dim (left unassigned by the SAT model
+// minimizer, so still [0, 1]) is pinned to a definite value — both printers
+// require one: get-value renders `box[var] == ONE ? "true" : "false"` (a
+// [0, 1] would misreport as false) and PrintModel emits nothing for a
+// non-ONE/ZERO Boolean (malformed (get-model) output).
+//
+// Under @p refine_witness (--refine-witness) only: a CONTINUOUS/INTEGER dim
+// wider than delta is shrunk to its midpoint ±delta/2 — sound post-hoc
+// because EvaluateBox's certificate is an interval evaluation over the whole
+// box, and interval evaluation is inclusion-monotone, so every sub-box (the
+// midpoint slice included) inherits the delta-certificate. Without the flag
+// the box is reported VERBATIM: it is exactly the region ICP certified,
+// idempotent under re-feeding, and collapsing it to a midpoint is a
+// downstream presentation choice that would destroy the certified-region
+// information.
+//
+// A dim of an ODE atom (@p ode_vars) is never shrunk, even under the flag:
+// the tube contractor's certificate is not inclusion-monotone (a sub-box of
+// a surviving box can be refutable), so a midpoint slice can exclude every
 // real solution — the reported model then FAILS when re-fed as bounds
 // (BUG-011: tau reported [0.437, 0.438] when the sole solution was 0.38,
-// re-feed unsat). The reported box must stay delta-sat under re-feeding
-// (idempotence), so @p ode_vars dims are reported as their WHOLE theory
-// interval, never a slice. (Under --ode-refine-witness they are already
-// below delta and this exclusion is a no-op.)
-void Tighten(Box* box, const double delta, const Variables& ode_vars) {
+// re-feed unsat). Under --refine-witness the honest OdeFormulaEvaluator has
+// already branched positive ODE atoms' dims below delta, so the exemption is
+// a no-op for them; keeping it makes the idempotence invariant structural
+// rather than a coupling to the evaluator (a negated ODE atom's dims are
+// never branched).
+void Tighten(Box* box, const double delta, const Variables& ode_vars,
+             const bool refine_witness) {
   // This runs as delta-sat post-processing from Context::Impl::CheckSat(),
   // whose ambient FPU mode is undefined (whatever CheckSatCore left — and once
   // CAPD is linked, that is FE_TONEAREST). safe_diam/safe_mid and the gaol `&=`
@@ -234,7 +245,7 @@ void Tighten(Box* box, const double delta, const Variables& ode_vars) {
           interval = 1.0;
           break;
         case Variable::Type::CONTINUOUS: {
-          if (ode_vars.include(var)) continue;  // see the header comment
+          if (!refine_witness || ode_vars.include(var)) continue;
           // Sound outward-rounded [mid - delta/2, mid + delta/2]. The previous
           // hand-built `Box::Interval(mid - half, mid + half)` was mis-rounded
           // under every single rounding mode (the lower endpoint pulled inward,
@@ -247,6 +258,7 @@ void Tighten(Box* box, const double delta, const Variables& ode_vars) {
                                           add_up(mid, half_delta, ur));
         } break;
         case Variable::Type::INTEGER: {
+          if (!refine_witness || ode_vars.include(var)) continue;
           // static_cast<int>(double) truncates toward zero independent of the
           // rounding mode; only the safe_mid() is FE_UPWARD-sensitive.
           interval = static_cast<int>(safe_mid(interval, ur));
@@ -524,13 +536,16 @@ optional<Box> Context::Impl::CheckSat() {
   RejectUnlinkedForallT(stack_);
   auto result = CheckSatCore(stack_, box(), &sat_solver_);
   if (result) {
-    // In case of delta-sat, do post-processing. Dims occurring in ODE atoms
-    // are exempt from the midpoint shrink (see Tighten's header comment).
+    // In case of delta-sat, do post-processing (see Tighten's contract). Dims
+    // occurring in ODE atoms are exempt from the --refine-witness shrink.
     Variables ode_vars;
-    for (const Formula& f : stack_.get_vector()) {
-      if (f.include_ode()) ode_vars.insert(f.GetFreeVariables());
+    if (config_.refine_witness()) {
+      for (const Formula& f : stack_.get_vector()) {
+        if (f.include_ode()) ode_vars.insert(f.GetFreeVariables());
+      }
     }
-    Tighten(&(*result), config_.precision(), ode_vars);
+    Tighten(&(*result), config_.precision(), ode_vars,
+            config_.refine_witness());
     DREAL_LOG_DEBUG("ContextImpl::CheckSat() - Found Model\n{}", *result);
     model_ = ExtractModel(*result);
     return model_;

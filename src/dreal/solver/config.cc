@@ -199,10 +199,8 @@ OptionValue<bool>& Config::mutable_ode_backward() { return ode_backward_; }
 double Config::ode_max_step() const { return ode_max_step_.get(); }
 OptionValue<double>& Config::mutable_ode_max_step() { return ode_max_step_; }
 
-bool Config::ode_refine_witness() const { return ode_refine_witness_.get(); }
-OptionValue<bool>& Config::mutable_ode_refine_witness() {
-  return ode_refine_witness_;
-}
+bool Config::refine_witness() const { return refine_witness_.get(); }
+OptionValue<bool>& Config::mutable_refine_witness() { return refine_witness_; }
 
 std::ostream& operator<<(std::ostream& os,
                          const Config::SatDefaultPhase& sat_default_phase) {
