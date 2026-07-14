@@ -402,7 +402,8 @@ class Config {
   // under re-feeding; a don't-care Boolean prints as [false, true]. ON, per
   // certificate class: don't-care Boolean/binary dims pin to true and
   // continuous/integer dims are shrunk to midpoint±δ/2 at report time
-  // (Tighten — sound post-hoc by inclusion monotonicity), and
+  // (Tighten — sound post-hoc by inclusion monotonicity; ODE-atom dims
+  // exempt), and
   // OdeFormulaEvaluator reports a positive ODE atom's widest variable so ICP
   // branches every ODE dimension below δ before accepting delta-sat (an ODE
   // certificate is not inclusion-monotone, so it cannot be post-hoc sliced).

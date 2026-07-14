@@ -261,10 +261,10 @@ TEST(DrealBugsRegression, Bug011_FreeEndpointTauWitness_Accurate) {
 // BUG-011 (reporting half) — the --model box must be IDEMPOTENT: re-asserting
 // the reported per-variable intervals as bounds over the same constraints must
 // stay delta-sat. The formerly unconditional Tighten post-pass shrank every >δ
-// dimension to its midpoint ±δ/2 — sound for pure-NRA dims (EvaluateBox's
-// certificate is an interval evaluation over the whole box, so every sub-box
-// inherits it) but FABRICATION for ODE dims, whose stub evaluator established
-// nothing: in default (fast-accept) mode the theory box legitimately keeps ODE
+// dimension to its midpoint ±δ/2 — sound for dims outside ODE atoms
+// (EvaluateBox's certificate is an interval evaluation over the whole box, so
+// every sub-box inherits it) but FABRICATION for ODE dims, whose stub
+// evaluator established nothing: in default (fast-accept) mode the theory box legitimately keeps ODE
 // dims wide, and the midpoint slice τ = [0.437, 0.438] excludes the sole
 // solution 0.38 — the solver itself refutes the re-fed box. The default model
 // is now the raw terminating box, idempotent by construction.

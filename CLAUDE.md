@@ -157,8 +157,8 @@ idempotent when re-fed as bounds (the old always-on midpoint±δ/2 `Tighten` sli
 certified-region information and, for un-refined ODE dims, fabricated witnesses the solver
 itself refutes — BUG-011); a don't-care Boolean prints as `[false, true]` in the box,
 `(get-model)`, and `(get-value)` renderings. The flag pins don't-care Booleans to true, shrinks
-continuous/integer dims to midpoint±δ/2 at report time (sound by inclusion monotonicity), and
-δ-refines every ODE dim during search — measured 4.89× github PAR2 (18 SAT→TIM) corpus-wide, so
+continuous/integer dims to midpoint±δ/2 at report time (sound by inclusion monotonicity;
+ODE-atom dims exempt), and δ-refines every ODE dim during search — measured 4.89× github PAR2 (18 SAT→TIM) corpus-wide, so
 it's opt-in for precision-critical witness-reading queries. `docs/decisions.md` §"ODE formula
 evaluator".
 Full flag list + performance rationale: `docs/ode-integration.md` §Performance. 2026-06 retuning

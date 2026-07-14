@@ -233,10 +233,11 @@ escalating fixes landed the same day. First, `Tighten`'s always-on midpoint±δ/
 found to be **fabrication for ODE-atom dims** — the tube certificate is not
 inclusion-monotone, so the BUG-011 slice τ = [0.437, 0.438] excluded the sole solution 0.38
 and re-fed → `unsat` — and ODE dims were exempted. Then the user rejected the midpoint shrink
-*wholesale*: even where sound (pure-NRA dims — EvaluateBox's interval-evaluation certificate
-is inclusion-monotone, every sub-box inherits it), it destroys the certified-region
-information to manufacture a point-like witness, a presentation choice that belongs
-downstream. `--model` now reports the terminating box **verbatim** with zero default
+*wholesale*: even where sound (dims outside ODE atoms — EvaluateBox's interval-evaluation
+certificate is inclusion-monotone, every sub-box inherits it; the boundary is the dim's
+certificate class, not the logic — the shrink of non-ODE dims is equally sound inside a
+QF_NRA_ODE query), it destroys the certified-region information to manufacture a point-like
+witness, a presentation choice that belongs downstream. `--model` now reports the terminating box **verbatim** with zero default
 post-processing (τ : [0.375, 0.5] ∋ 0.38). This includes don't-care Booleans — a Boolean the
 SAT layer never assigned means both values satisfy, and all three renderings (`Box`
 `operator<<`, `PrintModel`, `get-value` in `smt2/driver.cc`) print it as its whole
