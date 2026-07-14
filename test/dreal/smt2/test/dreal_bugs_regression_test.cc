@@ -359,6 +359,49 @@ TEST(DrealBugsRegression, RefineWitness_TightensNraDims) {
       << "x witness [" << lb << ", " << ub << "] is not the midpoint slice";
 }
 
+// Model-reporting contract (don't-care Booleans): a Boolean the SAT layer
+// never assigned is a genuine don't-care — both values satisfy — and reports
+// its whole [false, true] interval, exactly like a wide real dim, in all
+// three renderings (--model box print, (get-model), (get-value)).
+TEST(DrealBugsRegression, ModelDefault_DontCareBooleanWholeInterval) {
+  Config config;
+  config.mutable_produce_models().set_from_command_line(true);
+  const std::string out{RunSmt2String(
+      "(set-logic QF_NRA)\n"
+      "(declare-fun b () Bool)\n"
+      "(declare-fun x () Real)\n"
+      "(assert (>= x 0.0))\n"
+      "(assert (<= x 1.0))\n"
+      "(check-sat)\n"
+      "(get-model)\n"
+      "(get-value (b))\n",
+      config)};
+  ASSERT_NE(out.find("delta-sat"), std::string::npos) << "got: " << out;
+  EXPECT_NE(out.find("b : [false, true]"), std::string::npos) << "got: " << out;
+  EXPECT_NE(out.find("(define-fun b () Bool [false, true])"),
+            std::string::npos)
+      << "got: " << out;
+  EXPECT_NE(out.find("(b [false, true])"), std::string::npos) << "got: " << out;
+}
+
+// Model-reporting contract (--refine-witness): a definite-valued witness —
+// the don't-care Boolean pins to a truth value like every other dim shrinks.
+TEST(DrealBugsRegression, RefineWitness_PinsDontCareBoolean) {
+  Config config;
+  config.mutable_produce_models().set_from_command_line(true);
+  config.mutable_refine_witness().set_from_command_line(true);
+  const std::string out{RunSmt2String(
+      "(set-logic QF_NRA)\n"
+      "(declare-fun b () Bool)\n"
+      "(declare-fun x () Real)\n"
+      "(assert (>= x 0.0))\n"
+      "(assert (<= x 1.0))\n"
+      "(check-sat)\n",
+      config)};
+  ASSERT_NE(out.find("delta-sat"), std::string::npos) << "got: " << out;
+  EXPECT_NE(out.find("b : True"), std::string::npos) << "got: " << out;
+}
+
 // BUG-009 — the seed-and-verify pre-pass (NRA-only, on by default) substitutes
 // derived (equality-defined) variables into every constraint before handing
 // them to COBYLA; here `(<= (sin x) y)` with derived `y == (sin x)` collapses

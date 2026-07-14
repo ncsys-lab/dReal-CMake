@@ -398,16 +398,17 @@ class Config {
   OptionValue<bool> ode_backward_{true};
   OptionValue<double> ode_max_step_{kDefaultOdeMaxStep};
   // δ-tight --model witnesses (--refine-witness). OFF (default), the model is
-  // the raw terminating box — the exact region ICP certified, idempotent under
-  // re-feeding. ON, two refinements, one per certificate class: continuous /
-  // integer dims are shrunk to midpoint±δ/2 at report time (Tighten — sound
-  // post-hoc by inclusion monotonicity), and OdeFormulaEvaluator reports a
-  // positive ODE atom's widest variable so ICP branches every ODE dimension
-  // below δ before accepting delta-sat (an ODE certificate is not
-  // inclusion-monotone, so it cannot be post-hoc sliced). The ODE half is
-  // costly on deep-BMC SAT (A/B: 4.89× github PAR2 with 18 SAT→TIM, 1.99×
-  // saradc; a 0-branch accept becomes a ~10³–10⁴-bisection refinement
-  // descent). docs/decisions.md §"ODE formula evaluator".
+  // the raw terminating box — the exact region ICP certified, idempotent
+  // under re-feeding; a don't-care Boolean prints as [false, true]. ON, per
+  // certificate class: don't-care Boolean/binary dims pin to true and
+  // continuous/integer dims are shrunk to midpoint±δ/2 at report time
+  // (Tighten — sound post-hoc by inclusion monotonicity), and
+  // OdeFormulaEvaluator reports a positive ODE atom's widest variable so ICP
+  // branches every ODE dimension below δ before accepting delta-sat (an ODE
+  // certificate is not inclusion-monotone, so it cannot be post-hoc sliced).
+  // The ODE half is costly on deep-BMC SAT (A/B: 4.89× github PAR2 with 18
+  // SAT→TIM, 1.99× saradc; a 0-branch accept becomes a ~10³–10⁴-bisection
+  // refinement descent). docs/decisions.md §"ODE formula evaluator".
   OptionValue<bool> refine_witness_{false};
 
   // ICP fixpoint constraint ordering (default kNone = declaration order).

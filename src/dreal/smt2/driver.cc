@@ -211,6 +211,9 @@ ostream& PrintModel(ostream& os, const Box& box) {
         os << "true";
       } else if (iv == Box::Interval::ZERO) {
         os << "false";
+      } else {
+        // Don't-care: the SAT layer never assigned it — both values satisfy.
+        os << "[false, true]";
       }
     } else {
       if (iv.is_degenerated()) {
@@ -271,7 +274,9 @@ void Smt2Driver::GetModel() const {
 
 void Smt2Driver::GetValue(const vector<Term>& term_list) const {
   const Box& box{context_.get_model()};
-  fmt::print("(\n");
+  // std::cout (not fmt::print-to-stdout) like every other driver print, so
+  // the output honors a redirected cout (the smt2 string-test harness).
+  cout << "(\n";
   for (const auto& term : term_list) {
     string term_str;
     string value_str;
@@ -298,8 +303,11 @@ void Smt2Driver::GetValue(const vector<Term>& term_list) const {
         pp.Print(f);
         term_str = ss.str();
         if (is_variable(f)) {
-          value_str =
-              box[get_variable(f)] == Box::Interval::ONE ? "true" : "false";
+          const Box::Interval& iv{box[get_variable(f)]};
+          value_str = iv == Box::Interval::ONE    ? "true"
+                      : iv == Box::Interval::ZERO ? "false"
+                                                  // don't-care: never assigned
+                                                  : "[false, true]";
         } else {
           throw std::runtime_error(fmt::format(
               "get-value does not handle a compound formula {}.", term_str));
@@ -307,9 +315,9 @@ void Smt2Driver::GetValue(const vector<Term>& term_list) const {
         break;
       }
     }
-    fmt::print("\t({} {})\n", term_str, value_str);
+    cout << "\t(" << term_str << " " << value_str << ")\n";
   }
-  fmt::print(")\n");
+  cout << ")\n";
   cout.flush();
 }
 

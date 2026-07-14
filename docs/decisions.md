@@ -236,19 +236,23 @@ and re-fed → `unsat` — and ODE dims were exempted. Then the user rejected th
 *wholesale*: even where sound (pure-NRA dims — EvaluateBox's interval-evaluation certificate
 is inclusion-monotone, every sub-box inherits it), it destroys the certified-region
 information to manufacture a point-like witness, a presentation choice that belongs
-downstream. `--model` now reports the terminating box **verbatim** (τ : [0.375, 0.5] ∋ 0.38);
-`Tighten` survives as (a) the always-on pin of don't-care Boolean/binary dims — the SAT model
-minimizer leaves them `[0,1]`, and `get-value`/`PrintModel` need a definite truth value
-(`smt2/driver.cc`) — and (b) the `--refine-witness` midpoint±δ/2 shrink of continuous/integer
-dims, still exempting ODE-atom dims (structural idempotence; under the flag the honest
-evaluator has already branched them below δ).
+downstream. `--model` now reports the terminating box **verbatim** with zero default
+post-processing (τ : [0.375, 0.5] ∋ 0.38). This includes don't-care Booleans — a Boolean the
+SAT layer never assigned means both values satisfy, and all three renderings (`Box`
+`operator<<`, `PrintModel`, `get-value` in `smt2/driver.cc`) print it as its whole
+`[false, true]` interval, symmetric with wide numeric dims. `Tighten` survives solely as the
+`--refine-witness` post-pass: don't-care Boolean/binary dims pin to true and
+continuous/integer dims shrink to midpoint±δ/2, still exempting ODE-atom dims (structural
+idempotence; under the flag the honest evaluator has already branched them below δ).
 
 **Regression guards** (`test/dreal/smt2/test/dreal_bugs_regression_test.cc`, all fail-first
 verified): `Bug011_FreeEndpointTauWitness_Accurate` (flag ON: ODE witness contains 0.38 AND is
 δ-tight), `Bug011_DefaultModelIdempotent` (default: witness contains 0.38, full reported box
 re-fed as bounds stays delta-sat), `ModelDefault_RawTerminatingBox` (default: a vacuously-wide
 NRA dim reports its whole certified interval, not a slice), `RefineWitness_TightensNraDims`
-(flag ON: same dim reports midpoint±δ/2).
+(flag ON: same dim reports midpoint±δ/2), `ModelDefault_DontCareBooleanWholeInterval` (default:
+an unassigned Boolean renders `[false, true]` in box/`get-model`/`get-value`),
+`RefineWitness_PinsDontCareBoolean` (flag ON: it pins to a definite value).
 
 ## Branching split-ratio 0.56 is a symmetry-break, not magic; order has no robust winner
 

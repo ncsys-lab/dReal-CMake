@@ -271,7 +271,9 @@ ostream& operator<<(ostream& os, const Box& box) {
         } else if (interval.lb() == 1.0) {
           os << "True";
         } else {
-          os << "Unassigned";
+          // Don't-care: the SAT layer never assigned it — both values
+          // satisfy. The whole interval, like any other dim.
+          os << "[false, true]";
         }
         break;
     }
